@@ -8,8 +8,8 @@ Este documento centraliza los lineamientos visuales, colores y formas que confor
     *   *Uso:* Color sólido de base para las ventanas y paneles principales.
 *   **Puntos de Cuadrícula (Grid):** `#152A3D` (Azul Medio)
     *   *Uso:* Textura de fondo decorativa para dar un aspecto tecnológico/analítico al panel.
-*   **Acento (Sci-Fi):** `#00FFCC` (Cyan Neón)
-    *   *Uso:* Elementos interactivos, botones de cierre y alertas visuales.
+*   **Acento (Sci-Fi):** `#3399FF` (Azul Neón / Bright Blue)
+    *   *Uso:* Elementos interactivos, botones de cierre, tipografía del reloj e indicadores.
 
 ## 2. Texturas y Fondos
 *   **Grid (Malla):** La separación oficial de los puntos decorativos de la cuadrícula es de **15 píxeles** (alta densidad). 
