@@ -10,8 +10,13 @@ Esta carpeta contiene la interfaz gráfica de Kiora, la cual está diseñada res
 5. **Punto de Entrada (`main.py` en raíz):** Es el único archivo autorizado para instanciar tanto los ViewModels como las Views. Inyecta el ViewModel dentro de la View. Ninguna clase aquí dentro instancia sus propias dependencias complejas.
 
 ## Componentes Actuales
-*   `main_window.py`: Renderiza matemáticamente mediante `paintEvent` el fondo de cuadrícula de puntos y asegura la transparencia de la ventana.
-*   `main_viewmodel.py`: Controla de forma abstracta el estado principal (actualmente en su etapa base).
+*   `views/main_window.py`: Ventana base Frameless. Renderiza matemáticamente mediante `paintEvent` el fondo de cuadrícula de puntos.
+*   `viewmodels/main_viewmodel.py`: Controla de forma abstracta el estado principal.
+*   `views/home/configuration.py`: Panel arrastrable de configuraciones del sistema.
+*   `views/home/explorer/treeFiles.py`: Componente principal del Explorador de Archivos, maneja el árbol del disco y Quick Access.
+*   `views/home/explorer/filesType/`: Directorio especializado en los visores de extensiones.
+    *   `image_viewer.py`, `audio_viewer.py`, `text_viewer.py`: Heredan de la abstracción gráfica `viewer_base.py`.
+*   `views/global_ui/`: Componentes universales y compartidos (Ej. abstract `viewer_base.py` y `styles.py`).
 
 ## Reglas Obligatorias
 *   Nunca usar `time.sleep()` ni realizar bucles infinitos en el hilo de la UI.
