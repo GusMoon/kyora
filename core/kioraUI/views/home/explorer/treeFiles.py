@@ -1,13 +1,23 @@
-from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeView, QFileSystemModel, QLineEdit, QFileIconProvider, QHeaderView, QSplitter, QStyledItemDelegate, QStyle
-from core.kioraUI.views.global_ui.custom_dialogs import RadialContextMenu, SciFiInputDialog, SciFiConfirmDialog
+from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeView, QFileSystemModel, QLineEdit, QFileIconProvider, QHeaderView, QSplitter, QStyledItemDelegate, QStyle, QStyleFactory, QMenu, QDialog
+from core.kioraUI.views.global_ui.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog, SciFiContextMenu
 from PySide6.QtCore import Qt, QModelIndex, QFileInfo, QDir, QPoint, Signal, QStandardPaths, QSize, QRect
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QStandardItemModel, QStandardItem, QShortcut, QKeySequence, QPainterPath, QFont
 import os
 import shutil
 
+import math
 from core.kioraUI.views.global_ui.styles import get_minimal_scrollbar_style
 
+class NoBranchTreeView(QTreeView):
+    def drawBranches(self, painter, rect, index):
+        pass
+
 class SciFiItemDelegate(QStyledItemDelegate):
+    def __init__(self, show_arrow=True, enable_3d=True, parent=None):
+        super().__init__(parent)
+        self.show_arrow = show_arrow
+        self.enable_3d = enable_3d
+
     def paint(self, painter, option, index):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
@@ -16,9 +26,39 @@ class SciFiItemDelegate(QStyledItemDelegate):
         is_selected = option.state & QStyle.State_Selected
         is_hovered = option.state & QStyle.State_MouseOver
         
-        primary_color = QColor("#4D94FF")
+        # 3D Wheel effect
+        widget = option.widget
+        if widget and self.enable_3d:
+            viewport_h = widget.height()
+            center_y = rect.center().y()
+            norm_y = center_y / viewport_h
+            
+            scale_xy = 1.0
+            opacity = 1.0
+            shift_x = 0.0
+            edge_threshold = 0.05
+            
+            if norm_y < edge_threshold:
+                falloff = (edge_threshold - norm_y) / edge_threshold
+                scale_xy = max(0.9, 1.0 - (falloff * 0.1))
+                opacity = max(0.6, 1.0 - (falloff * 0.4))
+                shift_x = -falloff * 15.0
+            elif norm_y > (1.0 - edge_threshold):
+                falloff = (norm_y - (1.0 - edge_threshold)) / edge_threshold
+                scale_xy = max(0.9, 1.0 - (falloff * 0.1))
+                opacity = max(0.6, 1.0 - (falloff * 0.4))
+                shift_x = -falloff * 15.0
+                
+            if scale_xy != 1.0 or opacity != 1.0 or shift_x != 0.0:
+                painter.setOpacity(opacity)
+                painter.translate(rect.center())
+                painter.translate(shift_x, 0)
+                painter.scale(scale_xy, scale_xy)
+                painter.translate(-rect.center())
+            
+        primary_color = QColor("#FFFFFF") if is_selected else QColor("#A0C0FF")
+        glow_color = QColor("#4D94FF")
         bg_color = QColor(77, 148, 255, 35 if is_selected else (15 if is_hovered else 0))
-        text_color = QColor("#FFFFFF") if (is_selected or is_hovered) else QColor("#A0C0FF")
         
         margin = 4
         h_margin = 8
@@ -27,69 +67,70 @@ class SciFiItemDelegate(QStyledItemDelegate):
         w = rect.width() - h_margin * 2
         h = rect.height() - margin * 2
         
+        # Thick left bar
+        bar_width = 4
         painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#FFFFFF") if is_selected else QColor("#384553"))
+        painter.drawRect(x, y, bar_width, h)
+        
+        # Main Box (bg + border)
+        box_x = x + bar_width + 4
+        box_w = w - bar_width - 4
+        
         painter.setBrush(bg_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(box_x, y, box_w, h)
         
-        path = QPainterPath()
-        cut = 8
-        path.moveTo(x, y)
-        path.lineTo(x + w - cut, y)
-        path.lineTo(x + w, y + cut)
-        path.lineTo(x + w, y + h)
-        path.lineTo(x + cut, y + h)
-        path.lineTo(x, y + h - cut)
-        path.closeSubpath()
-        painter.drawPath(path)
-        
-        pen = QPen(primary_color, 1)
-        if is_selected:
-            pen.setWidth(2)
-        else:
-            pen.setColor(QColor("#182533")) # Faded lines if not selected
-            
+        pen = QPen(glow_color if is_selected else QColor("#182533"), 1)
+        if is_selected: pen.setWidth(2)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        
-        painter.drawLine(x, y, x + w - cut, y)
-        painter.drawLine(x + w - cut, y, x + w, y + cut)
-        painter.drawLine(x + w, y + h, x + cut, y + h)
-        painter.drawLine(x + cut, y + h, x, y + h - cut)
+        painter.drawRect(box_x, y, box_w, h)
         
         arrow_size = 5
-        arrow_x = x + 15
+        arrow_x = box_x + 10
         arrow_y = y + h // 2
         
-        arrow_path = QPainterPath()
-        arrow_path.moveTo(arrow_x, arrow_y - arrow_size)
-        arrow_path.lineTo(arrow_x + arrow_size, arrow_y)
-        arrow_path.lineTo(arrow_x, arrow_y + arrow_size)
-        arrow_path.closeSubpath()
+        is_dir = True
+        model = index.model()
+        if hasattr(model, 'isDir'):
+            is_dir = model.isDir(index)
         
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(primary_color if is_selected else QColor("#80BFFF"))
-        painter.drawPath(arrow_path)
-        
-        icon = index.data(Qt.DecorationRole)
+        text_x = arrow_x
+        if self.show_arrow and is_dir:
+            arrow_path = QPainterPath()
+            arrow_path.moveTo(arrow_x, arrow_y - arrow_size)
+            arrow_path.lineTo(arrow_x + arrow_size, arrow_y)
+            arrow_path.lineTo(arrow_x, arrow_y + arrow_size)
+            arrow_path.closeSubpath()
+            
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#FFFFFF") if is_selected else QColor("#80BFFF"))
+            painter.drawPath(arrow_path)
+            text_x += arrow_size + 10
+        elif not is_dir:
+            icon = index.data(Qt.DecorationRole)
+            if icon and isinstance(icon, QIcon):
+                icon_rect = QRect(arrow_x, y + (h - 16) // 2, 16, 16)
+                icon.paint(painter, icon_rect, Qt.AlignCenter, QIcon.Normal, QIcon.On)
+                text_x += 16 + 10
+        elif self.show_arrow:
+            text_x += arrow_size + 10
+            
         text = index.data(Qt.DisplayRole)
         
-        text_x = arrow_x + arrow_size + 15
-        if icon and isinstance(icon, QIcon):
-            icon_rect = QRect(text_x, y + (h - 16) // 2, 16, 16)
-            icon.paint(painter, icon_rect, Qt.AlignCenter, QIcon.Normal, QIcon.On)
-            text_x += 24
-            
-        font = QFont("Segoe UI", 11, QFont.Bold if is_selected else QFont.Normal)
-        font.setLetterSpacing(QFont.AbsoluteSpacing, 1.5)
+        font = QFont("Segoe UI", 10, QFont.Bold if is_selected else QFont.Normal)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, 1)
         painter.setFont(font)
-        painter.setPen(text_color)
-        text_rect = QRect(text_x, y, w - text_x - 40, h)
+        painter.setPen(primary_color)
+        text_rect = QRect(text_x, y, box_w - (text_x - box_x) - 30, h)
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text)
         
         row_idx = str(index.row() + 1).zfill(2)
         num_font = QFont("Consolas", 10)
         painter.setFont(num_font)
-        painter.setPen(primary_color)
-        num_rect = QRect(x + w - 35, y, 25, h)
+        painter.setPen(glow_color)
+        num_rect = QRect(box_x + box_w - 35, y, 25, h)
         painter.drawText(num_rect, Qt.AlignVCenter | Qt.AlignRight, row_idx)
         
         painter.restore()
@@ -185,26 +226,34 @@ class ExplorerPanel(QWidget):
         self.splitter.setStyleSheet("QSplitter::handle { background-color: transparent; width: 0px; }")
         
         tree_style = get_minimal_scrollbar_style() + """
-            QTreeView { background-color: transparent; border: none; outline: 0; }
-            QTreeView::item { border: none; }
+            QTreeView { background-color: transparent; border: none; outline: none; }
+            QTreeView::item { background: transparent; border: none; outline: none; }
+            QTreeView::item:hover { background: transparent; border: none; outline: none; }
+            QTreeView::item:selected { background: transparent; border: none; outline: none; }
+            QTreeView:focus { outline: none; }
+            QTreeView::item:focus { outline: none; }
+            QTreeView::branch { width: 0px; border-image: none; image: none; }
+            QTreeView::drop-indicator { background: transparent; image: none; border: none; }
             QHeaderView::section { background-color: transparent; color: #4D94FF; border: none; padding: 4px; font-weight: bold; }
         """
         
         # --- SIDEBAR ---
-        self.sidebar = QTreeView()
+        self.sidebar = NoBranchTreeView()
+        self.sidebar.setStyle(QStyleFactory.create("windows"))
         self.sidebar.setStyleSheet(tree_style)
         self.sidebar.setRootIsDecorated(False)
         self.sidebar.setHeaderHidden(True)
-        self.sidebar.setItemDelegate(SciFiItemDelegate())
+        self.sidebar.setItemDelegate(SciFiItemDelegate(show_arrow=False, enable_3d=False))
         
         self.qa_model = QStandardItemModel()
         self.sidebar.setModel(self.qa_model)
         self.sidebar.clicked.connect(self.on_sidebar_clicked)
         
         # --- ARBOL PRINCIPAL ---
-        self.tree = QTreeView()
+        self.tree = NoBranchTreeView()
+        self.tree.setStyle(QStyleFactory.create("windows"))
         self.tree.setStyleSheet(tree_style)
-        self.tree.setItemDelegate(SciFiItemDelegate())
+        self.tree.setItemDelegate(SciFiItemDelegate(show_arrow=True, enable_3d=True))
         self.tree.setHeaderHidden(True)
         self.tree.setRootIsDecorated(False)
         self.tree.setIndentation(15)
@@ -219,6 +268,11 @@ class ExplorerPanel(QWidget):
         self.tree.hideColumn(3) # Ocultar fecha
         self.tree.setSortingEnabled(False)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.setVerticalScrollMode(QTreeView.ScrollPerPixel)
+        self.sidebar.setVerticalScrollMode(QTreeView.ScrollPerPixel)
+        
+        self.tree.setDropIndicatorShown(False)
+        self.sidebar.setDropIndicatorShown(False)
         
         self.tree.setSelectionMode(QTreeView.ExtendedSelection)
         self.tree.setSelectionBehavior(QTreeView.SelectRows)
@@ -232,6 +286,7 @@ class ExplorerPanel(QWidget):
         QShortcut(QKeySequence("Ctrl+D"), self.tree, self._do_delete_selected)
         
         self.fs_model.directoryLoaded.connect(lambda _: self._apply_column_layout())
+        self.tree.clicked.connect(self.on_tree_clicked)
         self.tree.doubleClicked.connect(self.on_tree_double_clicked)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
@@ -271,6 +326,12 @@ class ExplorerPanel(QWidget):
         path = self.qa_model.data(index, Qt.UserRole)
         QTimer.singleShot(0, lambda: self.go_to_path(path))
 
+    def on_tree_clicked(self, index: QModelIndex):
+        info = self.fs_model.fileInfo(index)
+        if info.isDir():
+            is_expanded = self.tree.isExpanded(index)
+            self.tree.setExpanded(index, not is_expanded)
+
     def go_back(self):
         current_idx = self.tree.rootIndex()
         parent_idx = self.fs_model.parent(current_idx)
@@ -300,6 +361,8 @@ class ExplorerPanel(QWidget):
         target_dir = self.fs_model.filePath(self.tree.rootIndex())
         target_file = None
         
+        menu = SciFiContextMenu(self.tree)
+        
         if index.isValid():
             info = self.fs_model.fileInfo(index)
             if info.isDir():
@@ -308,26 +371,41 @@ class ExplorerPanel(QWidget):
             else:
                 target_dir = info.absolutePath()
                 target_file = info.absoluteFilePath()
-            actions = ["rename", "delete"]
+                
+            menu.add_action("Editar nombre", lambda: self._rename_item(target_file))
+            menu.add_action("Duplicar", lambda: self._duplicate_item(target_file))
+            menu.add_action("Borrar", lambda: self._delete_item(target_file))
         else:
-            actions = ["new_folder", "new_file"]
+            menu.add_action("Nueva carpeta", lambda: self._create_folder(target_dir))
+            menu.add_action("Nuevo archivo", lambda: self._create_file(target_dir))
             
-        center_x = self.width() / 2
-        center_y = self.height() / 2
-        local_pos = QPoint(int(center_x), int(center_y))
-        
-        self.menu_overlay = RadialContextMenu(self, self.tree, local_pos, actions, lambda action: self.handle_menu_action(action, target_dir, target_file))
-        self.menu_overlay.show()
+        menu.move(self.tree.viewport().mapToGlobal(pos))
+        menu.show()
 
-    def handle_menu_action(self, action, target_dir, target_file):
-        if action == "new_folder": self._create_folder(target_dir)
-        elif action == "new_file": self._create_file(target_dir)
-        elif action == "rename":
-            if target_file: self._rename_item(target_file)
-            else: self.show_error("No file selected.")
-        elif action == "delete":
-            if target_file: self._delete_item(target_file)
-            else: self.show_error("No file selected.")
+    def _duplicate_item(self, target_path):
+        import shutil
+        from PySide6.QtCore import QFileInfo
+        info = QFileInfo(target_path)
+        dir_path = info.absolutePath()
+        base_name = info.completeBaseName()
+        ext = info.suffix()
+        ext_str = f".{ext}" if ext else ""
+        
+        new_name = f"{base_name} (Copia){ext_str}"
+        new_path = os.path.join(dir_path, new_name)
+        counter = 1
+        while os.path.exists(new_path):
+            new_name = f"{base_name} (Copia {counter}){ext_str}"
+            new_path = os.path.join(dir_path, new_name)
+            counter += 1
+            
+        try:
+            if info.isDir():
+                shutil.copytree(target_path, new_path)
+            else:
+                shutil.copy2(target_path, new_path)
+        except Exception as e:
+            self.show_error(f"Error al duplicar:\n{e}")
 
     def _get_selected_paths(self):
         paths = []
@@ -373,57 +451,55 @@ class ExplorerPanel(QWidget):
     def _do_delete_selected(self):
         paths = self._get_selected_paths()
         if not paths: return
-        def on_confirm():
+        msg = f"¿Borrar {os.path.basename(paths[0])}?" if len(paths) == 1 else f"¿Borrar {len(paths)} elementos?"
+        dialog = SciFiConfirmDialog(self, "CONFIRMAR", msg)
+        if dialog.exec() == QDialog.Accepted:
             for path in paths:
                 try:
                     info = QFileInfo(path)
                     if info.isDir(): shutil.rmtree(path)
                     else: os.remove(path)
                 except Exception as e:
-                    self.show_error(f"Could not delete {os.path.basename(path)}: {str(e)}")
-        msg = f"Delete {os.path.basename(paths[0])}?" if len(paths) == 1 else f"Delete {len(paths)} selected items?"
-        self.confirm_overlay = SciFiConfirmDialog(self, self.tree, "CONFIRM DELETION", msg, on_confirm)
-        self.confirm_overlay.show()
+                    self.show_error(f"Error al borrar {os.path.basename(path)}: {str(e)}")
 
     def _create_folder(self, parent_dir):
-        def on_accept(name):
+        dialog = SciFiInputDialog(self, "NUEVA CARPETA", "Nombre de la carpeta:")
+        if dialog.exec() == QDialog.Accepted:
+            name = dialog.get_text()
             if name:
-                if not QDir(parent_dir).mkdir(name): self.show_error("Could not create folder.")
-        self.dialog_overlay = SciFiInputDialog(self, self.tree, "NEW FOLDER SEQUENCE", "Enter folder name...", "", on_accept)
-        self.dialog_overlay.show()
+                if not QDir(parent_dir).mkdir(name): self.show_error("No se pudo crear la carpeta.")
 
     def _create_file(self, parent_dir):
-        def on_accept(name):
+        dialog = SciFiInputDialog(self, "NUEVO ARCHIVO", "Nombre del archivo:")
+        if dialog.exec() == QDialog.Accepted:
+            name = dialog.get_text()
             if name:
                 file_path = os.path.join(parent_dir, name)
                 try:
                     with open(file_path, 'w') as f: pass
-                except Exception as e: self.show_error(f"Could not create file: {e}")
-        self.dialog_overlay = SciFiInputDialog(self, self.tree, "NEW FILE SEQUENCE", "Enter filename", "", on_accept)
-        self.dialog_overlay.show()
+                except Exception as e: self.show_error(f"Error al crear archivo: {e}")
 
     def _rename_item(self, target_path):
         from PySide6.QtCore import QFile
         old_name = os.path.basename(target_path)
         parent_dir = os.path.dirname(target_path)
-        def on_accept(new_name):
+        dialog = SciFiInputDialog(self, "RENOMBRAR", "Nuevo nombre:", default_text=old_name)
+        if dialog.exec() == QDialog.Accepted:
+            new_name = dialog.get_text()
             if new_name and new_name != old_name:
                 new_path = os.path.join(parent_dir, new_name)
-                if not QFile.rename(target_path, new_path): self.show_error("Could not rename item.")
-        self.dialog_overlay = SciFiInputDialog(self, self.tree, "RENAME SEQUENCE", "New name...", old_name, on_accept)
-        self.dialog_overlay.show()
+                if not QFile.rename(target_path, new_path): self.show_error("No se pudo renombrar.")
 
     def _delete_item(self, target_path):
         from PySide6.QtCore import QFile, QFileInfo
-        def on_confirm():
+        dialog = SciFiConfirmDialog(self, "CONFIRMAR", f"¿Borrar {os.path.basename(target_path)}?")
+        if dialog.exec() == QDialog.Accepted:
             info = QFileInfo(target_path)
             if info.isDir():
-                if not QDir(target_path).removeRecursively(): self.show_error("Could not delete folder.")
+                if not QDir(target_path).removeRecursively(): self.show_error("No se pudo borrar la carpeta.")
             else:
-                if not QFile.remove(target_path): self.show_error("Could not delete file.")
-        self.dialog_overlay = SciFiConfirmDialog(self, self.tree, "CONFIRM DELETION", f"Delete {os.path.basename(target_path)}?", on_confirm)
-        self.dialog_overlay.show()
+                if not QFile.remove(target_path): self.show_error("No se pudo borrar el archivo.")
         
     def show_error(self, msg):
-        self.dialog_overlay = SciFiConfirmDialog(self, self.tree, "ERROR", msg, lambda: None)
-        self.dialog_overlay.show()
+        dialog = SciFiConfirmDialog(self, "ERROR", msg)
+        dialog.exec()

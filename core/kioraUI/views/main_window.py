@@ -151,6 +151,10 @@ class MainWindow(QMainWindow):
             
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        
+        if hasattr(self, 'explorer_panel') and self.explorer_panel:
+            self.explorer_panel.resize(750, self.height())
+            
         # Centrar paneles de manera individual si no los ha movido el usuario
         for panel in [getattr(self, 'settings_panel', None), 
                       getattr(self, 'image_viewer', None), getattr(self, 'text_viewer', None),

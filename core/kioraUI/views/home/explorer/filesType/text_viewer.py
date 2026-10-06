@@ -82,12 +82,14 @@ class TextViewerPanel(SciFiViewerBase):
             else:
                 actions.append("edit")
                 
-        global_pos = self.text_edit.viewport().mapToGlobal(pos)
-        local_pos = self.body_frame.mapFromGlobal(global_pos)
+        from core.kioraUI.views.global_ui.simple_dialogs import SciFiContextMenu
+        menu = SciFiContextMenu(self.text_edit)
         
-        from core.kioraUI.views.global_ui.custom_dialogs import RadialContextMenu
-        self.menu_overlay = RadialContextMenu(self.body_frame, self.text_edit, local_pos, actions, self._handle_menu_action)
-        self.menu_overlay.show()
+        for action in actions:
+            menu.add_action(action.upper(), lambda a=action: self._handle_menu_action(a))
+            
+        menu.move(self.text_edit.viewport().mapToGlobal(pos))
+        menu.show()
 
     def _handle_menu_action(self, action):
         if action == "copy":
