@@ -25,8 +25,12 @@ Se reconstruyó el módulo del explorador de archivos para adaptarlo visualmente
 - Se desactivó el efecto 3D en la barra de Acceso Rápido (carpetas principales) para que siempre permanezcan fijas.
 - Se forzó el CSS de PySide6 para aplastar el estilo de color verde nativo por defecto en ítems seleccionados que contaminaba el diseño holográfico.
 - Se implementó discriminación de archivos/carpetas en el delegado (`isDir()`): las carpetas conservan la flecha expansora, mientras que los archivos muestran el `QIcon` (texto, pdf, imagen, etc).
-- Se transformó la animación de ocultamiento en los bordes: ahora aplica un vector de traslación horizontal negativo, dando la sensación mecánica de que el archivo se "guarda" o se "desliza por detrás" en lugar de solo hacerse transparente.
 - Se reemplazó completamente el sistema de alertas gigantes (RadialContextMenu y diálogos overlay) por un diseño nativo encapsulado: menú contextual estándar, y clases `SciFiInputDialog` y `SciFiConfirmDialog` basadas en `QDialog` sin bordes y estilo holográfico de Kiora para mantener la coherencia gráfica.
+- **Apertura Express**: Se cambió el evento para abrir archivos de `doubleClicked` a `clicked`. Ahora todos los documentos, audios, imágenes y videos se abren con un solo toque (un solo clic).
+- **Rediseño Minimalista de Visores**: Se eliminó la capa opaca sobrante y el margen masivo (`padding: 20px`) en `image_viewer.py` y `text_viewer.py`. Ahora el borde y la ventana flotante se ajustan y calculan matemáticamente para abrazar exactamente el ancho/alto del archivo, omitiendo el relleno inútil negro que devoraba la pantalla.
+- **Manipulación de Visor de Imágenes**:
+  - Redimensión desde cualquier esquina: El contenedor permite alterar su tamaño arrastrando desde sus 4 esquinas manteniendo un bloqueo matemático de la relación de aspecto para que nunca aparezcan franjas de sobra.
+  - Paneo, Rotación y Zoom Local: Se reincorporó internamente `QGraphicsView` de manera invisible. La rueda del ratón (`scroll`) ejecuta zoom in/out local anclado al cursor, clic derecho + arrastre panea la imagen si está aumentada, y un nuevo botón `[ ⟳ ]` permite rotar la ventana entera de 90° en 90° (adaptando su ancho y alto).
 
 **Instalaciones:**
 N/A

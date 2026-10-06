@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         
         self.audio_player = AudioPlayerWidget(self.central_widget)
         self.audio_player.hide()
+        self.audio_player.song_changed.connect(self.explorer_panel.highlight_file)
         
         self.text_viewer = TextViewerPanel(self.central_widget)
         self.text_viewer.hide()
@@ -182,7 +183,7 @@ class MainWindow(QMainWindow):
             self.audio_player.load_audio(path)
             self.audio_player.show()
             self.audio_player.raise_()
-            self.audio_player.move(20, self.height() - self.audio_player.height() - 20)
+            self.audio_player.move(self.width() - self.audio_player.width() - 20, self.height() - self.audio_player.height() - 20)
         elif ext in pdf_exts:
             self.pdf_viewer.load_pdf(path)
             self.pdf_viewer.show()

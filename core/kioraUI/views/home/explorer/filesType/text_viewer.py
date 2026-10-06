@@ -13,9 +13,9 @@ class TextViewerPanel(SciFiViewerBase):
         
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + """
             QTextEdit {
-                background-color: #0A1118;
+                background-color: rgba(10, 17, 24, 0.95);
                 color: #FFFFFF;
-                border: 1px solid #182533;
+                border: 1px solid #4D94FF;
                 padding: 10px;
                 font-family: 'Consolas', 'Courier New', monospace;
                 font-size: 13px;
@@ -24,6 +24,17 @@ class TextViewerPanel(SciFiViewerBase):
         
         self.set_body_widget(self.text_edit)
         
+        self.header.hide()
+        self.body_layout.setContentsMargins(0, 0, 0, 0)
+        self.setStyleSheet("KioraBaseContainer { background-color: transparent; border: none; }")
+        
+        self.close_btn.setParent(self)
+        self.close_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
+            QPushButton:hover { background-color: #4D94FF; }
+        """)
+        self.close_btn.show()
+        
         from PySide6.QtCore import Qt
         self.text_edit.setContextMenuPolicy(Qt.CustomContextMenu)
         self.text_edit.customContextMenuRequested.connect(self._show_context_menu)
@@ -31,10 +42,10 @@ class TextViewerPanel(SciFiViewerBase):
         self.is_editing = False
         
     def _update_style(self):
-        border = "#4D94FF" if self.is_editing else "#182533"
+        border = "#4D94FF" if self.is_editing else "#4D94FF"
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + f"""
             QTextEdit {{
-                background-color: #0A1118;
+                background-color: rgba(10, 17, 24, 0.95);
                 color: #FFFFFF;
                 border: 1px solid {border};
                 padding: 10px;
@@ -109,3 +120,8 @@ class TextViewerPanel(SciFiViewerBase):
                 self._update_style()
             except Exception as e:
                 self.text_edit.setPlainText(f"Error saving:\n{str(e)}")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.close_btn.move(self.width() - self.close_btn.width() - 5, 5)
+        self.close_btn.raise_()

@@ -7,4 +7,9 @@ B. Módulo de Archivos
     ✓ Visualización de las carpetas principales del sistema (Escritorio, Descargas, Documentos, Imagenes, Musica, videos y Este equipo)
     ✓ Visualización de los archivos dentro de cada carpeta
     ✓ Clic derecho para crear, eliminar, renombrar y duplicar
-    ✓ Vista previa de los archivos (imagenes, audios, videos, pdf y txt).
+    ✓ Vista previa de los archivos:
+        ✓ imagenes: Ver, zoom, rotar, redimensionar, mover.
+        ✓ audios: Ver, play, pause, detener, volumen, siguiente, anterior.
+        - videos: Ver, play, pause, detener y volumen.
+        - pdf: Ver, zoom, rotar, redimensionar, mover.
+        - txt: editar, guardar, Ver, zoom, rotar, redimensionar, mover.

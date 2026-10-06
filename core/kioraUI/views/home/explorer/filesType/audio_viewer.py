@@ -4,6 +4,13 @@ from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 import math
 import random
+import os
+import threading
+
+# Imports para PyCaw
+from ctypes import cast, POINTER
+import comtypes
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 class SciFiAudioWaveTimeline(QWidget):
     sliderMoved = Signal(int)
@@ -19,8 +26,8 @@ class SciFiAudioWaveTimeline(QWidget):
         
         self.waves = [
             {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(77, 148, 255, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
-            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(77, 148, 255, 100), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
-            {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(255, 170, 0, 80), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(0, 200, 255, 120), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(0, 100, 255, 90), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
         ]
         
         self.timer = QTimer(self)
@@ -135,7 +142,62 @@ class SciFiAudioWaveTimeline(QWidget):
         painter.setBrush(QColor(77, 148, 255))
         painter.drawEllipse(QPointF(hx, cy), 4.5, 4.5)
 
+class VolumePopup(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setFixedSize(40, 130)
+        self.setStyleSheet("background-color: rgba(10, 17, 24, 0.95); border: 1px solid #4D94FF; border-radius: 4px;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 15, 10, 15)
+        
+        self.slider = QSlider(Qt.Vertical)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(100)
+        self.slider.setStyleSheet("""
+            QSlider::groove:vertical { border: 1px solid #182533; width: 4px; background: #0A1118; margin: 0 2px; }
+            QSlider::handle:vertical { background: #4D94FF; border: 1px solid #4D94FF; height: 10px; margin: 0 -4px; border-radius: 5px; }
+        """)
+        layout.addWidget(self.slider, alignment=Qt.AlignHCenter)
+
+class SystemVolumeMonitor(QTimer):
+    volumeChanged = Signal(int)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.last_vol = -1
+        self.timeout.connect(self.check_volume)
+        self.volume_controller = None
+        
+        # Initialize COM in a safe way if needed, but Qt already does it in main thread.
+        try:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, comtypes.CLSCTX_ALL, None)
+            self.volume_controller = cast(interface, POINTER(IAudioEndpointVolume))
+            self.start(250)
+        except Exception as e:
+            print(f"Error cargando pycaw: {e}")
+            
+    def check_volume(self):
+        if self.volume_controller:
+            try:
+                v = int(self.volume_controller.GetMasterVolumeLevelScalar() * 100)
+                if v != self.last_vol:
+                    self.last_vol = v
+                    self.volumeChanged.emit(v)
+            except:
+                pass
+                
+    def set_volume(self, v):
+        if self.volume_controller:
+            try:
+                self.volume_controller.SetMasterVolumeLevelScalar(v / 100.0, None)
+                self.last_vol = v
+            except:
+                pass
+
 class AudioPlayerWidget(QWidget):
+    song_changed = Signal(str)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resize(500, 140)
@@ -149,6 +211,7 @@ class AudioPlayerWidget(QWidget):
         c_layout.setSpacing(8)
         
         self.song_name_lbl = QLabel("NO TRACK")
+        self.song_name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.song_name_lbl.setStyleSheet("color: #FFFFFF; font-family: 'Segoe UI'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
         
         self.progress_slider = SciFiAudioWaveTimeline()
@@ -157,27 +220,49 @@ class AudioPlayerWidget(QWidget):
         btns_layout.setContentsMargins(0, 8, 0, 0)
         
         btn_style = """
-            QPushButton { color: #FFFFFF; font-family: 'Segoe UI Symbol'; font-size: 24px; }
-            QPushButton:hover { color: #4D94FF; }
+            QPushButton { color: #80BFFF; font-family: 'Consolas', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
+            QPushButton:hover { color: #FFFFFF; }
         """
         
-        self.btn_prev = QPushButton("⏮")
-        self.btn_play = QPushButton("⏵")
-        self.btn_next = QPushButton("⏭")
+        self.btn_vol = QPushButton("VOL")
+        
+        self.btn_prev = QPushButton("◄◄")
+        self.btn_play = QPushButton("►")
+        self.btn_next = QPushButton("►►")
+        self.btn_stop = QPushButton("■")
         
         self.btn_prev.setStyleSheet(btn_style)
         self.btn_play.setStyleSheet(btn_style)
         self.btn_next.setStyleSheet(btn_style)
+        self.btn_stop.setStyleSheet(btn_style)
+        self.btn_vol.setStyleSheet(btn_style)
+        
+        self.vol_popup = VolumePopup(self)
+        self.sys_vol = SystemVolumeMonitor(self)
+        self.sys_vol.volumeChanged.connect(self._on_sys_vol_changed)
+        self.vol_popup.slider.valueChanged.connect(self._set_volume)
+        
+        # Sincronizar UI incial
+        if self.sys_vol.volume_controller:
+            self.vol_popup.slider.setValue(int(self.sys_vol.volume_controller.GetMasterVolumeLevelScalar() * 100))
         
         self.btn_play.clicked.connect(self._toggle_play)
+        self.btn_stop.clicked.connect(self._stop_playback)
+        self.btn_prev.clicked.connect(self._prev_song)
+        self.btn_next.clicked.connect(self._next_song)
+        self.btn_vol.clicked.connect(self._toggle_volume_popup)
         
+        btns_layout.addStretch()
         btns_layout.addWidget(self.btn_prev)
         btns_layout.addWidget(self.btn_play)
         btns_layout.addWidget(self.btn_next)
-        btns_layout.addStretch()
+        btns_layout.addSpacing(10)
+        btns_layout.addWidget(self.btn_stop)
+        btns_layout.addWidget(self.btn_vol)
         
         c_layout.addWidget(self.song_name_lbl)
         c_layout.addWidget(self.progress_slider)
+        c_layout.addSpacing(5) # Espacio para que la onda no choque
         c_layout.addLayout(btns_layout)
 
         # PySide6 Audio setup
@@ -199,10 +284,10 @@ class AudioPlayerWidget(QWidget):
             
     def _on_state_changed(self, state):
         if state == QMediaPlayer.PlayingState:
-            self.btn_play.setText("⏸")
+            self.btn_play.setText("❚❚")
             self.progress_slider.is_playing = True
         else:
-            self.btn_play.setText("⏵")
+            self.btn_play.setText("►")
             self.progress_slider.is_playing = False
             
     def _update_position(self, pos):
@@ -214,8 +299,61 @@ class AudioPlayerWidget(QWidget):
     def _set_position(self, pos):
         self.player.setPosition(pos)
         
+    def _on_sys_vol_changed(self, val):
+        self.vol_popup.slider.blockSignals(True)
+        self.vol_popup.slider.setValue(val)
+        self.vol_popup.slider.blockSignals(False)
+        
+    def _set_volume(self, val):
+        # Seteamos volumen del sistema global
+        self.sys_vol.set_volume(val)
+        # Seteamos volumen local por si acaso
+        self.audio_output.setVolume(val / 100.0)
+        
+    def _toggle_volume_popup(self):
+        if self.vol_popup.isVisible():
+            self.vol_popup.hide()
+        else:
+            from PySide6.QtCore import QPoint
+            btn_pos = self.btn_vol.mapToGlobal(QPoint(0, 0))
+            popup_x = btn_pos.x() - (self.vol_popup.width() - self.btn_vol.width()) // 2
+            popup_y = btn_pos.y() - self.vol_popup.height() - 5
+            self.vol_popup.move(popup_x, popup_y)
+            self.vol_popup.show()
+        
+    def _stop_playback(self):
+        self.player.stop()
+        self.hide()
+        
     def load_audio(self, path):
+        self.current_path = path
         filename = path.replace("\\", "/").split('/')[-1]
         self.song_name_lbl.setText(filename.upper())
         self.player.setSource(QUrl.fromLocalFile(path))
         self.player.play()
+        self.song_changed.emit(path)
+
+    def _next_song(self):
+        if not hasattr(self, 'current_path') or not self.current_path: return
+        self._navigate_song(1)
+        
+    def _prev_song(self):
+        if not hasattr(self, 'current_path') or not self.current_path: return
+        self._navigate_song(-1)
+        
+    def _navigate_song(self, step):
+        directory = os.path.dirname(self.current_path)
+        if not os.path.exists(directory): return
+        files = os.listdir(directory)
+        audio_exts = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
+        valid_files = [f for f in files if os.path.splitext(f)[1].lower() in audio_exts]
+        valid_files.sort(key=lambda x: x.lower())
+        
+        current_name = os.path.basename(self.current_path)
+        try:
+            idx = valid_files.index(current_name)
+            new_idx = (idx + step) % len(valid_files)
+            new_path = os.path.join(directory, valid_files[new_idx])
+            self.load_audio(new_path)
+        except ValueError:
+            pass

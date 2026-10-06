@@ -331,6 +331,9 @@ class ExplorerPanel(QWidget):
         if info.isDir():
             is_expanded = self.tree.isExpanded(index)
             self.tree.setExpanded(index, not is_expanded)
+        else:
+            path = self.fs_model.filePath(index)
+            self.file_opened.emit(path)
 
     def go_back(self):
         current_idx = self.tree.rootIndex()
@@ -346,14 +349,18 @@ class ExplorerPanel(QWidget):
         path = self.fs_model.filePath(index)
         if info.isDir():
             QTimer.singleShot(0, lambda: self.go_to_path(path))
-        else:
-            self.file_opened.emit(path)
 
     def go_to_path(self, path):
         idx = self.fs_model.index(path)
         self.tree.setRootIndex(idx)
         self._apply_column_layout()
         self.path_btn.setText(f" {path}" if path else " Este equipo")
+
+    def highlight_file(self, path):
+        idx = self.fs_model.index(path)
+        if idx.isValid():
+            self.tree.setCurrentIndex(idx)
+            self.tree.scrollTo(idx)
 
     def show_context_menu(self, pos):
         if self.tree.model() != self.fs_model: return
