@@ -15,3 +15,9 @@
 
 -[x] C. Tipos de archivos
     -[x] hay que generar 3 archivos nuevos, uno para abrir archivos de imagen, otro para audio y otro para abrir cualquier tipo de archivo que maneje codigo o texto.
+
+-[x] D. Menú Contextual y Diálogos Kiora
+    -[x] Crear RadialContextMenu con forma hexagonal y conexiones
+    -[x] Reemplazar alertas nativas por SciFiInputDialog y SciFiConfirmDialog
+    -[x] Desenfocar (Blur) el fondo al mostrar un overlay
+    -[x] Agregar soporte para crear carpeta, crear archivo, eliminar y renombrar

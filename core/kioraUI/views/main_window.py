@@ -6,8 +6,9 @@ from PySide6.QtGui import QPainter, QColor, QPen
 from core.kioraUI.views.home.configuration import ConfigurationPanel
 from core.kioraUI.views.home.explorer.treeFiles import ExplorerPanel
 from core.kioraUI.views.home.explorer.filesType.image_viewer import ImageViewerPanel
-from core.kioraUI.views.home.explorer.filesType.audio_viewer import AudioViewerPanel
+from core.kioraUI.views.home.explorer.filesType.audio_viewer import AudioPlayerWidget
 from core.kioraUI.views.home.explorer.filesType.text_viewer import TextViewerPanel
+from core.kioraUI.views.home.explorer.filesType.pdf_viewer import PdfViewerPanel
 
 class MainWindow(QMainWindow):
     def __init__(self, viewmodel):
@@ -35,11 +36,14 @@ class MainWindow(QMainWindow):
         self.image_viewer = ImageViewerPanel(self.central_widget)
         self.image_viewer.hide()
         
-        self.audio_viewer = AudioViewerPanel(self.central_widget)
-        self.audio_viewer.hide()
+        self.audio_player = AudioPlayerWidget(self.central_widget)
+        self.audio_player.hide()
         
         self.text_viewer = TextViewerPanel(self.central_widget)
         self.text_viewer.hide()
+        
+        self.pdf_viewer = PdfViewerPanel(self.central_widget)
+        self.pdf_viewer.hide()
         
         self.showMaximized()
 
@@ -62,15 +66,15 @@ class MainWindow(QMainWindow):
         
         self.time_label = QLabel("00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("color: #A31F34; font-size: 56px; font-weight: 300; font-family: 'Segoe UI Light', 'Helvetica Neue', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
+        self.time_label.setStyleSheet("color: #D96600; font-size: 56px; font-weight: 300; font-family: 'Segoe UI Light', 'Helvetica Neue', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
         
         self.date_label = QLabel("--/--/----")
         self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.date_label.setStyleSheet("color: #A31F34; font-size: 14px; font-family: 'Segoe UI', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
+        self.date_label.setStyleSheet("color: #D96600; font-size: 14px; font-family: 'Segoe UI', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
         
         self.weather_label = QLabel("Calculando coordenadas...")
         self.weather_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.weather_label.setStyleSheet("color: #A31F34; font-size: 12px; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0;")
+        self.weather_label.setStyleSheet("color: #D96600; font-size: 12px; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0;")
         
         info_layout.addWidget(self.time_label)
         info_layout.addWidget(self.date_label)
@@ -89,9 +93,9 @@ class MainWindow(QMainWindow):
         self.close_btn.setFixedSize(25, 25)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #A31F34; font-weight: bold; font-size: 12px; border: 1px solid #A31F34; border-radius: 3px; }
-            QPushButton:hover { background-color: #A31F34; color: #1E1E1E; }
-            QPushButton:pressed { background-color: #7A1727; border: 1px solid #7A1727; }
+            QPushButton { background-color: transparent; color: #D96600; font-weight: bold; font-size: 12px; border: 1px solid #D96600; border-radius: 3px; }
+            QPushButton:hover { background-color: #D96600; color: #0A1118; }
+            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
         """)
         self.close_btn.clicked.connect(self.close)
         
@@ -100,9 +104,9 @@ class MainWindow(QMainWindow):
         self.settings_btn.setFixedSize(25, 25)
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #A31F34; font-size: 16px; border: 1px solid #A31F34; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #A31F34; color: #1E1E1E; }
-            QPushButton:pressed { background-color: #7A1727; border: 1px solid #7A1727; }
+            QPushButton { background-color: transparent; color: #D96600; font-size: 16px; border: 1px solid #D96600; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
+            QPushButton:hover { background-color: #D96600; color: #0A1118; }
+            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
         """)
         self.settings_btn.clicked.connect(self.toggle_settings)
 
@@ -111,9 +115,9 @@ class MainWindow(QMainWindow):
         self.explorer_btn.setFixedSize(25, 25)
         self.explorer_btn.setCursor(Qt.PointingHandCursor)
         self.explorer_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #A31F34; font-size: 15px; border: 1px solid #A31F34; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #A31F34; color: #1E1E1E; }
-            QPushButton:pressed { background-color: #7A1727; border: 1px solid #7A1727; }
+            QPushButton { background-color: transparent; color: #D96600; font-size: 15px; border: 1px solid #D96600; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
+            QPushButton:hover { background-color: #D96600; color: #0A1118; }
+            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
         """)
         self.explorer_btn.clicked.connect(self.toggle_explorer)
         
@@ -148,28 +152,38 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         # Centrar paneles de manera individual si no los ha movido el usuario
         for panel in [getattr(self, 'settings_panel', None), getattr(self, 'explorer_panel', None), 
-                      getattr(self, 'image_viewer', None), getattr(self, 'audio_viewer', None), getattr(self, 'text_viewer', None)]:
+                      getattr(self, 'image_viewer', None), getattr(self, 'text_viewer', None),
+                      getattr(self, 'pdf_viewer', None)]:
             if panel and not getattr(panel, 'user_moved', False):
                 x = (self.width() - panel.width()) // 2
                 y = (self.height() - panel.height()) // 2
                 panel.move(x, y)
+                
+        if hasattr(self, 'audio_player') and self.audio_player:
+            self.audio_player.move(20, self.height() - self.audio_player.height() - 20)
                 
     def handle_file_opened(self, path):
         ext = path.split('.')[-1].lower() if '.' in path else ''
         
         image_exts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
         audio_exts = ['mp3', 'wav', 'ogg', 'flac']
+        pdf_exts = ['pdf']
         
         if ext in image_exts:
             self.image_viewer.load_image(path)
             self.image_viewer.show()
             self.image_viewer.raise_()
         elif ext in audio_exts:
-            self.audio_viewer.load_audio(path)
-            self.audio_viewer.show()
-            self.audio_viewer.raise_()
+            self.audio_player.load_audio(path)
+            self.audio_player.show()
+            self.audio_player.raise_()
+            self.audio_player.move(20, self.height() - self.audio_player.height() - 20)
+        elif ext in pdf_exts:
+            self.pdf_viewer.load_pdf(path)
+            self.pdf_viewer.show()
+            self.pdf_viewer.raise_()
         else:
-            # Fallback a texto para codigo y otros archivos
+            # Fallback a texto para codigo y otros archivos (incluyendo docx)
             self.text_viewer.load_text(path)
             self.text_viewer.show()
             self.text_viewer.raise_()
@@ -181,17 +195,67 @@ class MainWindow(QMainWindow):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        bg_color = QColor("#1E1E1E")
+        w = self.width()
+        h = self.height()
+        
+        # 1. Base Background (No negro intenso)
+        bg_color = QColor("#0A1118") 
         painter.fillRect(self.rect(), bg_color)
         
-        dot_color = QColor("#3A2326")
-        dot_color.setAlpha(100)
+        # 2. Puntos (Más visibles)
+        dot_color = QColor("#D96600") 
+        dot_color.setAlpha(60) 
         pen = QPen(dot_color)
         pen.setWidth(2)
         painter.setPen(pen)
         
-        spacing = 15
-        for x in range(0, self.width(), spacing):
-            for y in range(0, self.height(), spacing):
+        spacing = 20
+        for x in range(0, w, spacing):
+            for y in range(0, h, spacing):
                 painter.drawPoint(x, y)
+        
+        # 3. Bloques sutiles (Menos y más transparentes)
+        blocks = [
+            (0.2, 0.3, 0.15, 0.4, "#182533", 30),
+            (0.45, 0.15, 0.3, 0.6, "#D96600", 10),
+            (0.25, 0.7, 0.1, 0.2, "#D96600", 15)
+        ]
+        
+        painter.setPen(Qt.NoPen)
+        for bx, by, bw, bh, col, alpha in blocks:
+            c = QColor(col)
+            c.setAlpha(alpha)
+            painter.setBrush(QColor(c))
+            painter.drawRect(int(w * bx), int(h * by), int(w * bw), int(h * bh))
+            
+        # 4. Líneas más sencillas
+        h_lines = [0.25, 0.75]
+        v_lines = [0.35, 0.75]
+        
+        line_color = QColor("#182533")
+        line_color.setAlpha(150)
+        painter.setPen(QPen(line_color, 1, Qt.SolidLine))
+        
+        for y_pct in h_lines:
+            painter.drawLine(0, int(h * y_pct), w, int(h * y_pct))
+            
+        for x_pct in v_lines:
+            painter.drawLine(int(w * x_pct), 0, int(w * x_pct), h)
+            
+        # Líneas primarias ligeras
+        painter.setPen(QPen(QColor("#D96600"), 1, Qt.SolidLine))
+        painter.drawLine(0, int(h * 0.25), int(w * 0.4), int(h * 0.25))
+        painter.drawLine(int(w * 0.2), int(h * 0.5), int(w * 0.2), int(h * 0.8))
+        
+        # 5. Detalles (T-Markers rojos, sin crosshairs blancos)
+        def draw_t_marker(cx, cy, size=6, point="down"):
+            painter.drawLine(cx - size, cy, cx + size, cy)
+            if point == "down":
+                painter.drawLine(cx, cy, cx, cy + size)
+            elif point == "up":
+                painter.drawLine(cx, cy, cx, cy - size)
+                
+        draw_t_marker(int(w * 0.35), int(h * 0.1), point="down")
+        draw_t_marker(int(w * 0.75), int(h * 0.9), point="up")
+        
         painter.end()

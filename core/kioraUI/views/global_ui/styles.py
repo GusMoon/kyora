@@ -6,12 +6,12 @@ def get_minimal_scrollbar_style():
             margin: 0px;
         }
         QScrollBar::handle:vertical {
-            background-color: #3A2326;
+            background-color: #182533;
             min-height: 20px;
             border-radius: 4px;
         }
         QScrollBar::handle:vertical:hover {
-            background-color: #A31F34;
+            background-color: #D96600;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             height: 0px;
@@ -27,12 +27,12 @@ def get_minimal_scrollbar_style():
             margin: 0px;
         }
         QScrollBar::handle:horizontal {
-            background-color: #3A2326;
+            background-color: #182533;
             min-width: 20px;
             border-radius: 4px;
         }
         QScrollBar::handle:horizontal:hover {
-            background-color: #A31F34;
+            background-color: #D96600;
         }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
             width: 0px;

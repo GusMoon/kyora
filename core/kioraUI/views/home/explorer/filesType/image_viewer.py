@@ -45,21 +45,29 @@ class InteractiveGraphicsView(QGraphicsView):
 class ImageViewerPanel(SciFiViewerBase):
     def __init__(self, parent=None):
         super().__init__(parent, "IMAGE VIEWER SEQUENCE")
-        self.setFixedSize(800, 650)
+        self.resize(800, 650)
         
         self.view = InteractiveGraphicsView()
         self.set_body_widget(self.view)
         
+        self.header.hide()
+        self.close_btn.setParent(self)
+        self.close_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #D96600; }
+            QPushButton:hover { background-color: #D96600; }
+        """)
+        self.close_btn.show()
+        
         # Dimensions overlay
         self.info_label = QLabel("0x0", self.body_frame)
-        self.info_label.setStyleSheet("color: #FFFFFF; background-color: rgba(22, 22, 22, 0.85); font-family: 'Consolas'; font-size: 12px; padding: 6px; border: 1px solid #3A2326;")
+        self.info_label.setStyleSheet("color: #FFFFFF; background-color: rgba(22, 22, 22, 0.85); font-family: 'Consolas'; font-size: 12px; padding: 6px; border: 1px solid #182533;")
         
         # Reset zoom button overlay
         self.reset_btn = QPushButton("[ RESET ZOOM ]", self.body_frame)
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(58, 35, 38, 0.85); color: #FFFFFF; font-family: 'Consolas'; font-size: 11px; border: 1px solid #A31F34; padding: 6px; }
-            QPushButton:hover { background-color: #A31F34; }
+            QPushButton { background-color: rgba(58, 35, 38, 0.85); color: #FFFFFF; font-family: 'Consolas'; font-size: 11px; border: 1px solid #D96600; padding: 6px; }
+            QPushButton:hover { background-color: #D96600; }
         """)
         self.reset_btn.clicked.connect(self.view.reset_zoom)
         
@@ -69,6 +77,32 @@ class ImageViewerPanel(SciFiViewerBase):
             self.view.load_pixmap(pixmap)
             self.info_label.setText(f"{pixmap.width()} x {pixmap.height()} PX")
             self.info_label.adjustSize()
+            
+            # Adapt container to image size
+            max_w = self.parent().width() * 0.85 if self.parent() else 1000
+            max_h = self.parent().height() * 0.85 if self.parent() else 800
+            
+            target_w = pixmap.width() + 40
+            target_h = pixmap.height() + 40
+            
+            if target_w > max_w:
+                ratio = max_w / target_w
+                target_w = max_w
+                target_h *= ratio
+                
+            if target_h > max_h:
+                ratio = max_h / target_h
+                target_h = max_h
+                target_w *= ratio
+                
+            self.resize(int(target_w), int(target_h))
+            
+            # Recenter
+            if self.parent():
+                x = (self.parent().width() - self.width()) // 2
+                y = (self.parent().height() - self.height()) // 2
+                self.move(x, y)
+                
         else:
             self.info_label.setText("ERROR LOAD")
             self.info_label.adjustSize()
@@ -85,3 +119,11 @@ class ImageViewerPanel(SciFiViewerBase):
         pad = 25
         self.info_label.move(w - self.info_label.width() - pad, h - self.info_label.height() - pad)
         self.reset_btn.move(w - self.reset_btn.width() - pad, self.info_label.y() - self.reset_btn.height() - 5)
+        
+        self.close_btn.move(self.width() - self.close_btn.width() - 5, 5)
+        self.close_btn.raise_()
+        
+        # Make the image adapt continuously as the container resizes
+        if self.view.original_pixmap:
+            self.view.resetTransform()
+            self.view.fitInView(self.view.scene.sceneRect(), Qt.KeepAspectRatio)
