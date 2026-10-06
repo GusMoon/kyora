@@ -30,6 +30,7 @@ class MainWindow(QMainWindow):
         
         self.explorer_panel = ExplorerPanel(self.central_widget)
         self.explorer_panel.hide()
+        self.explorer_panel.move(0, 0) # Fixed position top-left
         self.explorer_panel.file_opened.connect(self.handle_file_opened)
         
         # Instanciar visores de archivos
@@ -66,15 +67,15 @@ class MainWindow(QMainWindow):
         
         self.time_label = QLabel("00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("color: #D96600; font-size: 56px; font-weight: 300; font-family: 'Segoe UI Light', 'Helvetica Neue', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
+        self.time_label.setStyleSheet("color: #4D94FF; font-size: 56px; font-weight: 300; font-family: 'Segoe UI Light', 'Helvetica Neue', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
         
         self.date_label = QLabel("--/--/----")
         self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.date_label.setStyleSheet("color: #D96600; font-size: 14px; font-family: 'Segoe UI', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
+        self.date_label.setStyleSheet("color: #4D94FF; font-size: 14px; font-family: 'Segoe UI', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
         
         self.weather_label = QLabel("Calculando coordenadas...")
         self.weather_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.weather_label.setStyleSheet("color: #D96600; font-size: 12px; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0;")
+        self.weather_label.setStyleSheet("color: #4D94FF; font-size: 12px; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0;")
         
         info_layout.addWidget(self.time_label)
         info_layout.addWidget(self.date_label)
@@ -93,9 +94,9 @@ class MainWindow(QMainWindow):
         self.close_btn.setFixedSize(25, 25)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #D96600; font-weight: bold; font-size: 12px; border: 1px solid #D96600; border-radius: 3px; }
-            QPushButton:hover { background-color: #D96600; color: #0A1118; }
-            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
+            QPushButton { background-color: transparent; color: #4D94FF; font-weight: bold; font-size: 12px; border: 1px solid #4D94FF; border-radius: 3px; }
+            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
         """)
         self.close_btn.clicked.connect(self.close)
         
@@ -104,9 +105,9 @@ class MainWindow(QMainWindow):
         self.settings_btn.setFixedSize(25, 25)
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #D96600; font-size: 16px; border: 1px solid #D96600; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #D96600; color: #0A1118; }
-            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
+            QPushButton { background-color: transparent; color: #4D94FF; font-size: 16px; border: 1px solid #4D94FF; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
+            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
         """)
         self.settings_btn.clicked.connect(self.toggle_settings)
 
@@ -115,9 +116,9 @@ class MainWindow(QMainWindow):
         self.explorer_btn.setFixedSize(25, 25)
         self.explorer_btn.setCursor(Qt.PointingHandCursor)
         self.explorer_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #D96600; font-size: 15px; border: 1px solid #D96600; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #D96600; color: #0A1118; }
-            QPushButton:pressed { background-color: #D48800; border: 1px solid #D48800; }
+            QPushButton { background-color: transparent; color: #4D94FF; font-size: 15px; border: 1px solid #4D94FF; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
+            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
         """)
         self.explorer_btn.clicked.connect(self.toggle_explorer)
         
@@ -151,7 +152,7 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # Centrar paneles de manera individual si no los ha movido el usuario
-        for panel in [getattr(self, 'settings_panel', None), getattr(self, 'explorer_panel', None), 
+        for panel in [getattr(self, 'settings_panel', None), 
                       getattr(self, 'image_viewer', None), getattr(self, 'text_viewer', None),
                       getattr(self, 'pdf_viewer', None)]:
             if panel and not getattr(panel, 'user_moved', False):
@@ -203,7 +204,7 @@ class MainWindow(QMainWindow):
         painter.fillRect(self.rect(), bg_color)
         
         # 2. Puntos (Más visibles)
-        dot_color = QColor("#D96600") 
+        dot_color = QColor("#4D94FF") 
         dot_color.setAlpha(60) 
         pen = QPen(dot_color)
         pen.setWidth(2)
@@ -217,8 +218,8 @@ class MainWindow(QMainWindow):
         # 3. Bloques sutiles (Menos y más transparentes)
         blocks = [
             (0.2, 0.3, 0.15, 0.4, "#182533", 30),
-            (0.45, 0.15, 0.3, 0.6, "#D96600", 10),
-            (0.25, 0.7, 0.1, 0.2, "#D96600", 15)
+            (0.45, 0.15, 0.3, 0.6, "#4D94FF", 10),
+            (0.25, 0.7, 0.1, 0.2, "#4D94FF", 15)
         ]
         
         painter.setPen(Qt.NoPen)
@@ -242,20 +243,4 @@ class MainWindow(QMainWindow):
         for x_pct in v_lines:
             painter.drawLine(int(w * x_pct), 0, int(w * x_pct), h)
             
-        # Líneas primarias ligeras
-        painter.setPen(QPen(QColor("#D96600"), 1, Qt.SolidLine))
-        painter.drawLine(0, int(h * 0.25), int(w * 0.4), int(h * 0.25))
-        painter.drawLine(int(w * 0.2), int(h * 0.5), int(w * 0.2), int(h * 0.8))
-        
-        # 5. Detalles (T-Markers rojos, sin crosshairs blancos)
-        def draw_t_marker(cx, cy, size=6, point="down"):
-            painter.drawLine(cx - size, cy, cx + size, cy)
-            if point == "down":
-                painter.drawLine(cx, cy, cx, cy + size)
-            elif point == "up":
-                painter.drawLine(cx, cy, cx, cy - size)
-                
-        draw_t_marker(int(w * 0.35), int(h * 0.1), point="down")
-        draw_t_marker(int(w * 0.75), int(h * 0.9), point="up")
-        
         painter.end()

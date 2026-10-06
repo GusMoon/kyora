@@ -29,7 +29,7 @@ class KioraBaseContainer(QFrame):
         self.setStyleSheet("""
             KioraBaseContainer { 
                 background-color: rgba(22, 22, 22, 0.95); 
-                border: 1px solid #D96600; 
+                border: 1px solid #4D94FF; 
             }
         """)
         
@@ -43,9 +43,9 @@ class KioraBaseContainer(QFrame):
         # Header con rojo primario Kiora
         self.header.setStyleSheet("""
             QFrame { 
-                background-color: rgba(217, 102, 0, 0.95); 
+                background-color: rgba(77, 148, 255, 0.95); 
                 border: none; 
-                border-bottom: 2px solid #D48800; 
+                border-bottom: 2px solid #80BFFF; 
             }
         """)
         

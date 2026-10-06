@@ -11,7 +11,7 @@ class ConfigurationPanel(KioraBaseContainer):
             QListWidget {
                 background-color: transparent;
                 border: none;
-                color: #D96600;
+                color: #4D94FF;
                 font-family: 'Segoe UI', sans-serif;
                 font-size: 13px;
                 font-weight: 600;
@@ -24,9 +24,9 @@ class ConfigurationPanel(KioraBaseContainer):
                 margin-bottom: 4px;
             }
             QListWidget::item:selected {
-                background-color: rgba(217, 102, 0, 0.15);
+                background-color: rgba(77, 148, 255, 0.15);
                 color: #FFFFFF;
-                border-left: 4px solid #D96600;
+                border-left: 4px solid #4D94FF;
             }
             QListWidget::item:hover:!selected {
                 background-color: rgba(58, 35, 38, 0.4);

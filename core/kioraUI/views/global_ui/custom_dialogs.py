@@ -73,12 +73,12 @@ class HexButton(QAbstractButton):
         face_right = QPolygonF([C, V5, V0, V1])
         
         if self.is_center:
-            base_color = QColor("#D48800") if self.hovered else QColor("#182533")
+            base_color = QColor("#80BFFF") if self.hovered else QColor("#182533")
             color_top = base_color.lighter(120)
             color_left = base_color
             color_right = base_color.darker(120)
         else:
-            base_color = QColor("#D96600") if self.hovered else QColor("#060A0F")
+            base_color = QColor("#4D94FF") if self.hovered else QColor("#060A0F")
             color_top = base_color.lighter(130) if self.hovered else QColor("#222222")
             color_left = base_color if self.hovered else QColor("#060A0F")
             color_right = base_color.darker(130) if self.hovered else QColor("#0A0A0A")
@@ -93,7 +93,7 @@ class HexButton(QAbstractButton):
         painter.setBrush(QBrush(color_right))
         painter.drawPolygon(face_right)
         
-        border_color = QColor("#FFFFFF") if self.hovered else QColor("#D96600")
+        border_color = QColor("#FFFFFF") if self.hovered else QColor("#4D94FF")
         if not self.is_center and not self.hovered:
             border_color = QColor("#4A4A4A")
             
@@ -105,7 +105,7 @@ class HexButton(QAbstractButton):
         painter.drawLine(C, V5)
         
         if self.is_center:
-            icon_color = QColor("#FFFFFF") if self.hovered else QColor("#D96600")
+            icon_color = QColor("#FFFFFF") if self.hovered else QColor("#4D94FF")
             painter.setPen(QPen(icon_color, 1.5, Qt.SolidLine))
             painter.drawEllipse(C, 11, 11)
             painter.drawLine(C.x() - 5, C.y() - 5, C.x() + 5, C.y() + 5)
@@ -246,7 +246,7 @@ class SciFiInputDialog(SciFiOverlayBase):
         
         box = QFrame()
         box.setFixedSize(300, 150)
-        box.setStyleSheet("QFrame { background-color: rgba(22, 22, 22, 0.95); border: 2px solid #D96600; }")
+        box.setStyleSheet("QFrame { background-color: rgba(22, 22, 22, 0.95); border: 2px solid #4D94FF; }")
         box_layout = QVBoxLayout(box)
         
         lbl = QLabel(title)
@@ -254,12 +254,12 @@ class SciFiInputDialog(SciFiOverlayBase):
         
         self.input_field = QLineEdit(default_text)
         self.input_field.setPlaceholderText(placeholder)
-        self.input_field.setStyleSheet("QLineEdit { background-color: #000000; color: #FFFFFF; border: 1px solid #D48800; padding: 8px; font-family: 'Consolas'; font-size: 12px; }")
+        self.input_field.setStyleSheet("QLineEdit { background-color: #000000; color: #FFFFFF; border: 1px solid #80BFFF; padding: 8px; font-family: 'Consolas'; font-size: 12px; }")
         
         btn_layout = QHBoxLayout()
         btn_ok = QPushButton("CONFIRM")
         btn_cancel = QPushButton("CANCEL")
-        btn_style = "QPushButton { background-color: #182533; color: #FFFFFF; font-weight: bold; border: 1px solid #D96600; padding: 6px; } QPushButton:hover { background-color: #D96600; }"
+        btn_style = "QPushButton { background-color: #182533; color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; padding: 6px; } QPushButton:hover { background-color: #4D94FF; }"
         btn_ok.setStyleSheet(btn_style)
         btn_cancel.setStyleSheet(btn_style)
         
@@ -293,7 +293,7 @@ class SciFiConfirmDialog(SciFiOverlayBase):
         
         box = QFrame()
         box.setFixedSize(300, 150)
-        box.setStyleSheet("QFrame { background-color: rgba(22, 22, 22, 0.95); border: 2px solid #D96600; }")
+        box.setStyleSheet("QFrame { background-color: rgba(22, 22, 22, 0.95); border: 2px solid #4D94FF; }")
         box_layout = QVBoxLayout(box)
         
         lbl = QLabel(title)
@@ -306,7 +306,7 @@ class SciFiConfirmDialog(SciFiOverlayBase):
         btn_layout = QHBoxLayout()
         btn_ok = QPushButton("EXECUTE")
         btn_cancel = QPushButton("ABORT")
-        btn_style = "QPushButton { background-color: #182533; color: #FFFFFF; font-weight: bold; border: 1px solid #D96600; padding: 6px; } QPushButton:hover { background-color: #D96600; }"
+        btn_style = "QPushButton { background-color: #182533; color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; padding: 6px; } QPushButton:hover { background-color: #4D94FF; }"
         btn_ok.setStyleSheet(btn_style)
         btn_cancel.setStyleSheet(btn_style)
         

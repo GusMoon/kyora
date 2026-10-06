@@ -18,8 +18,8 @@ class SciFiAudioWaveTimeline(QWidget):
         self.phase = 0.0
         
         self.waves = [
-            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(217, 102, 0, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
-            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(217, 102, 0, 100), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(77, 148, 255, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(77, 148, 255, 100), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
             {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(255, 170, 0, 80), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
         ]
         
@@ -128,11 +128,11 @@ class SciFiAudioWaveTimeline(QWidget):
         hx = margin + ratio * track_w
         
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(217, 102, 0, 100))
+        painter.setBrush(QColor(77, 148, 255, 100))
         painter.drawEllipse(QPointF(hx, cy), 10, 10)
         
         painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.setBrush(QColor(217, 102, 0))
+        painter.setBrush(QColor(77, 148, 255))
         painter.drawEllipse(QPointF(hx, cy), 4.5, 4.5)
 
 class AudioPlayerWidget(QWidget):
@@ -158,7 +158,7 @@ class AudioPlayerWidget(QWidget):
         
         btn_style = """
             QPushButton { color: #FFFFFF; font-family: 'Segoe UI Symbol'; font-size: 24px; }
-            QPushButton:hover { color: #D96600; }
+            QPushButton:hover { color: #4D94FF; }
         """
         
         self.btn_prev = QPushButton("⏮")

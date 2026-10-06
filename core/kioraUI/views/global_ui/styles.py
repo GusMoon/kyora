@@ -11,7 +11,7 @@ def get_minimal_scrollbar_style():
             border-radius: 4px;
         }
         QScrollBar::handle:vertical:hover {
-            background-color: #D96600;
+            background-color: #4D94FF;
         }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
             height: 0px;
@@ -32,7 +32,7 @@ def get_minimal_scrollbar_style():
             border-radius: 4px;
         }
         QScrollBar::handle:horizontal:hover {
-            background-color: #D96600;
+            background-color: #4D94FF;
         }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
             width: 0px;

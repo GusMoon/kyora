@@ -1,23 +1,10 @@
--[x] A. Sección de configuración
-    -[x] Requiero que debajo del boton de cerrar "X" poner un nuevo boton que sea el icono de un engranaje que sea de configuración (no usae emoticones)
-    -[x] al darle click en ese boton se debe abrir un contenedor donde muestre las diversas secciones que vayamos agregando
-    -[x] en esa ventana de configuración debe haber un boton de cerrar que sea una "X" arriba a la derecha del contenedor
-    -[x] el contenedor debe de contener un borde pequeño de color rojo
-    -[x] dentro de ese contenedor debe de haber una lista que muestre las secciones disponibles
+A. Panel de control
+    ✓ Visualización de la hora, minutos, fecha, ubicación actual (ciudad, país) y el clima
+    ✓ Botones de acceso rápido para cerrar, configuración y archivos
+    ✓ Fondo de puntos estilo scifi con efecto de transparencia
 
--[x] B. Sección de archivos
-    -[x] Se debe acceder desde la sección de configuración, agregando un nuevo boton con el icono de una carpeta
-    -[x] me debe de mostrar el arbol de carpetas completo de mis archivos
-    -[x] en esa ventana de configuración debe haber un boton de cerrar que sea una "X" arriba a la derecha del contenedor
-    -[x] el contenedor debe de contener un borde pequeño de color rojo
-    -[x] debe dejarme acceder a mis carpetas, moverme atras y hacia adelante
-    -[x] debe verse visualmente como me voy moviendo por mis archivos y la ruta  
-
--[x] C. Tipos de archivos
-    -[x] hay que generar 3 archivos nuevos, uno para abrir archivos de imagen, otro para audio y otro para abrir cualquier tipo de archivo que maneje codigo o texto.
-
--[x] D. Menú Contextual y Diálogos Kiora
-    -[x] Crear RadialContextMenu con forma hexagonal y conexiones
-    -[x] Reemplazar alertas nativas por SciFiInputDialog y SciFiConfirmDialog
-    -[x] Desenfocar (Blur) el fondo al mostrar un overlay
-    -[x] Agregar soporte para crear carpeta, crear archivo, eliminar y renombrar
+B. Módulo de Archivos
+    ✓ Visualización de las carpetas principales del sistema (Escritorio, Descargas, Documentos, Imagenes, Musica, videos y Este equipo)
+   - Visualización de los archivos dentro de cada carpeta
+   - Botones para crear, eliminar, renombrar y mover archivos
+   - Vista previa de los archivos (imagenes, audios, videos, pdf y txt).ñ

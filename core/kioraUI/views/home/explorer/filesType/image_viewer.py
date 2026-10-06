@@ -53,8 +53,8 @@ class ImageViewerPanel(SciFiViewerBase):
         self.header.hide()
         self.close_btn.setParent(self)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #D96600; }
-            QPushButton:hover { background-color: #D96600; }
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
+            QPushButton:hover { background-color: #4D94FF; }
         """)
         self.close_btn.show()
         
@@ -66,8 +66,8 @@ class ImageViewerPanel(SciFiViewerBase):
         self.reset_btn = QPushButton("[ RESET ZOOM ]", self.body_frame)
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(58, 35, 38, 0.85); color: #FFFFFF; font-family: 'Consolas'; font-size: 11px; border: 1px solid #D96600; padding: 6px; }
-            QPushButton:hover { background-color: #D96600; }
+            QPushButton { background-color: rgba(58, 35, 38, 0.85); color: #FFFFFF; font-family: 'Consolas'; font-size: 11px; border: 1px solid #4D94FF; padding: 6px; }
+            QPushButton:hover { background-color: #4D94FF; }
         """)
         self.reset_btn.clicked.connect(self.view.reset_zoom)
         

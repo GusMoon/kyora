@@ -31,7 +31,7 @@ class TextViewerPanel(SciFiViewerBase):
         self.is_editing = False
         
     def _update_style(self):
-        border = "#D96600" if self.is_editing else "#182533"
+        border = "#4D94FF" if self.is_editing else "#182533"
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + f"""
             QTextEdit {{
                 background-color: #0A1118;

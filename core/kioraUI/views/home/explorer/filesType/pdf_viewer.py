@@ -13,8 +13,8 @@ class PdfViewerPanel(SciFiViewerBase):
         self.header.hide()
         self.close_btn.setParent(self)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #D96600;}
-            QPushButton:hover { background-color: #D96600; }
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF;}
+            QPushButton:hover { background-color: #4D94FF; }
         """)
         self.close_btn.show()
 
@@ -38,7 +38,7 @@ class PdfViewerPanel(SciFiViewerBase):
         self.controls_widget.setStyleSheet("""
             QWidget { background-color: rgba(22, 22, 22, 0.85); border: 1px solid #182533; border-radius: 4px; }
             QPushButton { background-color: transparent; color: #FFFFFF; font-family: 'Consolas'; font-size: 16px; border: none; padding: 4px 10px; font-weight: bold; }
-            QPushButton:hover { color: #D96600; }
+            QPushButton:hover { color: #4D94FF; }
             QLabel { color: #FFFFFF; font-family: 'Consolas'; font-size: 12px; background-color: transparent; border: none; padding: 0 10px; }
         """)
         c_layout = QHBoxLayout(self.controls_widget)
