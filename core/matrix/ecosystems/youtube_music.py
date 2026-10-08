@@ -2,10 +2,10 @@ from PySide6.QtWidgets import (QListWidget, QVBoxLayout, QLineEdit, QPushButton,
                                QHBoxLayout, QLabel, QStackedWidget, QWidget, QScrollArea, QGridLayout, QSizePolicy, QTabWidget)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen
-from core.matrix.ecosystems.motherBoard.base_container import KioraBaseContainer
-from core.matrix.ecosystems.motherBoard.styles import get_minimal_scrollbar_style
+from core.matrix.ecosystems.motherBoard.globalComponents.base_container import KioraBaseContainer
+from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
 from core.matrix.ecosystems.explorer.filesType.text_viewer import TextViewerPanel
-from core.ecosystems.music.mp3installer import MP3InstallerEcosystem, get_js_runtime_opts
+from core.matrix.ecosystems.studio.mp3installer import MP3InstallerEcosystem, get_js_runtime_opts
 import yt_dlp
 import json
 import os
@@ -222,7 +222,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         super().__init__(title_text="YOUTUBE DB SCANNER", parent=parent)
         self.resize(500, 600)
         
-        self.config_path = Path(__file__).parent.parent.parent.parent / "ecosystems" / "music" / "mp3installer_config.json"
+        self.config_path = Path(__file__).parent / "mp3installer_config.json"
         
         # Pestañas principales
         self.tabs = QTabWidget()

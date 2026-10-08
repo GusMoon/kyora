@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QListWidget
-from core.matrix.ecosystems.motherBoard.base_container import KioraBaseContainer
+from core.matrix.ecosystems.motherBoard.globalComponents.base_container import KioraBaseContainer
 
 class ConfigurationPanel(KioraBaseContainer):
     def __init__(self, parent=None):

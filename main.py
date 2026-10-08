@@ -1,6 +1,9 @@
 import sys
 import os
 
+# Ocultar advertencias inofensivas de fuentes antiguas en Windows
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
+
 # Aseguramos que la raíz del proyecto esté en el PYTHONPATH
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -9,7 +12,7 @@ from PySide6.QtGui import QFontDatabase, QFont
 from core.matrix.infrastructure.services.weather_location_service import ApiWeatherLocationService
 from core.matrix.application.use_cases.fetch_weather_location import FetchWeatherLocationUseCase
 from core.matrix.viewmodels.main_viewmodel import MainViewModel
-from core.matrix.ecosystems.main_window import MainWindow
+from core.matrix.ecosystems.rootView import MainWindow
 
 def main():
     app = QApplication(sys.argv)

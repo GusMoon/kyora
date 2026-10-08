@@ -1,16 +1,16 @@
 from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeView, QListView, QAbstractItemView, QFileSystemModel, QLineEdit, QFileIconProvider, QHeaderView, QSplitter, QStyledItemDelegate, QStyle, QStyleFactory, QMenu, QDialog
 from PySide6.QtCore import QSortFilterProxyModel
-from core.matrix.ecosystems.motherBoard.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog, SciFiContextMenu, SciFiFileEditDialog
-from core.ecosystems.explorer.file_system_ecosystem import FileSystemEcosystem
+from core.matrix.ecosystems.motherBoard.globalComponents.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog, SciFiContextMenu, SciFiFileEditDialog
+from core.matrix.ecosystems.explorer.file_system_ecosystem import FileSystemEcosystem
 from PySide6.QtCore import Qt, QModelIndex, QFileInfo, QDir, QPoint, Signal, QStandardPaths, QSize, QRect
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen, QStandardItemModel, QStandardItem, QShortcut, QKeySequence, QPainterPath, QFont
 import os
 import shutil
 
 import math
-from core.matrix.ecosystems.motherBoard.styles import get_minimal_scrollbar_style
-from core.matrix.ecosystems.explorer.components.sidebar_delegate import SidebarDelegate
-from core.matrix.ecosystems.explorer.components.explorer_delegate import ExplorerDelegate
+from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.ecosystems.explorer.rootComponents.sidebar_delegate import SidebarDelegate
+from core.matrix.ecosystems.explorer.rootComponents.explorer_delegate import ExplorerDelegate
 
 class FolderProxyModel(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row, source_parent):
@@ -109,7 +109,7 @@ class ExplorerPanel(QWidget):
         self.icon_provider = SciFiIconProvider()
         
         # --- BARRA DE RUTA (TABS) ---
-        from core.matrix.ecosystems.explorer.components.path_view import PathView
+        from core.matrix.ecosystems.explorer.rootComponents.path_view import PathView
         self.path_view = PathView()
         self.path_view.path_clicked.connect(self.go_to_path)
         self.body_layout.addWidget(self.path_view)

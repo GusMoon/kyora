@@ -11,7 +11,7 @@ from core.matrix.ecosystems.explorer.filesType.audio_viewer import AudioPlayerWi
 from core.matrix.ecosystems.explorer.filesType.text_viewer import TextViewerPanel
 from core.matrix.ecosystems.explorer.filesType.pdf_viewer import PdfViewerPanel
 from core.matrix.ecosystems.explorer.filesType.task_viewer import TaskViewerPanel
-from core.matrix.ecosystems.motherBoard.top_navigation_bar import TopNavigationBar
+from core.matrix.ecosystems.motherBoard.rootComponents.navBar import NavBar
 
 class MainWindow(QMainWindow):
     def __init__(self, viewmodel):
@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
         self.viewmodel = viewmodel
         
         self.setWindowTitle("Kiora")
-        self.setWindowOpacity(0.97)
+        self.setWindowOpacity(0.93)
         self.setWindowFlag(Qt.FramelessWindowHint)
         
         self.central_widget = QWidget()
@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         
         self.explorer_panel = ExplorerPanel(self.central_widget)
         self.explorer_panel.hide()
-        self.explorer_panel.move(0, 50) # Fixed position left, below top bar
+        self.explorer_panel.move(0, 0) # Fixed position left, touching top border
         self.explorer_panel.file_opened.connect(self.handle_file_opened)
         
         self.youtube_panel = YoutubeMusicPanel(self.central_widget)
@@ -65,13 +65,13 @@ class MainWindow(QMainWindow):
         
         # --- TOP LAYOUT ---
         top_container = QWidget()
-        top_layout = QGridLayout(top_container)
-        top_layout.setContentsMargins(0, 15, 10, 0)
+        top_layout = QHBoxLayout(top_container)
+        top_layout.setContentsMargins(0, 15, 15, 0) # Casi tocando el borde superior derecho
+        top_layout.addStretch()
         
-        self.nav_bar = TopNavigationBar(top_container)
+        self.nav_bar = NavBar(top_container)
         self.nav_bar.option_selected.connect(self.handle_nav_selection)
-        top_layout.addWidget(self.nav_bar, 0, 1, Qt.AlignHCenter | Qt.AlignTop)
-        
+        top_layout.addWidget(self.nav_bar, 0, Qt.AlignRight | Qt.AlignTop)
         # --- INFO LAYOUT (RELOJ Y CLIMA) ---
         info_layout = QVBoxLayout()
         info_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
@@ -93,18 +93,6 @@ class MainWindow(QMainWindow):
         info_layout.addWidget(self.date_label)
         info_layout.addWidget(self.weather_label)
         
-        self.right_panel = QHBoxLayout()
-        self.right_panel.setContentsMargins(0, 0, 0, 0)
-        self.right_panel.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        
-        self.right_panel.addLayout(info_layout)
-        self.right_panel.addSpacing(15)
-        
-        # --- BOTONES DE CONTROL ---
-        btn_layout = QVBoxLayout()
-        btn_layout.setAlignment(Qt.AlignTop)
-        btn_layout.setSpacing(10)
-        
         # Botón Cerrar
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(25, 25)
@@ -116,18 +104,22 @@ class MainWindow(QMainWindow):
         """)
         self.close_btn.clicked.connect(self.close)
         
-        btn_layout.addWidget(self.close_btn)
-        
-        self.right_panel.addLayout(btn_layout)
-        
-        top_layout.addLayout(self.right_panel, 0, 2, Qt.AlignRight | Qt.AlignTop)
-        
-        top_layout.setColumnStretch(0, 1)
-        top_layout.setColumnStretch(1, 0)
-        top_layout.setColumnStretch(2, 1)
-        
         main_layout.addWidget(top_container)
         main_layout.addStretch()
+        
+        # --- INFO LAYOUT BOTTOM ---
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setContentsMargins(0, 0, 15, 15) # Esquina inferior derecha
+        bottom_layout.addStretch()
+        bottom_layout.addLayout(info_layout)
+        bottom_layout.addSpacing(15)
+        
+        btn_layout_bottom = QVBoxLayout()
+        btn_layout_bottom.addStretch()
+        btn_layout_bottom.addWidget(self.close_btn)
+        bottom_layout.addLayout(btn_layout_bottom)
+        
+        main_layout.addLayout(bottom_layout)
         
         # --- CONEXIÓN AL VIEWMODEL ---
         self.viewmodel.time_updated.connect(self.time_label.setText)
@@ -208,8 +200,8 @@ class MainWindow(QMainWindow):
         w = self.width()
         h = self.height()
         
-        # 1. Base Background (No negro intenso)
-        bg_color = QColor("#0A1118") 
+        # 1. Base Background (Un poco más claro)
+        bg_color = QColor("#111A26") 
         painter.fillRect(self.rect(), bg_color)
         
         # 2. Puntos (Más visibles)

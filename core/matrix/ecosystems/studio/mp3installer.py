@@ -32,7 +32,7 @@ class MP3InstallerEcosystem:
     def __init__(self, config_path: str = None):
         if config_path is None:
             # Default to the config folder
-            base_dir = Path(__file__).parent
+            base_dir = Path(__file__).parent.parent
             self.config_path = base_dir / "mp3installer_config.json"
         else:
             self.config_path = Path(config_path)

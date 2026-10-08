@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QTextEdit
-from core.matrix.ecosystems.motherBoard.viewer_base import SciFiViewerBase
-from core.matrix.ecosystems.motherBoard.styles import get_minimal_scrollbar_style
+from core.matrix.ecosystems.motherBoard.globalComponents.viewer_base import SciFiViewerBase
+from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
 
 class TextViewerPanel(SciFiViewerBase):
     def __init__(self, parent=None):
@@ -95,7 +95,7 @@ class TextViewerPanel(SciFiViewerBase):
         if not is_word:
             actions.append("save")
                 
-        from core.matrix.ecosystems.motherBoard.simple_dialogs import SciFiContextMenu
+        from core.matrix.ecosystems.motherBoard.globalComponents.simple_dialogs import SciFiContextMenu
         menu = SciFiContextMenu(self.text_edit)
         
         for action in actions:

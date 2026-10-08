@@ -2,8 +2,8 @@ from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushBu
 from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtCore import Qt
-from core.matrix.ecosystems.motherBoard.viewer_base import SciFiViewerBase
-from core.matrix.ecosystems.motherBoard.styles import get_minimal_scrollbar_style
+from core.matrix.ecosystems.motherBoard.globalComponents.viewer_base import SciFiViewerBase
+from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
 
 class PdfViewerPanel(SciFiViewerBase):
     def __init__(self, parent=None):

@@ -1,6 +1,6 @@
 ✓ Revisar la pocison de la ruta
 ✓ Quitar el boton de home
-3. buscar pocision y animacion de la barra de opciones superior
+✓ 3. buscar pocision y animacion de la barra de opciones superior
 4. Armar pantalla de tareas o eventos
 5. Colocar sonido cuando se abre una aplicacion y cuando se cierra
 6. Agregar vista del arbol de carpetas en todos los niveles como una tecnica de navegacion.

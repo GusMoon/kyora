@@ -1,9 +1,9 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                  QLabel, QTextEdit, QTreeWidget, QTreeWidgetItem, QDateEdit, QInputDialog)
 from PySide6.QtCore import Qt, QDate
-from core.matrix.ecosystems.motherBoard.viewer_base import SciFiViewerBase
-from core.matrix.ecosystems.motherBoard.styles import get_minimal_scrollbar_style
-from core.matrix.ecosystems.motherBoard.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog
+from core.matrix.ecosystems.motherBoard.globalComponents.viewer_base import SciFiViewerBase
+from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.ecosystems.motherBoard.globalComponents.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog
 import re
 
 class TaskViewerPanel(SciFiViewerBase):
