@@ -37,9 +37,9 @@ class PdfViewerPanel(SciFiViewerBase):
         self.controls_widget = QWidget(self.body_frame)
         self.controls_widget.setStyleSheet("""
             QWidget { background-color: rgba(22, 22, 22, 0.85); border: 1px solid #182533; border-radius: 4px; }
-            QPushButton { background-color: transparent; color: #FFFFFF; font-family: 'Consolas'; font-size: 16px; border: none; padding: 4px 10px; font-weight: bold; }
+            QPushButton { background-color: transparent; color: #FFFFFF; font-family: 'Space Grotesk'; font-size: 16px; border: none; padding: 4px 10px; font-weight: bold; }
             QPushButton:hover { color: #4D94FF; }
-            QLabel { color: #FFFFFF; font-family: 'Consolas'; font-size: 12px; background-color: transparent; border: none; padding: 0 10px; }
+            QLabel { color: #FFFFFF; font-family: 'Space Grotesk'; font-size: 12px; background-color: transparent; border: none; padding: 0 10px; }
         """)
         c_layout = QHBoxLayout(self.controls_widget)
         c_layout.setContentsMargins(5, 5, 5, 5)

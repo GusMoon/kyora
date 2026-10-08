@@ -20,7 +20,9 @@ class KioraBaseContainer(QFrame):
         self._resize_dir = None
         self._resize_start_pos = None
         self._resize_start_geometry = None
-        self._drag_pos = None
+        self._resize_start_geometry = None
+        self._drag_offset = None
+        self.border_color = QColor("#4D94FF")
         
         # Habilitar el rastreo del mouse para cambiar el cursor en los bordes
         self.setMouseTracking(True)
@@ -56,8 +58,8 @@ class KioraBaseContainer(QFrame):
         self.title_label.setStyleSheet("""
             QLabel { 
                 color: #FFFFFF; 
-                font-family: 'Segoe UI', sans-serif; 
-                font-size: 11px; 
+                font-family: 'Space Grotesk', sans-serif; 
+                font-size: 14px; 
                 font-weight: 800; 
                 letter-spacing: 2px; 
                 border: none; 
@@ -163,12 +165,13 @@ class KioraBaseContainer(QFrame):
                 self._resize_start_geometry = self.geometry()
             else:
                 self._is_resizing = False
-                self._drag_pos = event.globalPosition().toPoint()
+                self._drag_offset = event.pos()
             event.accept()
 
     def mouseMoveEvent(self, event):
-        pos = event.pos()
-        self._update_cursor(pos)
+        is_dragging = hasattr(self, '_drag_offset') and self._drag_offset is not None
+        if not is_dragging and not self._is_resizing:
+            self._update_cursor(event.pos())
         
         if not (event.buttons() & Qt.LeftButton):
             return
@@ -198,28 +201,27 @@ class KioraBaseContainer(QFrame):
             self.setGeometry(new_x, new_y, new_w, new_h)
             event.accept()
             
-        elif self._drag_pos is not None:
+        elif hasattr(self, '_drag_offset') and self._drag_offset is not None:
             self.user_moved = True
-            new_pos = event.globalPosition().toPoint()
-            diff = new_pos - self._drag_pos
-            self._drag_pos = new_pos
-            
-            next_pos = self.pos() + diff
+            global_pos = event.globalPosition().toPoint()
             
             if self.parent():
+                parent_pos = self.parent().mapFromGlobal(global_pos)
+                next_pos = parent_pos - self._drag_offset
+                
                 parent_rect = self.parent().rect()
                 x = max(0, min(next_pos.x(), parent_rect.width() - self.width()))
                 y = max(0, min(next_pos.y(), parent_rect.height() - self.height()))
                 self.move(x, y)
             else:
-                self.move(next_pos)
+                self.move(global_pos - self._drag_offset)
             
             event.accept()
             
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._is_resizing = False
-            self._drag_pos = None
+            self._drag_offset = None
             self._update_cursor(event.pos())
             event.accept()
 
@@ -245,3 +247,4 @@ class KioraBaseContainer(QFrame):
         # Blanco para la esquina
         painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
         painter.drawPolygon(polygon)
+        painter.end()

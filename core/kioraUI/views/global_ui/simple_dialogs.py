@@ -18,7 +18,7 @@ class SciFiDialogBase(QDialog):
             }
             QLabel {
                 color: #FFFFFF;
-                font-family: 'Segoe UI';
+                font-family: 'Space Grotesk';
                 font-size: 14px;
                 background-color: transparent;
             }
@@ -33,7 +33,7 @@ class SciFiDialogBase(QDialog):
                 border: 1px solid #4D94FF;
                 color: #FFFFFF;
                 padding: 5px;
-                font-family: 'Segoe UI';
+                font-family: 'Space Grotesk';
                 font-size: 13px;
             }
             QPushButton {
@@ -42,7 +42,7 @@ class SciFiDialogBase(QDialog):
                 border: 1px solid #4D94FF;
                 padding: 6px 15px;
                 font-weight: bold;
-                font-family: 'Segoe UI';
+                font-family: 'Space Grotesk';
                 border-radius: 2px;
             }
             QPushButton:hover {
@@ -145,7 +145,7 @@ class SciFiContextMenu(QWidget):
                 border-radius: 0px;
                 padding: 10px 30px 10px 15px;
                 text-align: left;
-                font-family: 'Segoe UI';
+                font-family: 'Space Grotesk';
                 font-size: 13px;
             }
             QPushButton:hover {
@@ -168,4 +168,62 @@ class SciFiContextMenu(QWidget):
             callback()
         btn.clicked.connect(on_click)
         self.container_layout.addWidget(btn)
+
+class SciFiFileEditDialog(SciFiDialogBase):
+    def __init__(self, parent=None, title="", label_text="", default_name="", default_ext=""):
+        super().__init__(parent, title)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("Title")
+        
+        lbl = QLabel(label_text)
+        
+        inputs_layout = QHBoxLayout()
+        self.name_field = QLineEdit(default_name)
+        self.name_field.setPlaceholderText("Nombre")
+        
+        self.ext_field = QLineEdit(default_ext)
+        self.ext_field.setPlaceholderText("Extensión (ej. txt)")
+        self.ext_field.setMaximumWidth(100)
+        
+        inputs_layout.addWidget(self.name_field)
+        
+        dot_lbl = QLabel(".")
+        inputs_layout.addWidget(dot_lbl)
+        
+        inputs_layout.addWidget(self.ext_field)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        btn_cancel = QPushButton("CANCELAR")
+        btn_accept = QPushButton("ACEPTAR")
+        
+        btn_cancel.clicked.connect(self.reject)
+        btn_accept.clicked.connect(self.accept)
+        
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_accept)
+        
+        layout.addWidget(title_lbl)
+        layout.addWidget(lbl)
+        layout.addLayout(inputs_layout)
+        layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        self.name_field.setFocus()
+        self.name_field.selectAll()
+        
+    def get_full_name(self):
+        name = self.name_field.text().strip()
+        ext = self.ext_field.text().strip()
+        if ext.startswith('.'):
+            ext = ext[1:]
+        if ext:
+            return f"{name}.{ext}"
+        return name
 

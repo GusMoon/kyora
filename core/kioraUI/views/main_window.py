@@ -1,14 +1,17 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QSpacerItem, QSizePolicy, QLabel
+from PySide6.QtWidgets import QMainWindow, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout, QSpacerItem, QSizePolicy, QLabel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QColor, QPen
 
 # Componentes
 from core.kioraUI.views.home.configuration import ConfigurationPanel
 from core.kioraUI.views.home.explorer.treeFiles import ExplorerPanel
+from core.kioraUI.views.home.youtube_music import YoutubeMusicPanel
 from core.kioraUI.views.home.explorer.filesType.image_viewer import ImageViewerPanel
 from core.kioraUI.views.home.explorer.filesType.audio_viewer import AudioPlayerWidget
 from core.kioraUI.views.home.explorer.filesType.text_viewer import TextViewerPanel
 from core.kioraUI.views.home.explorer.filesType.pdf_viewer import PdfViewerPanel
+from core.kioraUI.views.home.explorer.filesType.task_viewer import TaskViewerPanel
+from core.kioraUI.views.global_ui.top_navigation_bar import TopNavigationBar
 
 class MainWindow(QMainWindow):
     def __init__(self, viewmodel):
@@ -30,8 +33,11 @@ class MainWindow(QMainWindow):
         
         self.explorer_panel = ExplorerPanel(self.central_widget)
         self.explorer_panel.hide()
-        self.explorer_panel.move(0, 0) # Fixed position top-left
+        self.explorer_panel.move(0, 50) # Fixed position left, below top bar
         self.explorer_panel.file_opened.connect(self.handle_file_opened)
+        
+        self.youtube_panel = YoutubeMusicPanel(self.central_widget)
+        self.youtube_panel.hide()
         
         # Instanciar visores de archivos
         self.image_viewer = ImageViewerPanel(self.central_widget)
@@ -47,6 +53,10 @@ class MainWindow(QMainWindow):
         self.pdf_viewer = PdfViewerPanel(self.central_widget)
         self.pdf_viewer.hide()
         
+        self.task_viewer = TaskViewerPanel(self.central_widget)
+        self.task_viewer.hide()
+        
+        self.handle_nav_selection("EXPLORER")
         self.showMaximized()
 
     def setup_ui(self):
@@ -54,12 +64,13 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         
         # --- TOP LAYOUT ---
-        top_layout = QHBoxLayout()
-        top_layout.setContentsMargins(20, 10, 10, 0)
-        top_layout.setAlignment(Qt.AlignTop)
+        top_container = QWidget()
+        top_layout = QGridLayout(top_container)
+        top_layout.setContentsMargins(0, 15, 10, 0)
         
-        spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        top_layout.addItem(spacer)
+        self.nav_bar = TopNavigationBar(top_container)
+        self.nav_bar.option_selected.connect(self.handle_nav_selection)
+        top_layout.addWidget(self.nav_bar, 0, 1, Qt.AlignHCenter | Qt.AlignTop)
         
         # --- INFO LAYOUT (RELOJ Y CLIMA) ---
         info_layout = QVBoxLayout()
@@ -68,22 +79,26 @@ class MainWindow(QMainWindow):
         
         self.time_label = QLabel("00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("color: #4D94FF; font-size: 56px; font-weight: 300; font-family: 'Segoe UI Light', 'Helvetica Neue', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
+        self.time_label.setStyleSheet("color: #4D94FF; font-size: 56px; font-weight: 300; font-family: 'Space Grotesk', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
         
         self.date_label = QLabel("--/--/----")
         self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.date_label.setStyleSheet("color: #4D94FF; font-size: 14px; font-family: 'Segoe UI', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
+        self.date_label.setStyleSheet("color: #4D94FF; font-size: 14px; font-family: 'Space Grotesk', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
         
         self.weather_label = QLabel("Calculando coordenadas...")
         self.weather_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.weather_label.setStyleSheet("color: #4D94FF; font-size: 12px; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0;")
+        self.weather_label.setStyleSheet("color: #4D94FF; font-size: 12px; font-family: 'Space Grotesk', sans-serif; margin: 0; padding: 0;")
         
         info_layout.addWidget(self.time_label)
         info_layout.addWidget(self.date_label)
         info_layout.addWidget(self.weather_label)
         
-        top_layout.addLayout(info_layout)
-        top_layout.addSpacing(15)
+        self.right_panel = QHBoxLayout()
+        self.right_panel.setContentsMargins(0, 0, 0, 0)
+        self.right_panel.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        
+        self.right_panel.addLayout(info_layout)
+        self.right_panel.addSpacing(15)
         
         # --- BOTONES DE CONTROL ---
         btn_layout = QVBoxLayout()
@@ -101,34 +116,17 @@ class MainWindow(QMainWindow):
         """)
         self.close_btn.clicked.connect(self.close)
         
-        # Botón Configuración
-        self.settings_btn = QPushButton("⚙")
-        self.settings_btn.setFixedSize(25, 25)
-        self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #4D94FF; font-size: 16px; border: 1px solid #4D94FF; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
-            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
-        """)
-        self.settings_btn.clicked.connect(self.toggle_settings)
-
-        # Botón Archivos (File Explorer)
-        self.explorer_btn = QPushButton("🖿")
-        self.explorer_btn.setFixedSize(25, 25)
-        self.explorer_btn.setCursor(Qt.PointingHandCursor)
-        self.explorer_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #4D94FF; font-size: 15px; border: 1px solid #4D94FF; border-radius: 3px; font-family: 'Segoe UI Symbol', 'Arial'; }
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
-            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
-        """)
-        self.explorer_btn.clicked.connect(self.toggle_explorer)
-        
         btn_layout.addWidget(self.close_btn)
-        btn_layout.addWidget(self.settings_btn)
-        btn_layout.addWidget(self.explorer_btn)
         
-        top_layout.addLayout(btn_layout)
-        main_layout.addLayout(top_layout)
+        self.right_panel.addLayout(btn_layout)
+        
+        top_layout.addLayout(self.right_panel, 0, 2, Qt.AlignRight | Qt.AlignTop)
+        
+        top_layout.setColumnStretch(0, 1)
+        top_layout.setColumnStretch(1, 0)
+        top_layout.setColumnStretch(2, 1)
+        
+        main_layout.addWidget(top_container)
         main_layout.addStretch()
         
         # --- CONEXIÓN AL VIEWMODEL ---
@@ -136,30 +134,32 @@ class MainWindow(QMainWindow):
         self.viewmodel.date_updated.connect(self.date_label.setText)
         self.viewmodel.weather_updated.connect(self.update_weather_label)
 
-    def toggle_settings(self):
-        if self.settings_panel.isHidden():
-            self.settings_panel.show()
-            self.settings_panel.raise_()
-        else:
-            self.settings_panel.hide()
-
-    def toggle_explorer(self):
-        if self.explorer_panel.isHidden():
+    def handle_nav_selection(self, option):
+        self.settings_panel.hide()
+        self.explorer_panel.hide()
+        self.youtube_panel.hide()
+        
+        if option == "EXPLORER":
             self.explorer_panel.show()
             self.explorer_panel.raise_()
-        else:
-            self.explorer_panel.hide()
+        elif option == "MUSIC":
+            self.youtube_panel.show()
+            self.youtube_panel.raise_()
+        elif option == "CONFIG":
+            self.settings_panel.show()
+            self.settings_panel.raise_()
             
     def resizeEvent(self, event):
         super().resizeEvent(event)
         
         if hasattr(self, 'explorer_panel') and self.explorer_panel:
-            self.explorer_panel.resize(750, self.height())
+            self.explorer_panel.resize(750, self.height() - 50)
             
         # Centrar paneles de manera individual si no los ha movido el usuario
         for panel in [getattr(self, 'settings_panel', None), 
+                      getattr(self, 'youtube_panel', None),
                       getattr(self, 'image_viewer', None), getattr(self, 'text_viewer', None),
-                      getattr(self, 'pdf_viewer', None)]:
+                      getattr(self, 'pdf_viewer', None), getattr(self, 'task_viewer', None)]:
             if panel and not getattr(panel, 'user_moved', False):
                 x = (self.width() - panel.width()) // 2
                 y = (self.height() - panel.height()) // 2
@@ -175,7 +175,11 @@ class MainWindow(QMainWindow):
         audio_exts = ['mp3', 'wav', 'ogg', 'flac']
         pdf_exts = ['pdf']
         
-        if ext in image_exts:
+        if ext == 'task':
+            self.task_viewer.load_task(path)
+            self.task_viewer.show()
+            self.task_viewer.raise_()
+        elif ext in image_exts:
             self.image_viewer.load_image(path)
             self.image_viewer.show()
             self.image_viewer.raise_()

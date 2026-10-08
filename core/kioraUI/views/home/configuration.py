@@ -12,7 +12,7 @@ class ConfigurationPanel(KioraBaseContainer):
                 background-color: transparent;
                 border: none;
                 color: #4D94FF;
-                font-family: 'Segoe UI', sans-serif;
+                font-family: 'Space Grotesk', sans-serif;
                 font-size: 13px;
                 font-weight: 600;
                 letter-spacing: 1px;

@@ -123,13 +123,13 @@ class ImageViewerPanel(QWidget):
         self.reset_btn.setFixedSize(45, 24)
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; font-family: 'Consolas'; font-size: 11px;}
+            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; font-family: 'Space Grotesk'; font-size: 11px;}
             QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
         """)
         self.reset_btn.clicked.connect(self.reset_view)
         
         self.info_label = QLabel("", self)
-        self.info_label.setStyleSheet("color: #FFFFFF; background-color: rgba(10, 17, 24, 0.85); font-family: 'Consolas'; font-size: 11px; padding: 4px; border: 1px solid #4D94FF;")
+        self.info_label.setStyleSheet("color: #FFFFFF; background-color: rgba(10, 17, 24, 0.85); font-family: 'Space Grotesk'; font-size: 11px; padding: 4px; border: 1px solid #4D94FF;")
         
         self._drag_pos = None
         self._is_resizing = False

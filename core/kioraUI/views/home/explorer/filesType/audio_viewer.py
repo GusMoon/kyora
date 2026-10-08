@@ -212,7 +212,7 @@ class AudioPlayerWidget(QWidget):
         
         self.song_name_lbl = QLabel("NO TRACK")
         self.song_name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.song_name_lbl.setStyleSheet("color: #FFFFFF; font-family: 'Segoe UI'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
+        self.song_name_lbl.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
         
         self.progress_slider = SciFiAudioWaveTimeline()
         
@@ -220,7 +220,7 @@ class AudioPlayerWidget(QWidget):
         btns_layout.setContentsMargins(0, 8, 0, 0)
         
         btn_style = """
-            QPushButton { color: #80BFFF; font-family: 'Consolas', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
+            QPushButton { color: #80BFFF; font-family: 'Space Grotesk', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
             QPushButton:hover { color: #FFFFFF; }
         """
         

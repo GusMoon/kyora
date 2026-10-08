@@ -8,16 +8,15 @@ class TextViewerPanel(SciFiViewerBase):
         self.resize(650, 550)
         
         self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setLineWrapMode(QTextEdit.NoWrap)
+        self.text_edit.setLineWrapMode(QTextEdit.WidgetWidth)
         
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + """
             QTextEdit {
                 background-color: rgba(10, 17, 24, 0.95);
                 color: #FFFFFF;
                 border: 1px solid #4D94FF;
-                padding: 10px;
-                font-family: 'Consolas', 'Courier New', monospace;
+                padding: 35px 10px 10px 10px;
+                font-family: 'Space Grotesk', monospace;
                 font-size: 13px;
             }
         """)
@@ -41,6 +40,10 @@ class TextViewerPanel(SciFiViewerBase):
         self.current_path = ""
         self.is_editing = False
         
+        from PySide6.QtGui import QShortcut, QKeySequence
+        self.shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.shortcut_save.activated.connect(lambda: self._handle_menu_action("save"))
+        
     def _update_style(self):
         border = "#4D94FF" if self.is_editing else "#4D94FF"
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + f"""
@@ -48,16 +51,18 @@ class TextViewerPanel(SciFiViewerBase):
                 background-color: rgba(10, 17, 24, 0.95);
                 color: #FFFFFF;
                 border: 1px solid {border};
-                padding: 10px;
-                font-family: 'Consolas', 'Courier New', monospace;
+                padding: 35px 10px 10px 10px;
+                font-family: 'Space Grotesk', monospace;
                 font-size: 13px;
             }}
         """)
         
     def load_text(self, path):
         self.current_path = path
-        self.is_editing = False
-        self.text_edit.setReadOnly(True)
+        
+        is_word = path.lower().endswith(('.doc', '.docx'))
+        self.is_editing = not is_word
+        self.text_edit.setReadOnly(is_word)
         self._update_style()
         
         if path.lower().endswith('.docx'):
@@ -84,14 +89,11 @@ class TextViewerPanel(SciFiViewerBase):
             self.text_edit.setPlainText(f"ERROR DECODING FILE:\n{str(e)}")
 
     def _show_context_menu(self, pos):
-        is_word = self.current_path.lower().endswith('.docx')
+        is_word = self.current_path.lower().endswith(('.doc', '.docx'))
         
         actions = ["copy"]
         if not is_word:
-            if self.is_editing:
-                actions.append("save")
-            else:
-                actions.append("edit")
+            actions.append("save")
                 
         from core.kioraUI.views.global_ui.simple_dialogs import SciFiContextMenu
         menu = SciFiContextMenu(self.text_edit)
@@ -107,17 +109,17 @@ class TextViewerPanel(SciFiViewerBase):
             if not self.text_edit.textCursor().hasSelection():
                 self.text_edit.selectAll()
             self.text_edit.copy()
-        elif action == "edit":
-            self.is_editing = True
-            self.text_edit.setReadOnly(False)
-            self._update_style()
         elif action == "save":
+            if not self.is_editing: return
             try:
                 with open(self.current_path, 'w', encoding='utf-8') as f:
                     f.write(self.text_edit.toPlainText())
-                self.is_editing = False
-                self.text_edit.setReadOnly(True)
-                self._update_style()
+                # Mostrar pequeña notificacion o cambiar el color brevemente
+                self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + """
+                    QTextEdit { background-color: rgba(10, 17, 24, 0.95); color: #FFFFFF; border: 1px solid #00FF00; padding: 35px 10px 10px 10px; font-family: 'Space Grotesk', monospace; font-size: 13px; }
+                """)
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(500, self._update_style)
             except Exception as e:
                 self.text_edit.setPlainText(f"Error saving:\n{str(e)}")
 
