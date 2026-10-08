@@ -13,40 +13,40 @@ class SciFiDialogBase(QDialog):
         self.setStyleSheet("""
             QDialog {
                 background-color: #0A1118;
-                border: 2px solid #4D94FF;
+                border: 2px solid #0099FF;
                 border-radius: 5px;
             }
             QLabel {
-                color: #FFFFFF;
+                color: #FFB84D;
                 font-family: 'Space Grotesk';
                 font-size: 14px;
                 background-color: transparent;
             }
             QLabel#Title {
-                color: #4D94FF;
+                color: #0099FF;
                 font-weight: bold;
                 font-size: 16px;
                 letter-spacing: 2px;
             }
             QLineEdit {
                 background-color: #182533;
-                border: 1px solid #4D94FF;
-                color: #FFFFFF;
+                border: 1px solid #0099FF;
+                color: #FFB84D;
                 padding: 5px;
                 font-family: 'Space Grotesk';
                 font-size: 13px;
             }
             QPushButton {
                 background-color: transparent;
-                color: #4D94FF;
-                border: 1px solid #4D94FF;
+                color: #0099FF;
+                border: 1px solid #0099FF;
                 padding: 6px 15px;
                 font-weight: bold;
                 font-family: 'Space Grotesk';
                 border-radius: 2px;
             }
             QPushButton:hover {
-                background-color: #4D94FF;
+                background-color: #0099FF;
                 color: #0A1118;
             }
         """)
@@ -135,12 +135,12 @@ class SciFiContextMenu(QWidget):
         self.container.setStyleSheet("""
             QFrame {
                 background-color: rgba(10, 17, 24, 0.95);
-                border: 1px solid #4D94FF;
+                border: 1px solid #0099FF;
                 border-radius: 4px;
             }
             QPushButton {
                 background-color: transparent;
-                color: #FFFFFF;
+                color: #FFB84D;
                 border: none;
                 border-radius: 0px;
                 padding: 10px 30px 10px 15px;
@@ -149,9 +149,9 @@ class SciFiContextMenu(QWidget):
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: rgba(77, 148, 255, 0.25);
-                color: #4D94FF;
-                border-left: 3px solid #4D94FF;
+                background-color: rgba(0, 153, 255, 0.25);
+                color: #0099FF;
+                border-left: 3px solid #0099FF;
                 padding-left: 12px;
             }
         """)

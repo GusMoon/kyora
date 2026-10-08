@@ -1,4 +1,7 @@
-1. Requiero que me deje cambiar el nombre de las carpetas correctamente
-2. Requiero que para los archivos un espacio sea para modificar el nombre y el otro se a para modificar el tipo de archivo
-3. Requiero generar un nuevo tipo de archivo en kiora y es el tipo .task en donde se use formato .md pero que al abrirlo me permita generar tareas y subtareas, una fecha de inicio y una fecha de vencimiento, y que tenga botones para agregar tareas y subtareas, y que me muestre una vista previa de las tareas, de de tambien dejarme poner descripciòn de querer y otra cosa quiero que esto lo almanecemos en un archivo dentro de la aplicación y que con la app modifiques este mismo.
-4. Recuerda que todo el diseño es con estilo scifi y para los botones tambien.
+✓ Revisar la pocison de la ruta
+✓ Quitar el boton de home
+3. buscar pocision y animacion de la barra de opciones superior
+4. Armar pantalla de tareas o eventos
+5. Colocar sonido cuando se abre una aplicacion y cuando se cierra
+6. Agregar vista del arbol de carpetas en todos los niveles como una tecnica de navegacion.
+

@@ -79,15 +79,15 @@ class MainWindow(QMainWindow):
         
         self.time_label = QLabel("00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("color: #4D94FF; font-size: 56px; font-weight: 300; font-family: 'Space Grotesk', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
+        self.time_label.setStyleSheet("color: #0099FF; font-size: 56px; font-weight: 300; font-family: 'Space Grotesk', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
         
         self.date_label = QLabel("--/--/----")
         self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.date_label.setStyleSheet("color: #4D94FF; font-size: 14px; font-family: 'Space Grotesk', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
+        self.date_label.setStyleSheet("color: #0099FF; font-size: 14px; font-family: 'Space Grotesk', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
         
         self.weather_label = QLabel("Calculando coordenadas...")
         self.weather_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.weather_label.setStyleSheet("color: #4D94FF; font-size: 12px; font-family: 'Space Grotesk', sans-serif; margin: 0; padding: 0;")
+        self.weather_label.setStyleSheet("color: #0099FF; font-size: 12px; font-family: 'Space Grotesk', sans-serif; margin: 0; padding: 0;")
         
         info_layout.addWidget(self.time_label)
         info_layout.addWidget(self.date_label)
@@ -110,8 +110,8 @@ class MainWindow(QMainWindow):
         self.close_btn.setFixedSize(25, 25)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #4D94FF; font-weight: bold; font-size: 12px; border: 1px solid #4D94FF; border-radius: 3px; }
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton { background-color: transparent; color: #0099FF; font-weight: bold; font-size: 12px; border: 1px solid #0099FF; border-radius: 3px; }
+            QPushButton:hover { background-color: #0099FF; color: #0A1118; }
             QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
         """)
         self.close_btn.clicked.connect(self.close)
@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         
         if hasattr(self, 'explorer_panel') and self.explorer_panel:
-            self.explorer_panel.resize(750, self.height() - 50)
+            self.explorer_panel.resize(int(self.width() * 0.6), self.height() - 50)
             
         # Centrar paneles de manera individual si no los ha movido el usuario
         for panel in [getattr(self, 'settings_panel', None), 
@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         painter.fillRect(self.rect(), bg_color)
         
         # 2. Puntos (Más visibles)
-        dot_color = QColor("#4D94FF") 
+        dot_color = QColor("#0099FF") 
         dot_color.setAlpha(60) 
         pen = QPen(dot_color)
         pen.setWidth(2)
@@ -227,8 +227,8 @@ class MainWindow(QMainWindow):
         # 3. Bloques sutiles (Menos y más transparentes)
         blocks = [
             (0.2, 0.3, 0.15, 0.4, "#182533", 30),
-            (0.45, 0.15, 0.3, 0.6, "#4D94FF", 10),
-            (0.25, 0.7, 0.1, 0.2, "#4D94FF", 15)
+            (0.45, 0.15, 0.3, 0.6, "#0099FF", 10),
+            (0.25, 0.7, 0.1, 0.2, "#0099FF", 15)
         ]
         
         painter.setPen(Qt.NoPen)

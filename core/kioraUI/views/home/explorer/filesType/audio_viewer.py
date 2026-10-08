@@ -25,7 +25,7 @@ class SciFiAudioWaveTimeline(QWidget):
         self.phase = 0.0
         
         self.waves = [
-            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(77, 148, 255, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(0, 153, 255, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
             {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(0, 200, 255, 120), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
             {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(0, 100, 255, 90), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
         ]
@@ -135,18 +135,18 @@ class SciFiAudioWaveTimeline(QWidget):
         hx = margin + ratio * track_w
         
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(77, 148, 255, 100))
+        painter.setBrush(QColor(0, 153, 255, 100))
         painter.drawEllipse(QPointF(hx, cy), 10, 10)
         
         painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.setBrush(QColor(77, 148, 255))
+        painter.setBrush(QColor(0, 153, 255))
         painter.drawEllipse(QPointF(hx, cy), 4.5, 4.5)
 
 class VolumePopup(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
         self.setFixedSize(40, 130)
-        self.setStyleSheet("background-color: rgba(10, 17, 24, 0.95); border: 1px solid #4D94FF; border-radius: 4px;")
+        self.setStyleSheet("background-color: rgba(10, 17, 24, 0.95); border: 1px solid #0099FF; border-radius: 4px;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 15, 10, 15)
         
@@ -155,7 +155,7 @@ class VolumePopup(QWidget):
         self.slider.setValue(100)
         self.slider.setStyleSheet("""
             QSlider::groove:vertical { border: 1px solid #182533; width: 4px; background: #0A1118; margin: 0 2px; }
-            QSlider::handle:vertical { background: #4D94FF; border: 1px solid #4D94FF; height: 10px; margin: 0 -4px; border-radius: 5px; }
+            QSlider::handle:vertical { background: #0099FF; border: 1px solid #0099FF; height: 10px; margin: 0 -4px; border-radius: 5px; }
         """)
         layout.addWidget(self.slider, alignment=Qt.AlignHCenter)
 
@@ -170,9 +170,16 @@ class SystemVolumeMonitor(QTimer):
         
         # Initialize COM in a safe way if needed, but Qt already does it in main thread.
         try:
+            import comtypes
+            comtypes.CoInitialize()
             devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, comtypes.CLSCTX_ALL, None)
-            self.volume_controller = cast(interface, POINTER(IAudioEndpointVolume))
+            if hasattr(devices, "EndpointVolume"):
+                # pycaw moderno: GetSpeakers() devuelve un wrapper AudioDevice
+                self.volume_controller = devices.EndpointVolume
+            else:
+                # pycaw legacy: GetSpeakers() devuelve el IMMDevice crudo
+                interface = devices.Activate(IAudioEndpointVolume._iid_, comtypes.CLSCTX_ALL, None)
+                self.volume_controller = cast(interface, POINTER(IAudioEndpointVolume))
             self.start(250)
         except Exception as e:
             print(f"Error cargando pycaw: {e}")
@@ -212,7 +219,7 @@ class AudioPlayerWidget(QWidget):
         
         self.song_name_lbl = QLabel("NO TRACK")
         self.song_name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.song_name_lbl.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
+        self.song_name_lbl.setStyleSheet("color: #FFB84D; font-family: 'Space Grotesk'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
         
         self.progress_slider = SciFiAudioWaveTimeline()
         
@@ -221,7 +228,7 @@ class AudioPlayerWidget(QWidget):
         
         btn_style = """
             QPushButton { color: #80BFFF; font-family: 'Space Grotesk', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
-            QPushButton:hover { color: #FFFFFF; }
+            QPushButton:hover { color: #FFB84D; }
         """
         
         self.btn_vol = QPushButton("VOL")
@@ -237,14 +244,24 @@ class AudioPlayerWidget(QWidget):
         self.btn_stop.setStyleSheet(btn_style)
         self.btn_vol.setStyleSheet(btn_style)
         
+        # PySide6 Audio setup (debe existir antes de conectar señales de volumen)
+        self.player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.player.setAudioOutput(self.audio_output)
+        self.audio_output.setVolume(1.0)
+        
         self.vol_popup = VolumePopup(self)
         self.sys_vol = SystemVolumeMonitor(self)
         self.sys_vol.volumeChanged.connect(self._on_sys_vol_changed)
         self.vol_popup.slider.valueChanged.connect(self._set_volume)
         
-        # Sincronizar UI incial
+        # Sincronizar UI inicial sin reescribir el volumen del sistema
         if self.sys_vol.volume_controller:
-            self.vol_popup.slider.setValue(int(self.sys_vol.volume_controller.GetMasterVolumeLevelScalar() * 100))
+            try:
+                initial = int(self.sys_vol.volume_controller.GetMasterVolumeLevelScalar() * 100)
+                self._on_sys_vol_changed(initial)
+            except Exception:
+                pass
         
         self.btn_play.clicked.connect(self._toggle_play)
         self.btn_stop.clicked.connect(self._stop_playback)
@@ -265,12 +282,6 @@ class AudioPlayerWidget(QWidget):
         c_layout.addSpacing(5) # Espacio para que la onda no choque
         c_layout.addLayout(btns_layout)
 
-        # PySide6 Audio setup
-        self.player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.player.setAudioOutput(self.audio_output)
-        self.audio_output.setVolume(1.0)
-        
         self.player.positionChanged.connect(self._update_position)
         self.player.durationChanged.connect(self._update_duration)
         self.progress_slider.sliderMoved.connect(self._set_position)
@@ -305,10 +316,13 @@ class AudioPlayerWidget(QWidget):
         self.vol_popup.slider.blockSignals(False)
         
     def _set_volume(self, val):
-        # Seteamos volumen del sistema global
-        self.sys_vol.set_volume(val)
-        # Seteamos volumen local por si acaso
-        self.audio_output.setVolume(val / 100.0)
+        if self.sys_vol.volume_controller:
+            # Volumen global del sistema (el output local se mantiene al 100%
+            # para no atenuar dos veces)
+            self.sys_vol.set_volume(val)
+        else:
+            # Fallback: sin pycaw, controlamos solo el volumen local
+            self.audio_output.setVolume(val / 100.0)
         
     def _toggle_volume_popup(self):
         if self.vol_popup.isVisible():

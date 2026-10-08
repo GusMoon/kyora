@@ -105,15 +105,15 @@ class SciFiCard(QPushButton):
         self.setStyleSheet("""
             QPushButton {
                 background-color: rgba(10, 17, 24, 0.8);
-                border: 1px solid #4D94FF;
-                border-top: 3px solid #4D94FF;
-                border-bottom: 1px solid #4D94FF;
+                border: 1px solid #0099FF;
+                border-top: 3px solid #0099FF;
+                border-bottom: 1px solid #0099FF;
                 color: #80BFFF;
                 text-align: left;
                 font-family: 'Space Grotesk', sans-serif;
             }
             QPushButton:hover {
-                background-color: rgba(77, 148, 255, 0.2);
+                background-color: rgba(0, 153, 255, 0.2);
                 border: 1px solid #80BFFF;
                 border-top: 3px solid #80BFFF;
             }
@@ -124,7 +124,7 @@ class SciFiCard(QPushButton):
         layout.setContentsMargins(10, 10, 10, 10)
         
         mode_label = QLabel("MODE A")
-        mode_label.setStyleSheet("color: #4D94FF; font-size: 10px; font-weight: bold; border: none; background: transparent;")
+        mode_label.setStyleSheet("color: #0099FF; font-size: 10px; font-weight: bold; border: none; background: transparent;")
         
         num_label = QLabel(idx_str)
         num_label.setStyleSheet("color: #e0fbfc; font-size: 32px; font-weight: 300; border: none; background: transparent;")
@@ -194,7 +194,7 @@ class SongItem(QWidget):
             else:
                 self.dl_btn.setText("...")
         elif self.status == "INSTALLED":
-            color = "#4D94FF" # Azul
+            color = "#0099FF" # Azul
             txt = "INSTALLED"
             self.dl_btn.setEnabled(False)
             self.dl_btn.setText("✓")
@@ -222,14 +222,14 @@ class YoutubeMusicPanel(KioraBaseContainer):
         super().__init__(title_text="YOUTUBE DB SCANNER", parent=parent)
         self.resize(500, 600)
         
-        self.config_path = Path(__file__).parent.parent.parent.parent / "ecosistema" / "config" / "mp3installer_config.json"
+        self.config_path = Path(__file__).parent.parent.parent.parent / "ecosystems" / "music" / "mp3installer_config.json"
         
         # Pestañas principales
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #4D94FF; background: transparent; }
-            QTabBar::tab { background: #0A1118; color: #a4a4a4; padding: 8px 20px; border: 1px solid #4D94FF; font-family: 'Space Grotesk', sans-serif; }
-            QTabBar::tab:selected { background: #4D94FF; color: #FFF; font-weight: bold; }
+            QTabWidget::pane { border: 1px solid #0099FF; background: transparent; }
+            QTabBar::tab { background: #0A1118; color: #a4a4a4; padding: 8px 20px; border: 1px solid #0099FF; font-family: 'Space Grotesk', sans-serif; }
+            QTabBar::tab:selected { background: #0099FF; color: #FFB84D; font-weight: bold; }
         """)
         self.body_layout.addWidget(self.tabs)
         
@@ -290,18 +290,18 @@ class YoutubeMusicPanel(KioraBaseContainer):
         layout = QVBoxLayout(view)
         
         label1 = QLabel("BASE URL (Tu canal o Feed de Playlists)")
-        label1.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk', sans-serif;")
+        label1.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
         self.base_url_input = QLineEdit()
-        self.base_url_input.setStyleSheet("background: #0A1118; color: #FFF; border: 1px solid #4D94FF; padding: 5px;")
+        self.base_url_input.setStyleSheet("background: #0A1118; color: #FFB84D; border: 1px solid #0099FF; padding: 5px;")
         
         label2 = QLabel("COOKIES (Navegador o archivo .txt)")
-        label2.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk', sans-serif;")
+        label2.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
         self.cookies_input = QLineEdit()
-        self.cookies_input.setStyleSheet("background: #0A1118; color: #FFF; border: 1px solid #4D94FF; padding: 5px;")
+        self.cookies_input.setStyleSheet("background: #0A1118; color: #FFB84D; border: 1px solid #0099FF; padding: 5px;")
         
         open_cookie_btn = QPushButton("Abrir archivo .txt")
         open_cookie_btn.setStyleSheet("""
-            QPushButton { background-color: #4D94FF; color: #0A1118; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
+            QPushButton { background-color: #0099FF; color: #0A1118; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
             QPushButton:hover { background-color: #80BFFF; }
         """)
         open_cookie_btn.clicked.connect(self.open_cookie_file)
@@ -312,7 +312,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         
         save_btn = QPushButton("Guardar y Conectar")
         save_btn.setStyleSheet("""
-            QPushButton { background-color: #4D94FF; color: #0A1118; font-weight: bold; padding: 10px; border-radius: 3px; }
+            QPushButton { background-color: #0099FF; color: #0A1118; font-weight: bold; padding: 10px; border-radius: 3px; }
             QPushButton:hover { background-color: #80BFFF; }
         """)
         save_btn.clicked.connect(self.save_config)
@@ -362,7 +362,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         
         top_layout = QHBoxLayout()
         self.grid_status_label = QLabel("Initializing connection...")
-        self.grid_status_label.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk', sans-serif;")
+        self.grid_status_label.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
         
         top_layout.addWidget(self.grid_status_label)
         top_layout.addStretch()
@@ -386,11 +386,11 @@ class YoutubeMusicPanel(KioraBaseContainer):
         
         top_layout = QHBoxLayout()
         back_btn = QPushButton("◄ Volver a Playlists")
-        back_btn.setStyleSheet("color: #4D94FF; background: transparent; border: 1px solid #4D94FF; padding: 5px;")
+        back_btn.setStyleSheet("color: #0099FF; background: transparent; border: 1px solid #0099FF; padding: 5px;")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         
         self.songs_title = QLabel("PLAYLIST TITLE")
-        self.songs_title.setStyleSheet("color: #FFF; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        self.songs_title.setStyleSheet("color: #FFB84D; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
         
         top_layout.addWidget(back_btn)
         top_layout.addSpacing(10)
@@ -399,7 +399,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         
         self.install_all_btn = QPushButton("Instalar Todo")
         self.install_all_btn.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: #FFF; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
+            QPushButton { background-color: #27ae60; color: #FFB84D; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
             QPushButton:hover { background-color: #2ecc71; }
             QPushButton:disabled { background-color: #555; color: #888; }
         """)
@@ -407,7 +407,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         
         self.stop_btn = QPushButton("Detener")
         self.stop_btn.setStyleSheet("""
-            QPushButton { background-color: #eb5757; color: #FFF; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
+            QPushButton { background-color: #eb5757; color: #FFB84D; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
             QPushButton:hover { background-color: #ff7675; }
             QPushButton:disabled { background-color: #555; color: #888; }
         """)

@@ -13,8 +13,8 @@ class TextViewerPanel(SciFiViewerBase):
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + """
             QTextEdit {
                 background-color: rgba(10, 17, 24, 0.95);
-                color: #FFFFFF;
-                border: 1px solid #4D94FF;
+                color: #FFB84D;
+                border: 1px solid #0099FF;
                 padding: 35px 10px 10px 10px;
                 font-family: 'Space Grotesk', monospace;
                 font-size: 13px;
@@ -29,8 +29,8 @@ class TextViewerPanel(SciFiViewerBase):
         
         self.close_btn.setParent(self)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
-            QPushButton:hover { background-color: #4D94FF; }
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFB84D; font-weight: bold; border: 1px solid #0099FF; }
+            QPushButton:hover { background-color: #0099FF; }
         """)
         self.close_btn.show()
         
@@ -45,11 +45,11 @@ class TextViewerPanel(SciFiViewerBase):
         self.shortcut_save.activated.connect(lambda: self._handle_menu_action("save"))
         
     def _update_style(self):
-        border = "#4D94FF" if self.is_editing else "#4D94FF"
+        border = "#0099FF" if self.is_editing else "#0099FF"
         self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + f"""
             QTextEdit {{
                 background-color: rgba(10, 17, 24, 0.95);
-                color: #FFFFFF;
+                color: #FFB84D;
                 border: 1px solid {border};
                 padding: 35px 10px 10px 10px;
                 font-family: 'Space Grotesk', monospace;
@@ -116,7 +116,7 @@ class TextViewerPanel(SciFiViewerBase):
                     f.write(self.text_edit.toPlainText())
                 # Mostrar pequeña notificacion o cambiar el color brevemente
                 self.text_edit.setStyleSheet(get_minimal_scrollbar_style() + """
-                    QTextEdit { background-color: rgba(10, 17, 24, 0.95); color: #FFFFFF; border: 1px solid #00FF00; padding: 35px 10px 10px 10px; font-family: 'Space Grotesk', monospace; font-size: 13px; }
+                    QTextEdit { background-color: rgba(10, 17, 24, 0.95); color: #FFB84D; border: 1px solid #00FF00; padding: 35px 10px 10px 10px; font-family: 'Space Grotesk', monospace; font-size: 13px; }
                 """)
                 from PySide6.QtCore import QTimer
                 QTimer.singleShot(500, self._update_style)

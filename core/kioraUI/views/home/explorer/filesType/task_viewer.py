@@ -21,13 +21,13 @@ class TaskViewerPanel(SciFiViewerBase):
         # --- Dates ---
         dates_layout = QHBoxLayout()
         self.lbl_start = QLabel("Start Date:")
-        self.lbl_start.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk'; font-weight: bold;")
+        self.lbl_start.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk'; font-weight: bold;")
         self.date_start = QDateEdit(QDate.currentDate())
         self.date_start.setCalendarPopup(True)
         self._style_date_edit(self.date_start)
         
         self.lbl_end = QLabel("End Date:")
-        self.lbl_end.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk'; font-weight: bold;")
+        self.lbl_end.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk'; font-weight: bold;")
         self.date_end = QDateEdit(QDate.currentDate().addDays(7))
         self.date_end.setCalendarPopup(True)
         self._style_date_edit(self.date_end)
@@ -42,7 +42,7 @@ class TaskViewerPanel(SciFiViewerBase):
         
         # --- Description ---
         self.lbl_desc = QLabel("Description:")
-        self.lbl_desc.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk'; font-weight: bold;")
+        self.lbl_desc.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk'; font-weight: bold;")
         layout.addWidget(self.lbl_desc)
         
         self.desc_edit = QTextEdit()
@@ -50,8 +50,8 @@ class TaskViewerPanel(SciFiViewerBase):
         self.desc_edit.setStyleSheet(get_minimal_scrollbar_style() + """
             QTextEdit {
                 background-color: rgba(10, 17, 24, 0.95);
-                color: #FFFFFF;
-                border: 1px solid #4D94FF;
+                color: #FFB84D;
+                border: 1px solid #0099FF;
                 padding: 5px;
                 font-family: 'Space Grotesk';
                 font-size: 13px;
@@ -61,7 +61,7 @@ class TaskViewerPanel(SciFiViewerBase):
         
         # --- Tasks Tree ---
         self.lbl_tasks = QLabel("Tasks:")
-        self.lbl_tasks.setStyleSheet("color: #4D94FF; font-family: 'Space Grotesk'; font-weight: bold;")
+        self.lbl_tasks.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk'; font-weight: bold;")
         layout.addWidget(self.lbl_tasks)
         
         self.tree_tasks = QTreeWidget()
@@ -69,13 +69,13 @@ class TaskViewerPanel(SciFiViewerBase):
         self.tree_tasks.setStyleSheet(get_minimal_scrollbar_style() + """
             QTreeWidget {
                 background-color: rgba(10, 17, 24, 0.95);
-                color: #FFFFFF;
-                border: 1px solid #4D94FF;
+                color: #FFB84D;
+                border: 1px solid #0099FF;
                 font-family: 'Space Grotesk';
                 font-size: 14px;
             }
             QTreeWidget::item { padding: 5px; }
-            QTreeWidget::item:selected { background-color: rgba(77, 148, 255, 0.3); }
+            QTreeWidget::item:selected { background-color: rgba(0, 153, 255, 0.3); }
         """)
         layout.addWidget(self.tree_tasks)
         
@@ -110,8 +110,8 @@ class TaskViewerPanel(SciFiViewerBase):
         
         self.close_btn.setParent(self)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
-            QPushButton:hover { background-color: #4D94FF; }
+            QPushButton { background-color: rgba(22, 22, 22, 0.8); color: #FFB84D; font-weight: bold; border: 1px solid #0099FF; }
+            QPushButton:hover { background-color: #0099FF; }
         """)
         self.close_btn.show()
 
@@ -119,8 +119,8 @@ class TaskViewerPanel(SciFiViewerBase):
         widget.setStyleSheet("""
             QDateEdit {
                 background-color: #182533;
-                color: #FFFFFF;
-                border: 1px solid #4D94FF;
+                color: #FFB84D;
+                border: 1px solid #0099FF;
                 padding: 4px;
                 font-family: 'Space Grotesk';
             }
@@ -130,9 +130,9 @@ class TaskViewerPanel(SciFiViewerBase):
         """)
         
     def _style_button(self, btn, primary=False):
-        color = "#80BFFF" if primary else "#4D94FF"
-        bg_hover = "#4D94FF" if primary else "rgba(77, 148, 255, 0.2)"
-        text_hover = "#0A1118" if primary else "#FFFFFF"
+        color = "#80BFFF" if primary else "#0099FF"
+        bg_hover = "#0099FF" if primary else "rgba(0, 153, 255, 0.2)"
+        text_hover = "#0A1118" if primary else "#FFB84D"
         
         btn.setStyleSheet(f"""
             QPushButton {{

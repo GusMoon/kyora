@@ -1,6 +1,6 @@
 {
     "download_path": "C:/Users/Gustavo/Music/KioraDownloads",
-    "browser_for_cookies": "c:/secondBrain/proyectos/kiora/core/ecosistema/config/youtube_cookies.txt",
+    "browser_for_cookies": "c:/secondBrain/proyectos/kiora/core/ecosystems/music/youtube_cookies.txt",
     "audio_format": "mp3",
     "audio_quality": "320",
     "base_url": "https://www.youtube.com/feed/playlists"

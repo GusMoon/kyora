@@ -32,7 +32,7 @@ class TopNavigationBar(QWidget):
                 btn.setStyleSheet("""
                     QPushButton {
                         background-color: transparent;
-                        color: #4D94FF;
+                        color: #0099FF;
                         font-family: 'Space Grotesk', sans-serif;
                         font-size: 24px;
                         font-weight: bold;

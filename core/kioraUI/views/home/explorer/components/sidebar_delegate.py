@@ -47,10 +47,10 @@ class SidebarDelegate(QStyledItemDelegate):
                 painter.scale(scale_xy, scale_xy)
                 painter.translate(-rect.center())
             
-        primary_color = QColor("#FFFFFF") if is_selected else QColor("#A0C0FF")
-        glow_color = QColor("#4D94FF")
-        bg_color = QColor(77, 148, 255, 45 if is_selected else (15 if is_hovered else 0))
-        border_color = QColor("#4D94FF") if is_selected else QColor("#182533")
+        primary_color = QColor("#FFB84D") if is_selected else QColor("#A0C0FF")
+        glow_color = QColor("#0099FF")
+        bg_color = QColor(0, 153, 255, 45 if is_selected else (15 if is_hovered else 0))
+        border_color = QColor("#0099FF") if is_selected else QColor("#182533")
         
         margin = 2
         h_margin = 8
@@ -79,7 +79,7 @@ class SidebarDelegate(QStyledItemDelegate):
         
         # Fondo sólido del lado derecho (no transparente)
         right_block_w = 12
-        right_block_color = QColor("#4D94FF") if is_selected else QColor("#182533")
+        right_block_color = QColor("#0099FF") if is_selected else QColor("#182533")
         painter.setBrush(right_block_color)
         painter.drawRect(x + w - right_block_w, y, right_block_w, h)
         
@@ -93,7 +93,7 @@ class SidebarDelegate(QStyledItemDelegate):
         row_idx = str(index.row() + 1).zfill(2)
         num_font = QFont("Space Grotesk", 9)
         painter.setFont(num_font)
-        painter.setPen(glow_color if is_selected else QColor("#888888"))
+        painter.setPen(QColor("#FFB84D"))
         num_rect = QRect(x + chamfer, y, 22, h)
         painter.drawText(num_rect, Qt.AlignVCenter | Qt.AlignCenter, row_idx)
         
@@ -115,7 +115,7 @@ class SidebarDelegate(QStyledItemDelegate):
             arrow_path.closeSubpath()
             
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#FFFFFF") if is_selected else QColor("#80BFFF"))
+            painter.setBrush(QColor("#FFB84D") if is_selected else QColor("#80BFFF"))
             painter.drawPath(arrow_path)
             text_x += arrow_size + 8
         elif not is_dir:

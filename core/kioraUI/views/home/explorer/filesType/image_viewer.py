@@ -99,14 +99,14 @@ class ImageViewerPanel(QWidget):
         self.hide()
         
         self.view = SimpleGraphicsView(self)
-        self.view.setStyleSheet("border: 1px solid #4D94FF; background-color: #0A1118;")
+        self.view.setStyleSheet("border: 1px solid #0099FF; background-color: #0A1118;")
         
         self.close_btn = QPushButton("✕", self)
         self.close_btn.setFixedSize(24, 24)
         self.close_btn.setCursor(Qt.PointingHandCursor)
         self.close_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFB84D; font-weight: bold; border: 1px solid #0099FF; }
+            QPushButton:hover { background-color: #0099FF; color: #0A1118; }
         """)
         self.close_btn.clicked.connect(self.hide)
         
@@ -114,8 +114,8 @@ class ImageViewerPanel(QWidget):
         self.rotate_btn.setFixedSize(24, 24)
         self.rotate_btn.setCursor(Qt.PointingHandCursor)
         self.rotate_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; }
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFB84D; font-weight: bold; border: 1px solid #0099FF; }
+            QPushButton:hover { background-color: #0099FF; color: #0A1118; }
         """)
         self.rotate_btn.clicked.connect(self._rotate_image)
         
@@ -123,13 +123,13 @@ class ImageViewerPanel(QWidget):
         self.reset_btn.setFixedSize(45, 24)
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFFFFF; font-weight: bold; border: 1px solid #4D94FF; font-family: 'Space Grotesk'; font-size: 11px;}
-            QPushButton:hover { background-color: #4D94FF; color: #0A1118; }
+            QPushButton { background-color: rgba(10, 17, 24, 0.8); color: #FFB84D; font-weight: bold; border: 1px solid #0099FF; font-family: 'Space Grotesk'; font-size: 11px;}
+            QPushButton:hover { background-color: #0099FF; color: #0A1118; }
         """)
         self.reset_btn.clicked.connect(self.reset_view)
         
         self.info_label = QLabel("", self)
-        self.info_label.setStyleSheet("color: #FFFFFF; background-color: rgba(10, 17, 24, 0.85); font-family: 'Space Grotesk'; font-size: 11px; padding: 4px; border: 1px solid #4D94FF;")
+        self.info_label.setStyleSheet("color: #FFB84D; background-color: rgba(10, 17, 24, 0.85); font-family: 'Space Grotesk'; font-size: 11px; padding: 4px; border: 1px solid #0099FF;")
         
         self._drag_pos = None
         self._is_resizing = False

@@ -22,7 +22,7 @@ class KioraBaseContainer(QFrame):
         self._resize_start_geometry = None
         self._resize_start_geometry = None
         self._drag_offset = None
-        self.border_color = QColor("#4D94FF")
+        self.border_color = QColor("#0099FF")
         
         # Habilitar el rastreo del mouse para cambiar el cursor en los bordes
         self.setMouseTracking(True)
@@ -31,7 +31,7 @@ class KioraBaseContainer(QFrame):
         self.setStyleSheet("""
             KioraBaseContainer { 
                 background-color: rgba(22, 22, 22, 0.95); 
-                border: 1px solid #4D94FF; 
+                border: 1px solid #0099FF; 
             }
         """)
         
@@ -45,7 +45,7 @@ class KioraBaseContainer(QFrame):
         # Header con rojo primario Kiora
         self.header.setStyleSheet("""
             QFrame { 
-                background-color: rgba(77, 148, 255, 0.95); 
+                background-color: rgba(0, 153, 255, 0.95); 
                 border: none; 
                 border-bottom: 2px solid #80BFFF; 
             }
@@ -57,7 +57,7 @@ class KioraBaseContainer(QFrame):
         self.title_label = QLabel(title_text)
         self.title_label.setStyleSheet("""
             QLabel { 
-                color: #FFFFFF; 
+                color: #FFB84D; 
                 font-family: 'Space Grotesk', sans-serif; 
                 font-size: 14px; 
                 font-weight: 800; 
@@ -76,7 +76,7 @@ class KioraBaseContainer(QFrame):
         self.close_btn.setStyleSheet("""
             QPushButton { 
                 background-color: transparent; 
-                color: #FFFFFF; 
+                color: #FFB84D; 
                 font-weight: bold; 
                 font-size: 14px; 
                 border: none; 

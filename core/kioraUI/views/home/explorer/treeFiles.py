@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeView, QFileSystemModel, QLineEdit, QFileIconProvider, QHeaderView, QSplitter, QStyledItemDelegate, QStyle, QStyleFactory, QMenu, QDialog
+from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeView, QListView, QAbstractItemView, QFileSystemModel, QLineEdit, QFileIconProvider, QHeaderView, QSplitter, QStyledItemDelegate, QStyle, QStyleFactory, QMenu, QDialog
+from PySide6.QtCore import QSortFilterProxyModel
 from core.kioraUI.views.global_ui.simple_dialogs import SciFiInputDialog, SciFiConfirmDialog, SciFiContextMenu, SciFiFileEditDialog
 from core.ecosystems.explorer.file_system_ecosystem import FileSystemEcosystem
 from PySide6.QtCore import Qt, QModelIndex, QFileInfo, QDir, QPoint, Signal, QStandardPaths, QSize, QRect
@@ -10,6 +11,36 @@ import math
 from core.kioraUI.views.global_ui.styles import get_minimal_scrollbar_style
 from core.kioraUI.views.home.explorer.components.sidebar_delegate import SidebarDelegate
 from core.kioraUI.views.home.explorer.components.explorer_delegate import ExplorerDelegate
+
+class FolderProxyModel(QSortFilterProxyModel):
+    def filterAcceptsRow(self, source_row, source_parent):
+        model = self.sourceModel()
+        if not model: return True
+        idx = model.index(source_row, 0, source_parent)
+        return model.isDir(idx)
+
+class FileProxyModel(QSortFilterProxyModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_root_path = ""
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        model = self.sourceModel()
+        if not model: return True
+        idx = model.index(source_row, 0, source_parent)
+        
+        if model.isDir(idx):
+            import os
+            parent_path = model.filePath(source_parent)
+            
+            if self.current_root_path == "":
+                return False
+                
+            if parent_path and self.current_root_path:
+                if os.path.normpath(parent_path).lower() == os.path.normpath(self.current_root_path).lower():
+                    return False
+            return True
+        return True
 
 class NoBranchTreeView(QTreeView):
     def drawBranches(self, painter, rect, index):
@@ -28,7 +59,7 @@ class SciFiIconProvider(QFileIconProvider):
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#4D94FF"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setPen(QPen(QColor("#0099FF"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawLine(12, 8, 4, 8)
         painter.drawLine(4, 8, 8, 4)
         painter.drawLine(4, 8, 8, 12)
@@ -42,14 +73,14 @@ class SciFiIconProvider(QFileIconProvider):
         painter.setRenderHint(QPainter.Antialiasing)
         if is_dir:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#4D94FF")) 
+            painter.setBrush(QColor("#0099FF")) 
             painter.drawRect(1, 2, 6, 3)
             painter.drawRoundedRect(1, 5, 14, 9, 1, 1)
         else:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor("#A0C0FF"))
             painter.drawRect(3, 2, 10, 12)
-            painter.setBrush(QColor("#FFFFFF"))
+            painter.setBrush(QColor("#FFB84D"))
             painter.drawPolygon([QPoint(13,2), QPoint(13,5), QPoint(10,2)])
         painter.end()
         return QIcon(pixmap)
@@ -77,29 +108,11 @@ class ExplorerPanel(QWidget):
         
         self.icon_provider = SciFiIconProvider()
         
-        # --- BARRA DE NAVEGACIÓN ---
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(10, 10, 10, 10)
-        
-        btn_style = """
-            QPushButton { background-color: transparent; color: #80BFFF; border: 1px solid #182533; font-family: 'Space Grotesk'; font-weight: bold; padding: 6px 15px; font-size: 11px; letter-spacing: 1px; }
-            QPushButton:hover { background-color: rgba(77, 148, 255, 0.2); border: 1px solid #4D94FF; color: #FFFFFF; }
-        """
-        
-        self.home_btn = QPushButton("HOME")
-        self.home_btn.setStyleSheet(btn_style)
-        self.home_btn.setCursor(Qt.PointingHandCursor)
-        self.home_btn.clicked.connect(lambda: self.go_to_path(""))
-        
-        self.path_btn = QPushButton(" /")
-        self.path_btn.setIcon(self.icon_provider.back_icon)
-        self.path_btn.setStyleSheet(btn_style + "text-align: left;")
-        self.path_btn.setCursor(Qt.PointingHandCursor)
-        self.path_btn.clicked.connect(self.go_back)
-        
-        nav_layout.addWidget(self.home_btn)
-        nav_layout.addWidget(self.path_btn, 1)
-        self.body_layout.addLayout(nav_layout)
+        # --- BARRA DE RUTA (TABS) ---
+        from core.kioraUI.views.home.explorer.components.path_view import PathView
+        self.path_view = PathView()
+        self.path_view.path_clicked.connect(self.go_to_path)
+        self.body_layout.addWidget(self.path_view)
         
         # --- SPLITTER ---
         self.splitter = QSplitter(Qt.Horizontal)
@@ -114,7 +127,7 @@ class ExplorerPanel(QWidget):
             QTreeView::item:focus { outline: none; }
             QTreeView::branch { width: 0px; border-image: none; image: none; }
             QTreeView::drop-indicator { background: transparent; image: none; border: none; }
-            QHeaderView::section { background-color: transparent; color: #4D94FF; border: none; padding: 4px; font-weight: bold; }
+            QHeaderView::section { background-color: transparent; color: #0099FF; border: none; padding: 4px; font-weight: bold; }
         """
         
         # --- SIDEBAR ---
@@ -129,51 +142,100 @@ class ExplorerPanel(QWidget):
         self.sidebar.setModel(self.qa_model)
         self.sidebar.clicked.connect(self.on_sidebar_clicked)
         
-        # --- ARBOL PRINCIPAL ---
-        self.tree = NoBranchTreeView()
-        self.tree.setStyle(QStyleFactory.create("windows"))
-        self.tree.setStyleSheet(tree_style)
-        self.tree.setItemDelegate(ExplorerDelegate())
-        self.tree.setHeaderHidden(True)
-        self.tree.setRootIsDecorated(False)
-        self.tree.setIndentation(15)
-        
+        # --- MODELOS ---
         self.fs_model = QFileSystemModel()
         self.fs_model.setRootPath("")
         self.fs_model.setIconProvider(self.icon_provider)
         
-        self.tree.setModel(self.fs_model)
-        self.tree.hideColumn(1) # Ocultar size
-        self.tree.hideColumn(2) # Ocultar tipo
-        self.tree.hideColumn(3) # Ocultar fecha
-        self.tree.setSortingEnabled(False)
-        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.tree.setVerticalScrollMode(QTreeView.ScrollPerPixel)
-        self.sidebar.setVerticalScrollMode(QTreeView.ScrollPerPixel)
+        self.folder_proxy = FolderProxyModel()
+        self.folder_proxy.setSourceModel(self.fs_model)
         
-        self.tree.setDropIndicatorShown(False)
+        self.file_proxy = FileProxyModel()
+        self.file_proxy.setSourceModel(self.fs_model)
+
+        # --- VISTAS ---
+        list_style = get_minimal_scrollbar_style() + """
+            QListView { background-color: transparent; border: none; outline: none; }
+            QListView::item { background: transparent; border: none; outline: none; }
+            QListView::item:hover { background: transparent; border: none; }
+            QListView::item:selected { background: transparent; border: none; }
+            QListView:focus { outline: none; }
+        """
+        
+        self.folder_view = QListView()
+        self.folder_view.setStyle(QStyleFactory.create("windows"))
+        self.folder_view.setStyleSheet(list_style)
+        self.folder_view.setViewMode(QListView.ListMode)
+        self.folder_view.setFlow(QListView.LeftToRight)
+        self.folder_view.setWrapping(True)
+        self.folder_view.setResizeMode(QListView.Adjust)
+        self.folder_view.setMovement(QListView.Static)
+        self.folder_view.setUniformItemSizes(False)
+        self.folder_view.setSpacing(4)
+        self.folder_view.setMouseTracking(True)
+        self.folder_view.setItemDelegate(ExplorerDelegate(view=self.folder_view))
+        self.folder_view.setModel(self.folder_proxy)
+        self.folder_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.folder_view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.folder_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.folder_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        
+        self.file_view = QListView()
+        self.file_view.setStyle(QStyleFactory.create("windows"))
+        self.file_view.setStyleSheet(list_style)
+        self.file_view.setViewMode(QListView.ListMode)
+        self.file_view.setFlow(QListView.TopToBottom)
+        self.file_view.setWrapping(False)
+        self.file_view.setResizeMode(QListView.Adjust)
+        self.file_view.setMovement(QListView.Static)
+        self.file_view.setUniformItemSizes(False)
+        self.file_view.setSpacing(6)
+        self.file_view.setMouseTracking(True)
+        self.file_view.setItemDelegate(ExplorerDelegate(view=self.file_view))
+        self.file_view.setModel(self.file_proxy)
+        self.file_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.file_view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.file_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.file_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        
+        self.sidebar.setVerticalScrollMode(QTreeView.ScrollPerPixel)
         self.sidebar.setDropIndicatorShown(False)
         
-        self.tree.setSelectionMode(QTreeView.ExtendedSelection)
-        self.tree.setSelectionBehavior(QTreeView.SelectRows)
+        # Unir vistas en un splitter
+        self.main_split = QSplitter(Qt.Horizontal)
+        self.main_split.setStyleSheet("QSplitter::handle { background-color: transparent; width: 0px; }")
+        self.main_split.addWidget(self.folder_view)
+        self.main_split.addWidget(self.file_view)
+        self.main_split.setSizes([400, 400])
         
         self.clipboard_paths = []
         self.clipboard_op = None
         
-        QShortcut(QKeySequence("Ctrl+C"), self.tree, self._do_copy)
-        QShortcut(QKeySequence("Ctrl+X"), self.tree, self._do_cut)
-        QShortcut(QKeySequence("Ctrl+V"), self.tree, self._do_paste)
-        QShortcut(QKeySequence("Ctrl+D"), self.tree, self._do_delete_selected)
+        QShortcut(QKeySequence("Ctrl+C"), self.folder_view, self._do_copy)
+        QShortcut(QKeySequence("Ctrl+X"), self.folder_view, self._do_cut)
+        QShortcut(QKeySequence("Ctrl+V"), self.folder_view, self._do_paste)
+        QShortcut(QKeySequence("Ctrl+D"), self.folder_view, self._do_delete_selected)
+        QShortcut(QKeySequence("Ctrl+C"), self.file_view, self._do_copy)
+        QShortcut(QKeySequence("Ctrl+X"), self.file_view, self._do_cut)
+        QShortcut(QKeySequence("Ctrl+V"), self.file_view, self._do_paste)
+        QShortcut(QKeySequence("Ctrl+D"), self.file_view, self._do_delete_selected)
         
-        self.fs_model.directoryLoaded.connect(lambda _: self._apply_column_layout())
-        self.tree.clicked.connect(self.on_tree_clicked)
-        self.tree.doubleClicked.connect(self.on_tree_double_clicked)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self.show_context_menu)
+        self.folder_view.clicked.connect(self.on_tree_clicked)
+        self.folder_view.doubleClicked.connect(self.on_tree_double_clicked)
+        self.folder_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.folder_view.customContextMenuRequested.connect(lambda pos: self.show_context_menu(pos, self.folder_view))
         
+        self.file_view.clicked.connect(self.on_tree_clicked)
+        self.file_view.doubleClicked.connect(self.on_tree_double_clicked)
+        self.file_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_view.customContextMenuRequested.connect(lambda pos: self.show_context_menu(pos, self.file_view))
+        
+        self.sidebar.setFixedWidth(200)
         self.splitter.addWidget(self.sidebar)
-        self.splitter.addWidget(self.tree)
-        self.splitter.setSizes([200, 550])
+        self.splitter.addWidget(self.main_split)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([200, 10000])
         
         self.body_layout.addWidget(self.splitter)
         
@@ -195,28 +257,26 @@ class ExplorerPanel(QWidget):
         add_qa("Videos", QStandardPaths.writableLocation(QStandardPaths.MoviesLocation))
         add_qa("Este equipo", "") # root
 
-    def _apply_column_layout(self):
-        header = self.tree.header()
-        model = self.tree.model()
-        if model is None: return
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-
     def on_sidebar_clicked(self, index: QModelIndex):
         from PySide6.QtCore import QTimer
         path = self.qa_model.data(index, Qt.UserRole)
         QTimer.singleShot(0, lambda: self.go_to_path(path))
 
+    def _map_to_source(self, index: QModelIndex):
+        model = index.model()
+        if isinstance(model, QSortFilterProxyModel):
+            return model.mapToSource(index)
+        return index
+
     def on_tree_clicked(self, index: QModelIndex):
-        info = self.fs_model.fileInfo(index)
-        if info.isDir():
-            is_expanded = self.tree.isExpanded(index)
-            self.tree.setExpanded(index, not is_expanded)
-        else:
-            path = self.fs_model.filePath(index)
+        source_idx = self._map_to_source(index)
+        info = self.fs_model.fileInfo(source_idx)
+        if not info.isDir():
+            path = self.fs_model.filePath(source_idx)
             self.file_opened.emit(path)
 
     def go_back(self):
-        current_idx = self.tree.rootIndex()
+        current_idx = self.fs_model.index(self.current_root_path) if hasattr(self, 'current_root_path') else self.fs_model.index("")
         parent_idx = self.fs_model.parent(current_idx)
         if not parent_idx.isValid() or self.fs_model.filePath(parent_idx) == "":
             self.go_to_path("")
@@ -225,33 +285,51 @@ class ExplorerPanel(QWidget):
 
     def on_tree_double_clicked(self, index: QModelIndex):
         from PySide6.QtCore import QTimer
-        info = self.fs_model.fileInfo(index)
-        path = self.fs_model.filePath(index)
+        source_idx = self._map_to_source(index)
+        info = self.fs_model.fileInfo(source_idx)
+        path = self.fs_model.filePath(source_idx)
         if info.isDir():
             QTimer.singleShot(0, lambda: self.go_to_path(path))
 
     def go_to_path(self, path):
-        idx = self.fs_model.index(path)
-        self.tree.setRootIndex(idx)
-        self._apply_column_layout()
-        self.path_btn.setText(f" {path}" if path else " Este equipo")
+        self.file_proxy.current_root_path = path
+        self.file_proxy.invalidateFilter()
+        
+        source_idx = self.fs_model.index(path)
+        folder_idx = self.folder_proxy.mapFromSource(source_idx)
+        file_idx = self.file_proxy.mapFromSource(source_idx)
+        
+        self.folder_view.setRootIndex(folder_idx)
+        self.file_view.setRootIndex(file_idx)
+        
+        self.current_root_path = path
+        self.path_view.set_path(path)
 
     def highlight_file(self, path):
-        idx = self.fs_model.index(path)
-        if idx.isValid():
-            self.tree.setCurrentIndex(idx)
-            self.tree.scrollTo(idx)
+        source_idx = self.fs_model.index(path)
+        if not source_idx.isValid(): return
+        
+        if self.fs_model.isDir(source_idx):
+            idx = self.folder_proxy.mapFromSource(source_idx)
+            if idx.isValid():
+                self.folder_view.setCurrentIndex(idx)
+                self.folder_view.scrollTo(idx)
+        else:
+            idx = self.file_proxy.mapFromSource(source_idx)
+            if idx.isValid():
+                self.file_view.setCurrentIndex(idx)
+                self.file_view.scrollTo(idx)
 
-    def show_context_menu(self, pos):
-        if self.tree.model() != self.fs_model: return
-        index = self.tree.indexAt(pos)
-        target_dir = self.fs_model.filePath(self.tree.rootIndex())
+    def show_context_menu(self, pos, view):
+        index = view.indexAt(pos)
+        target_dir = self.current_root_path if hasattr(self, 'current_root_path') else ""
         target_file = None
         
-        menu = SciFiContextMenu(self.tree)
+        menu = SciFiContextMenu(view)
         
         if index.isValid():
-            info = self.fs_model.fileInfo(index)
+            source_idx = self._map_to_source(index)
+            info = self.fs_model.fileInfo(source_idx)
             if info.isDir():
                 target_dir = info.absoluteFilePath()
                 target_file = info.absoluteFilePath()
@@ -266,7 +344,7 @@ class ExplorerPanel(QWidget):
             menu.add_action("Nueva carpeta", lambda: self._create_folder(target_dir))
             menu.add_action("Nuevo archivo", lambda: self._create_file(target_dir))
             
-        menu.move(self.tree.viewport().mapToGlobal(pos))
+        menu.move(view.viewport().mapToGlobal(pos))
         menu.show()
 
     def _duplicate_item(self, target_path):
@@ -276,9 +354,12 @@ class ExplorerPanel(QWidget):
 
     def _get_selected_paths(self):
         paths = []
-        for index in self.tree.selectionModel().selectedRows():
-            paths.append(self.fs_model.filePath(index))
-        return paths
+        for view in [self.folder_view, self.file_view]:
+            for index in view.selectionModel().selectedIndexes():
+                if index.column() == 0:
+                    source_idx = self._map_to_source(index)
+                    paths.append(self.fs_model.filePath(source_idx))
+        return list(set(paths))
 
     def _do_copy(self):
         paths = self._get_selected_paths()
@@ -294,7 +375,7 @@ class ExplorerPanel(QWidget):
 
     def _do_paste(self):
         if not self.clipboard_paths: return
-        target_dir = self.fs_model.filePath(self.tree.rootIndex())
+        target_dir = self.current_root_path if hasattr(self, 'current_root_path') else ""
         selected = self._get_selected_paths()
         if len(selected) == 1 and QFileInfo(selected[0]).isDir():
             target_dir = selected[0]
