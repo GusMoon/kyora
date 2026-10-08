@@ -6,10 +6,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFontDatabase, QFont
-from core.kioraUI.infrastructure.services.weather_location_service import ApiWeatherLocationService
-from core.kioraUI.application.use_cases.fetch_weather_location import FetchWeatherLocationUseCase
-from core.kioraUI.viewmodels.main_viewmodel import MainViewModel
-from core.kioraUI.views.main_window import MainWindow
+from core.matrix.infrastructure.services.weather_location_service import ApiWeatherLocationService
+from core.matrix.application.use_cases.fetch_weather_location import FetchWeatherLocationUseCase
+from core.matrix.viewmodels.main_viewmodel import MainViewModel
+from core.matrix.ecosystems.main_window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
