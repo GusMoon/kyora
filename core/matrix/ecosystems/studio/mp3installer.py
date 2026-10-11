@@ -33,7 +33,7 @@ class MP3InstallerEcosystem:
         if config_path is None:
             # Default to the config folder
             base_dir = Path(__file__).parent.parent
-            self.config_path = base_dir / "mp3installer_config.json"
+            self.config_path = base_dir / "global_config.json"
         else:
             self.config_path = Path(config_path)
             

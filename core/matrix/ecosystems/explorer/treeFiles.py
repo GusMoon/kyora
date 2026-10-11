@@ -59,7 +59,7 @@ class SciFiIconProvider(QFileIconProvider):
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#0099FF"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setPen(QPen(QColor("#444444"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawLine(12, 8, 4, 8)
         painter.drawLine(4, 8, 8, 4)
         painter.drawLine(4, 8, 8, 12)
@@ -73,14 +73,14 @@ class SciFiIconProvider(QFileIconProvider):
         painter.setRenderHint(QPainter.Antialiasing)
         if is_dir:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#0099FF")) 
+            painter.setBrush(QColor("#444444")) 
             painter.drawRect(1, 2, 6, 3)
             painter.drawRoundedRect(1, 5, 14, 9, 1, 1)
         else:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor("#A0C0FF"))
             painter.drawRect(3, 2, 10, 12)
-            painter.setBrush(QColor("#FFB84D"))
+            painter.setBrush(QColor("#FFFFFF"))
             painter.drawPolygon([QPoint(13,2), QPoint(13,5), QPoint(10,2)])
         painter.end()
         return QIcon(pixmap)
@@ -127,7 +127,7 @@ class ExplorerPanel(QWidget):
             QTreeView::item:focus { outline: none; }
             QTreeView::branch { width: 0px; border-image: none; image: none; }
             QTreeView::drop-indicator { background: transparent; image: none; border: none; }
-            QHeaderView::section { background-color: transparent; color: #0099FF; border: none; padding: 4px; font-weight: bold; }
+            QHeaderView::section { background-color: transparent; color: #FFFFFF; border: none; padding: 4px; font-weight: bold; }
         """
         
         # --- SIDEBAR ---

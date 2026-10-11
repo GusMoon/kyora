@@ -43,17 +43,17 @@ class SlantedTab(QPushButton):
         path.closeSubpath()
         
         if self.is_last:
-            bg_color = QColor(0, 153, 255, 35)
-            border_color = QColor(255, 184, 77)
-            text_color = QColor(255, 184, 77)
+            bg_color = QColor(255, 255, 255, 15)
+            border_color = QColor(255, 255, 255)
+            text_color = QColor(255, 255, 255)
         else:
-            bg_color = QColor(24, 37, 51, 240)
-            border_color = QColor(0, 153, 255, 100)
-            text_color = QColor(128, 191, 255)
+            bg_color = QColor(30, 30, 30, 240)
+            border_color = QColor(255, 255, 255, 40)
+            text_color = QColor(200, 200, 200)
             
         if self.underMouse() and not self.is_last:
-            bg_color = QColor(0, 153, 255, 50)
-            border_color = QColor(0, 153, 255, 200)
+            bg_color = QColor(255, 255, 255, 25)
+            border_color = QColor(255, 255, 255, 80)
             text_color = QColor(255, 255, 255)
             
         painter.setBrush(bg_color)
@@ -106,8 +106,8 @@ class FadeOverlay(QWidget):
         h = self.height()
         fade_w = 30
         
-        dark = QColor(10, 15, 20, int(255 * self.opacity))
-        trans = QColor(10, 15, 20, 0)
+        dark = QColor(18, 18, 18, 255)
+        trans = QColor(18, 18, 18, 0)
         
         grad_l = QLinearGradient(0, 0, fade_w, 0)
         grad_l.setColorAt(0, dark)
@@ -163,7 +163,7 @@ class PathView(QWidget):
         self.bottom_line = QFrame()
         self.bottom_line.setFrameShape(QFrame.HLine)
         self.bottom_line.setFrameShadow(QFrame.Plain)
-        self.bottom_line.setStyleSheet("background-color: #182533; max-height: 2px;")
+        self.bottom_line.setStyleSheet("background-color: #2A2A2A; max-height: 2px;")
         self.main_layout.addWidget(self.bottom_line)
 
     def resizeEvent(self, event):

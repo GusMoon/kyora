@@ -11,7 +11,13 @@ from core.matrix.ecosystems.explorer.filesType.audio_viewer import AudioPlayerWi
 from core.matrix.ecosystems.explorer.filesType.text_viewer import TextViewerPanel
 from core.matrix.ecosystems.explorer.filesType.pdf_viewer import PdfViewerPanel
 from core.matrix.ecosystems.explorer.filesType.task_viewer import TaskViewerPanel
-from core.matrix.ecosystems.motherBoard.rootComponents.navBar import NavBar
+from core.matrix.ecosystems.motherBoard.rootComponents.launcher import EcosystemLauncher
+
+# Tareas
+from core.matrix.ecosystems.tasks.infrastructure.sqlite_task_repository import SqliteTaskRepository
+from core.matrix.ecosystems.tasks.use_cases.manage_tasks import TaskUseCases
+from core.matrix.ecosystems.tasks.presentation.tasks_viewmodel import TasksViewModel
+from core.matrix.ecosystems.tasks.presentation.tasks_view import TasksView
 
 class MainWindow(QMainWindow):
     def __init__(self, viewmodel):
@@ -19,7 +25,6 @@ class MainWindow(QMainWindow):
         self.viewmodel = viewmodel
         
         self.setWindowTitle("Kiora")
-        self.setWindowOpacity(0.93)
         self.setWindowFlag(Qt.FramelessWindowHint)
         
         self.central_widget = QWidget()
@@ -56,7 +61,24 @@ class MainWindow(QMainWindow):
         self.task_viewer = TaskViewerPanel(self.central_widget)
         self.task_viewer.hide()
         
-        self.handle_nav_selection("EXPLORER")
+        self.launcher_panel = EcosystemLauncher(self.central_widget)
+        self.launcher_panel.hide()
+        self.launcher_panel.ecosystem_selected.connect(self.handle_nav_selection)
+        
+        # Instanciar Ecosistema de Tareas (MVVM)
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), "global_config.json")
+        self.task_repo = SqliteTaskRepository(config_path)
+        self.task_use_cases = TaskUseCases(self.task_repo)
+        self.tasks_viewmodel = TasksViewModel(self.task_use_cases)
+        self.tasks_main_view = TasksView(self.tasks_viewmodel, self.central_widget)
+        self.tasks_main_view.hide()
+        self.tasks_viewmodel.load_tasks()
+        self.tasks_main_view.open_task_requested.connect(self.handle_file_opened)
+        self.task_viewer.task_saved.connect(self._handle_task_viewer_saved)
+
+        
+        self.handle_nav_selection("HOME")
         self.showMaximized()
 
     def setup_ui(self):
@@ -69,67 +91,28 @@ class MainWindow(QMainWindow):
         top_layout.setContentsMargins(0, 15, 15, 0) # Casi tocando el borde superior derecho
         top_layout.addStretch()
         
-        self.nav_bar = NavBar(top_container)
-        self.nav_bar.option_selected.connect(self.handle_nav_selection)
-        top_layout.addWidget(self.nav_bar, 0, Qt.AlignRight | Qt.AlignTop)
-        # --- INFO LAYOUT (RELOJ Y CLIMA) ---
-        info_layout = QVBoxLayout()
-        info_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
-        info_layout.setSpacing(0)
+        from core.matrix.ecosystems.motherBoard.rootComponents.widget import InfoWidget
         
-        self.time_label = QLabel("00:00")
-        self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.time_label.setStyleSheet("color: #0099FF; font-size: 56px; font-weight: 300; font-family: 'Space Grotesk', sans-serif; letter-spacing: 2px; margin: 0; padding: 0;")
-        
-        self.date_label = QLabel("--/--/----")
-        self.date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.date_label.setStyleSheet("color: #0099FF; font-size: 14px; font-family: 'Space Grotesk', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin: 0; padding: 0;")
-        
-        self.weather_label = QLabel("Calculando coordenadas...")
-        self.weather_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.weather_label.setStyleSheet("color: #0099FF; font-size: 12px; font-family: 'Space Grotesk', sans-serif; margin: 0; padding: 0;")
-        
-        info_layout.addWidget(self.time_label)
-        info_layout.addWidget(self.date_label)
-        info_layout.addWidget(self.weather_label)
-        
-        # Botón Cerrar
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setFixedSize(25, 25)
-        self.close_btn.setCursor(Qt.PointingHandCursor)
-        self.close_btn.setStyleSheet("""
-            QPushButton { background-color: transparent; color: #0099FF; font-weight: bold; font-size: 12px; border: 1px solid #0099FF; border-radius: 3px; }
-            QPushButton:hover { background-color: #0099FF; color: #0A1118; }
-            QPushButton:pressed { background-color: #80BFFF; border: 1px solid #80BFFF; }
-        """)
-        self.close_btn.clicked.connect(self.close)
+        # --- INFO WIDGET FLOTANTE ---
+        self.info_widget = InfoWidget(self.central_widget)
         
         main_layout.addWidget(top_container)
         main_layout.addStretch()
         
-        # --- INFO LAYOUT BOTTOM ---
-        bottom_layout = QHBoxLayout()
-        bottom_layout.setContentsMargins(0, 0, 15, 15) # Esquina inferior derecha
-        bottom_layout.addStretch()
-        bottom_layout.addLayout(info_layout)
-        bottom_layout.addSpacing(15)
-        
-        btn_layout_bottom = QVBoxLayout()
-        btn_layout_bottom.addStretch()
-        btn_layout_bottom.addWidget(self.close_btn)
-        bottom_layout.addLayout(btn_layout_bottom)
-        
-        main_layout.addLayout(bottom_layout)
-        
-        # --- CONEXIÓN AL VIEWMODEL ---
-        self.viewmodel.time_updated.connect(self.time_label.setText)
-        self.viewmodel.date_updated.connect(self.date_label.setText)
-        self.viewmodel.weather_updated.connect(self.update_weather_label)
+        # --- CONEXIONES ---
+        self.viewmodel.time_updated.connect(self.info_widget.update_time)
+        self.viewmodel.date_updated.connect(self.info_widget.update_date)
+        self.viewmodel.weather_updated.connect(self.info_widget.update_weather)
+        self.info_widget.close_requested.connect(self.close)
+        self.info_widget.config_requested.connect(lambda: self.handle_nav_selection("CONFIG"))
+        self.info_widget.tasks_requested.connect(lambda: self.handle_nav_selection("HOME"))
 
     def handle_nav_selection(self, option):
         self.settings_panel.hide()
         self.explorer_panel.hide()
         self.youtube_panel.hide()
+        self.launcher_panel.hide()
+        self.tasks_main_view.hide()
         
         if option == "EXPLORER":
             self.explorer_panel.show()
@@ -140,16 +123,43 @@ class MainWindow(QMainWindow):
         elif option == "CONFIG":
             self.settings_panel.show()
             self.settings_panel.raise_()
+        elif option == "TASKS":
+            self.tasks_main_view.show()
+            self.tasks_main_view.raise_()
+            self.tasks_viewmodel.load_tasks()
+        elif option == "HOME":
+            self.launcher_panel.show()
+            self.launcher_panel.raise_()
+            
+        # Siempre mantener el widget de info en la capa superior
+        if hasattr(self, 'info_widget'):
+            self.info_widget.raise_()
             
     def resizeEvent(self, event):
         super().resizeEvent(event)
         
+        if hasattr(self, 'launcher_panel') and self.launcher_panel:
+            self.launcher_panel.resize(self.width(), self.height())
+            self.launcher_panel.move(0, 0)
+            
+        if hasattr(self, 'tasks_main_view') and self.tasks_main_view:
+            self.tasks_main_view.resize(self.width(), self.height())
+            self.tasks_main_view.move(0, 0)
+            
         if hasattr(self, 'explorer_panel') and self.explorer_panel:
             self.explorer_panel.resize(int(self.width() * 0.6), self.height() - 50)
             
+        if hasattr(self, 'youtube_panel') and self.youtube_panel:
+            self.youtube_panel.resize(int(self.width() * 0.6), self.height() - 50)
+            self.youtube_panel.move(0, 0)
+            
+        # Posicionar el widget flotante (reloj/clima) si no ha sido movido
+        if hasattr(self, 'info_widget') and self.info_widget:
+            if not getattr(self.info_widget, '_user_moved', False):
+                self.info_widget.move(self.width() - self.info_widget.width() - 5, self.height() - self.info_widget.height() - 5)
+            
         # Centrar paneles de manera individual si no los ha movido el usuario
         for panel in [getattr(self, 'settings_panel', None), 
-                      getattr(self, 'youtube_panel', None),
                       getattr(self, 'image_viewer', None), getattr(self, 'text_viewer', None),
                       getattr(self, 'pdf_viewer', None), getattr(self, 'task_viewer', None)]:
             if panel and not getattr(panel, 'user_moved', False):
@@ -189,59 +199,28 @@ class MainWindow(QMainWindow):
             self.text_viewer.load_text(path)
             self.text_viewer.show()
             self.text_viewer.raise_()
-            
-    def update_weather_label(self, loc, temp):
-        self.weather_label.setText(f"{loc}  |  {temp}")
-        
+
+    def _handle_task_viewer_saved(self):
+        """Sincroniza la tarea editada en el visor con la base de datos SQLite y recarga el board."""
+        path = getattr(self.task_viewer, 'current_path', '')
+        if path and os.path.exists(path):
+            try:
+                task_id = os.path.basename(path).replace(".task", "")
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                from core.matrix.ecosystems.tasks.domain.entities import Task
+                task = Task.from_markdown(content, task_id)
+                self.task_repo.save_task(task)
+                self.tasks_viewmodel.load_tasks()
+            except Exception as e:
+                print(f"Error sincronizando tarea desde visor a SQLite: {e}")
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
-        w = self.width()
-        h = self.height()
-        
-        # 1. Base Background (Un poco más claro)
-        bg_color = QColor("#111A26") 
+        # 1. Base Background
+        bg_color = QColor("#121212") 
         painter.fillRect(self.rect(), bg_color)
         
-        # 2. Puntos (Más visibles)
-        dot_color = QColor("#0099FF") 
-        dot_color.setAlpha(60) 
-        pen = QPen(dot_color)
-        pen.setWidth(2)
-        painter.setPen(pen)
-        
-        spacing = 20
-        for x in range(0, w, spacing):
-            for y in range(0, h, spacing):
-                painter.drawPoint(x, y)
-        
-        # 3. Bloques sutiles (Menos y más transparentes)
-        blocks = [
-            (0.2, 0.3, 0.15, 0.4, "#182533", 30),
-            (0.45, 0.15, 0.3, 0.6, "#0099FF", 10),
-            (0.25, 0.7, 0.1, 0.2, "#0099FF", 15)
-        ]
-        
-        painter.setPen(Qt.NoPen)
-        for bx, by, bw, bh, col, alpha in blocks:
-            c = QColor(col)
-            c.setAlpha(alpha)
-            painter.setBrush(QColor(c))
-            painter.drawRect(int(w * bx), int(h * by), int(w * bw), int(h * bh))
-            
-        # 4. Líneas más sencillas
-        h_lines = [0.25, 0.75]
-        v_lines = [0.35, 0.75]
-        
-        line_color = QColor("#182533")
-        line_color.setAlpha(150)
-        painter.setPen(QPen(line_color, 1, Qt.SolidLine))
-        
-        for y_pct in h_lines:
-            painter.drawLine(0, int(h * y_pct), w, int(h * y_pct))
-            
-        for x_pct in v_lines:
-            painter.drawLine(int(w * x_pct), 0, int(w * x_pct), h)
-            
         painter.end()

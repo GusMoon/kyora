@@ -4,21 +4,21 @@ from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
 
 # --- Paleta ---
-FOLDER_STROKE = QColor("#0099FF")        # Cyan brillante (referencia)
-FOLDER_STROKE_NORMAL = QColor("#0088CC") # Cyan oscuro
-FOLDER_FILL = QColor(0, 80, 255, 60)         # Fondo azul verdadero translúcido
-FOLDER_FILL_HOVER = QColor(0, 120, 255, 90)  # Fondo azul verdadero más brillante
-FOLDER_FILL_SELECTED = QColor(0, 150, 255, 140) # Fondo azul verdadero intenso
-FOLDER_TEXT = QColor("#A0C0FF")
-FOLDER_TEXT_SELECTED = QColor("#FFB84D")
-FOLDER_NUM = QColor("#FFB84D")           # Naranja brillante
+FOLDER_STROKE = QColor("#444444")        # Cyan brillante (referencia)
+FOLDER_STROKE_NORMAL = QColor("#555555") # Gris medio
+FOLDER_FILL = QColor(255, 255, 255, 10)         # Fondo gris verdadero translúcido
+FOLDER_FILL_HOVER = QColor(255, 255, 255, 25)  # Fondo gris verdadero más brillante
+FOLDER_FILL_SELECTED = QColor(255, 255, 255, 40) # Fondo gris verdadero intenso
+FOLDER_TEXT = QColor("#A0A0A0")
+FOLDER_TEXT_SELECTED = QColor("#FFFFFF")
+FOLDER_NUM = QColor("#FFFFFF")           # Naranja brillante
 
-FILE_BG_HOVER = QColor("#101C29")
-FILE_BG_SELECTED = QColor("#16304D")
-FILE_ACCENT = QColor("#0099FF")
-FILE_TEXT = QColor("#A0C0FF")
-FILE_TEXT_SELECTED = QColor("#FFB84D")
-NUM_COLOR = QColor("#FFB84D")            # Naranja brillante para archivos
+FILE_BG_HOVER = QColor("#1A1A1A")
+FILE_BG_SELECTED = QColor("#2A2A2A")
+FILE_ACCENT = QColor("#444444")
+FILE_TEXT = QColor("#A0A0A0")
+FILE_TEXT_SELECTED = QColor("#FFFFFF")
+NUM_COLOR = QColor("#FFFFFF")            # Naranja brillante para archivos
 
 # --- Dimensiones ---
 FOLDER_W = 92
@@ -85,7 +85,7 @@ class ExplorerDelegate(QStyledItemDelegate):
                 scale = 0.6 + 0.4 * factor
                 opacity = 0.1 + 0.9 * factor
                 
-                painter.setOpacity(opacity)
+                # painter.setOpacity removed
                 painter.translate(rect.x() + rect.width() / 2.0, item_cy)
                 painter.scale(scale, scale)
                 painter.translate(-(rect.x() + rect.width() / 2.0), -item_cy)
@@ -219,7 +219,7 @@ class ExplorerDelegate(QStyledItemDelegate):
         path.closeSubpath()
         
         # Fondo y borde de la figura
-        painter.setBrush(QColor("#0A1118") if not is_selected else QColor("#16304D"))
+        painter.setBrush(QColor("#121212") if not is_selected else QColor("#2A2A2A"))
         painter.setPen(QPen(FILE_ACCENT, 1.5))
         painter.drawPath(path)
         

@@ -19,10 +19,11 @@ class FetchPlaylistThread(QThread):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, url, browser_val):
+    def __init__(self, url, browser_val, fetch_counts=True):
         super().__init__()
         self.url = url
         self.browser_val = browser_val
+        self.fetch_counts = fetch_counts
 
     def run(self):
         try:
@@ -44,9 +45,28 @@ class FetchPlaylistThread(QThread):
                         if entry:
                             title = entry.get('title', 'Unknown')
                             url = entry.get('url', '')
-                            items.append({'title': title, 'url': url})
+                            items.append({'title': title, 'url': url, 'count': '?'})
                 elif 'title' in info:
-                    items.append({'title': info.get('title', 'Unknown'), 'url': info.get('webpage_url', self.url)})
+                    items.append({'title': info.get('title', 'Unknown'), 'url': info.get('webpage_url', self.url), 'count': '?'})
+                
+                # Segunda pasada para obtener la cantidad real de canciones de cada playlist en paralelo
+                if self.fetch_counts:
+                    from concurrent.futures import ThreadPoolExecutor
+                    def get_count(item):
+                        if not item['url']: return
+                        try:
+                            with yt_dlp.YoutubeDL(ydl_opts) as thread_ydl:
+                                p_info = thread_ydl.extract_info(item['url'], download=False)
+                                if 'entries' in p_info:
+                                    item['count'] = str(len(list(p_info['entries'])))
+                                elif 'playlist_count' in p_info:
+                                    item['count'] = str(p_info['playlist_count'])
+                        except Exception:
+                            pass
+                            
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        executor.map(get_count, items)
+                        
                 self.finished.emit(items)
         except Exception as e:
             self.error.emit(str(e))
@@ -95,7 +115,7 @@ class DownloadSequentialThread(QThread):
 # --- WIDGETS PERSONALIZADOS SCI-FI ---
 
 class SciFiCard(QPushButton):
-    def __init__(self, index, title, url):
+    def __init__(self, index, title, url, count="?"):
         super().__init__()
         self.url = url
         self.title = title
@@ -104,39 +124,48 @@ class SciFiCard(QPushButton):
         
         self.setStyleSheet("""
             QPushButton {
-                background-color: rgba(10, 17, 24, 0.8);
-                border: 1px solid #0099FF;
-                border-top: 3px solid #0099FF;
-                border-bottom: 1px solid #0099FF;
-                color: #80BFFF;
+                background-color: #1E1E1E;
+                border: 1px solid #444444;
                 text-align: left;
-                font-family: 'Space Grotesk', sans-serif;
             }
             QPushButton:hover {
-                background-color: rgba(0, 153, 255, 0.2);
-                border: 1px solid #80BFFF;
-                border-top: 3px solid #80BFFF;
+                background-color: #2A2A2A;
+                border: 1px solid #666666;
             }
         """)
-        self.setFixedSize(140, 140)
+        self.setFixedHeight(35)
+        self.setCursor(Qt.PointingHandCursor)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        mode_label = QLabel("MODE A")
-        mode_label.setStyleSheet("color: #0099FF; font-size: 10px; font-weight: bold; border: none; background: transparent;")
+        # Bloque izquierdo (Número)
+        num_container = QWidget()
+        num_container.setFixedWidth(60)
+        num_container.setStyleSheet("background-color: #FFFFFF; border: none;")
+        num_layout = QVBoxLayout(num_container)
+        num_layout.setContentsMargins(0, 0, 0, 0)
+        num_layout.setAlignment(Qt.AlignCenter)
         
         num_label = QLabel(idx_str)
-        num_label.setStyleSheet("color: #e0fbfc; font-size: 32px; font-weight: 300; border: none; background: transparent;")
+        num_label.setStyleSheet("color: #121212; font-size: 14px; font-weight: bold; font-family: 'Space Grotesk', sans-serif; background: transparent;")
+        num_layout.addWidget(num_label)
         
-        title_label = QLabel(title)
-        title_label.setWordWrap(True)
-        title_label.setStyleSheet("color: #a4a4a4; font-size: 11px; border: none; background: transparent;")
+        # Bloque derecho (Título)
+        title_label = QLabel(title.upper())
+        title_label.setContentsMargins(15, 0, 10, 0)
+        title_label.setStyleSheet("color: #E0E0E0; font-size: 13px; font-family: 'Space Grotesk', sans-serif; font-weight: bold; border: none; background: transparent;")
         
-        layout.addWidget(mode_label)
-        layout.addWidget(num_label)
-        layout.addStretch()
+        # Bloque derecho (Conteo)
+        count_label = QLabel(f"{count} TRACKS")
+        count_label.setContentsMargins(0, 0, 15, 0)
+        count_label.setStyleSheet("color: #FFFFFF; font-size: 11px; font-family: 'Space Grotesk', sans-serif; font-weight: bold; border: none; background: transparent;")
+        
+        layout.addWidget(num_container)
         layout.addWidget(title_label)
+        layout.addStretch()
+        layout.addWidget(count_label)
 
 
 class SongItem(QWidget):
@@ -147,30 +176,46 @@ class SongItem(QWidget):
         self.status = status
         
         self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(10, 8, 10, 8)
+        self.layout.setContentsMargins(10, 0, 10, 0)
+        self.setFixedHeight(30)
         
-        self.idx_label = QLabel(f"{index:03d}")
-        self.idx_label.setFixedWidth(30)
-        self.idx_label.setStyleSheet("font-family: 'Space Grotesk', sans-serif;")
+        # Color alterno para filas
+        if index % 2 == 0:
+            self.setStyleSheet("SongItem { background-color: #161616; }")
+        
+        self.idx_label = QLabel(f"{index:02d}")
+        self.idx_label.setFixedWidth(40)
+        self.idx_label.setStyleSheet("color: #A0A0A0; font-size: 11px; font-family: 'Space Grotesk', sans-serif;")
+        
+        self.title_label = QLabel(title.upper())
+        self.title_label.setStyleSheet("color: #E0E0E0; font-size: 11px; font-family: 'Space Grotesk', sans-serif; font-weight: bold;")
+        
+        self.status_container = QWidget()
+        self.status_container.setFixedWidth(80)
+        status_layout = QVBoxLayout(self.status_container)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setAlignment(Qt.AlignCenter)
+        
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("font-family: 'Space Grotesk', sans-serif; font-size: 9px; font-weight: bold;")
+        status_layout.addWidget(self.status_label)
+        
+        btn_container = QWidget()
+        btn_container.setFixedWidth(60)
+        btn_layout = QVBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setAlignment(Qt.AlignCenter)
         
         self.dl_btn = QPushButton("↓")
         self.dl_btn.setFixedSize(50, 20)
         self.dl_btn.setCursor(Qt.PointingHandCursor)
-        
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("font-family: 'Space Grotesk', sans-serif; font-size: 12px;")
-        
-        self.status_label = QLabel()
-        self.status_label.setFixedWidth(100)
-        self.status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.status_label.setStyleSheet("font-family: 'Space Grotesk', sans-serif; font-size: 10px; font-weight: bold;")
+        btn_layout.addWidget(self.dl_btn)
         
         self.layout.addWidget(self.idx_label)
-        self.layout.addWidget(self.dl_btn)
-        self.layout.addSpacing(10)
         self.layout.addWidget(self.title_label)
-        self.layout.addStretch()
-        self.layout.addWidget(self.status_label)
+        self.layout.addWidget(self.status_container)
+        self.layout.addWidget(btn_container)
         
         self.update_style()
         
@@ -180,71 +225,94 @@ class SongItem(QWidget):
         
     def update_style(self):
         if self.status == "NOT_INSTALLED":
-            color = "#555555" # Gris
-            txt = ""
+            txt_color = "#555555"
+            bg_color = "transparent"
+            txt = "--"
             self.dl_btn.setEnabled(True)
             self.dl_btn.setText("↓")
+            btn_color = "#444444"
         elif self.status.startswith("DOWNLOADING"):
-            color = "#f2c94c" # Amarillo
-            txt = "DOWNLOADING..."
+            txt_color = "#121212"
+            bg_color = "#FFFFFF" # Amarillo
+            txt = "DOWNLOADING"
             self.dl_btn.setEnabled(False)
             if " " in self.status:
                 percent = self.status.split(" ", 1)[1]
                 self.dl_btn.setText(percent)
             else:
                 self.dl_btn.setText("...")
+            btn_color = "#FFFFFF"
         elif self.status == "INSTALLED":
-            color = "#0099FF" # Azul
-            txt = "INSTALLED"
+            txt_color = "#121212"
+            bg_color = "#444444" # Azul sólido
+            txt = "ONLINE"
             self.dl_btn.setEnabled(False)
             self.dl_btn.setText("✓")
+            btn_color = "#444444"
         else: # ERROR
-            color = "#eb5757" # Rojo
-            txt = "FAILED"
+            txt_color = "#121212"
+            bg_color = "#A31F34" # Rojo sólido
+            txt = "OFFLINE"
             self.dl_btn.setEnabled(True)
             self.dl_btn.setText("↻")
+            btn_color = "#A31F34"
             
-        self.idx_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-        self.title_label.setStyleSheet(f"color: {color};")
-        self.status_label.setStyleSheet(f"color: {color};")
+        self.status_label.setStyleSheet(f"color: {txt_color}; background-color: {bg_color}; padding: 2px 5px; border-radius: 2px;")
         self.status_label.setText(txt)
         
-        self.setStyleSheet("") # Quitar el borde punteado
         self.dl_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: transparent; border: 1px solid {color}; color: {color}; border-radius: 10px; font-weight: bold; font-size: 10px; }}
-            QPushButton:hover {{ background-color: {color}33; }}
+            QPushButton {{ background-color: transparent; border: 1px solid {btn_color}; color: {btn_color}; border-radius: 10px; font-weight: bold; font-size: 10px; }}
+            QPushButton:hover {{ background-color: {btn_color}33; }}
         """)
 
 # --- PANEL PRINCIPAL ---
 
-class YoutubeMusicPanel(KioraBaseContainer):
+class YoutubeMusicPanel(QWidget):
     def __init__(self, parent=None):
-        super().__init__(title_text="YOUTUBE DB SCANNER", parent=parent)
-        self.resize(500, 600)
+        super().__init__(parent)
+        self.resize(800, 600)
         
-        self.config_path = Path(__file__).parent / "mp3installer_config.json"
+        self.config_path = Path(__file__).parent / "global_config.json"
         
-        # Pestañas principales
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #0099FF; background: transparent; }
-            QTabBar::tab { background: #0A1118; color: #a4a4a4; padding: 8px 20px; border: 1px solid #0099FF; font-family: 'Space Grotesk', sans-serif; }
-            QTabBar::tab:selected { background: #0099FF; color: #FFB84D; font-weight: bold; }
-        """)
-        self.body_layout.addWidget(self.tabs)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(15, 15, 15, 15)
         
-        # Tab 1: Explorador (Usa StackedWidget internamente para Grid y Songs)
-        self.explorer_tab = QWidget()
-        self.explorer_layout = QVBoxLayout(self.explorer_tab)
+        # Cargar configuración primero
+        self.load_global_config()
+        
+        # --- Top Section: Cookies ---
+        top_bar = QHBoxLayout()
+        top_bar.setAlignment(Qt.AlignLeft)
+        
+        # Cookie status box
+        self.cookie_status_box = QWidget()
+        self.cookie_status_box.setFixedSize(160, 60)
+        cookie_layout = QVBoxLayout(self.cookie_status_box)
+        cookie_layout.setContentsMargins(15, 10, 15, 10)
+        
+        self.cookie_status_title = QLabel("YOUTUBE COOKIES")
+        self.cookie_status_title.setStyleSheet("color: #B7B7B7; font-size: 10px; font-weight: bold; font-family: 'Space Grotesk', sans-serif; letter-spacing: 1px;")
+        
+        self.cookie_status_label = QLabel()
+        self.cookie_status_label.setStyleSheet("color: #FFFFFF; font-size: 14px; font-family: 'Space Grotesk', sans-serif; font-weight: bold;")
+        
+        cookie_layout.addWidget(self.cookie_status_title)
+        cookie_layout.addWidget(self.cookie_status_label)
+        
+        top_bar.addWidget(self.cookie_status_box)
+        
+        self.main_layout.addLayout(top_bar)
+        self.main_layout.addSpacing(30)
+        
+        # --- Título "Active playlists" ---
+        playlists_title = QLabel("Active playlists")
+        playlists_title.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: bold;")
+        self.main_layout.addWidget(playlists_title)
+        self.main_layout.addSpacing(10)
+        
+        # --- Stacked Widget (Grid / Songs) ---
         self.stacked_widget = QStackedWidget()
-        self.explorer_layout.addWidget(self.stacked_widget)
-        self.explorer_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs.addTab(self.explorer_tab, "Explorador de Playlists")
-        
-        # Tab 2: Configuración
-        self.config_tab = QWidget()
-        self.setup_config_view(self.config_tab)
-        self.tabs.addTab(self.config_tab, "Configuración")
+        self.main_layout.addWidget(self.stacked_widget)
         
         self.setup_grid_view()
         self.setup_songs_view()
@@ -253,117 +321,44 @@ class YoutubeMusicPanel(KioraBaseContainer):
         self.dl_thread = None
         self.text_viewer = None
         
-        self.load_global_config()
+        self.check_cookie_status()
+        
+        if self.cfg.get("base_url"):
+            self.load_base_playlists()
+
+    def check_cookie_status(self):
+        cookie_path = self.cfg.get("browser_for_cookies", "")
+        is_valid = False
+        if cookie_path.endswith('.txt') and os.path.exists(cookie_path):
+            if os.path.getsize(cookie_path) > 50:
+                is_valid = True
+                
+        if is_valid:
+            self.cookie_status_box.setStyleSheet("background-color: #2A2A2A; border-left: 4px solid #444444;")
+            self.cookie_status_label.setText("UPDATED")
+        else:
+            self.cookie_status_box.setStyleSheet("background-color: #3D1F1F; border-left: 4px solid #A31F34;")
+            self.cookie_status_label.setText("EXPIRED")
 
     def load_global_config(self):
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     self.cfg = json.load(f)
-                    self.base_url_input.setText(self.cfg.get("base_url", ""))
-                    self.cookies_input.setText(self.cfg.get("browser_for_cookies", "chrome"))
-                    
-                    if self.cfg.get("base_url"):
-                        self.tabs.setCurrentIndex(0)
-                        self.stacked_widget.setCurrentIndex(0)
-                        self.load_base_playlists()
             except Exception:
                 self.cfg = {}
         else:
             self.cfg = {}
 
-    def save_config(self):
-        self.cfg["base_url"] = self.base_url_input.text().strip()
-        self.cfg["browser_for_cookies"] = self.cookies_input.text().strip()
-        
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(self.cfg, f, indent=4)
-            
-        self.tabs.setCurrentIndex(0)
-        self.stacked_widget.setCurrentIndex(0)
-        self.load_base_playlists()
-
-    # --- VIEWS SETUP ---
-
-    def setup_config_view(self, view):
-        layout = QVBoxLayout(view)
-        
-        label1 = QLabel("BASE URL (Tu canal o Feed de Playlists)")
-        label1.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
-        self.base_url_input = QLineEdit()
-        self.base_url_input.setStyleSheet("background: #0A1118; color: #FFB84D; border: 1px solid #0099FF; padding: 5px;")
-        
-        label2 = QLabel("COOKIES (Navegador o archivo .txt)")
-        label2.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
-        self.cookies_input = QLineEdit()
-        self.cookies_input.setStyleSheet("background: #0A1118; color: #FFB84D; border: 1px solid #0099FF; padding: 5px;")
-        
-        open_cookie_btn = QPushButton("Abrir archivo .txt")
-        open_cookie_btn.setStyleSheet("""
-            QPushButton { background-color: #0099FF; color: #0A1118; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
-            QPushButton:hover { background-color: #80BFFF; }
-        """)
-        open_cookie_btn.clicked.connect(self.open_cookie_file)
-        
-        cookie_layout = QHBoxLayout()
-        cookie_layout.addWidget(self.cookies_input)
-        cookie_layout.addWidget(open_cookie_btn)
-        
-        save_btn = QPushButton("Guardar y Conectar")
-        save_btn.setStyleSheet("""
-            QPushButton { background-color: #0099FF; color: #0A1118; font-weight: bold; padding: 10px; border-radius: 3px; }
-            QPushButton:hover { background-color: #80BFFF; }
-        """)
-        save_btn.clicked.connect(self.save_config)
-        
-        layout.addStretch()
-        layout.addWidget(label1)
-        layout.addWidget(self.base_url_input)
-        layout.addSpacing(20)
-        layout.addWidget(label2)
-        layout.addLayout(cookie_layout)
-        layout.addSpacing(30)
-        layout.addWidget(save_btn)
-        layout.addStretch()
-
-    def open_cookie_file(self):
-        path = self.cookies_input.text().strip()
-        if not path or not path.endswith('.txt'):
-            return
-            
-        if not self.text_viewer:
-            main_win = self.window()
-            parent_widget = main_win.centralWidget() if hasattr(main_win, 'centralWidget') else main_win
-            self.text_viewer = TextViewerPanel(parent_widget)
-            
-        # Si el archivo no existe lo creamos vacío
-        if not Path(path).exists():
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write("# Pega aqui tus cookies de youtube\\n")
-                
-        self.text_viewer.load_text(path)
-        
-        # Centrar relativo al widget padre
-        parent_widget = self.text_viewer.parentWidget()
-        x = (parent_widget.width() - self.text_viewer.width()) // 2
-        y = (parent_widget.height() - self.text_viewer.height()) // 2
-        if x < 0: x = 0
-        if y < 0: y = 0
-        self.text_viewer.move(x, y)
-        
-        self.text_viewer.show()
-        self.text_viewer.raise_()
 
     def setup_grid_view(self):
         view = QWidget()
         layout = QVBoxLayout(view)
         
         top_layout = QHBoxLayout()
-        self.grid_status_label = QLabel("Initializing connection...")
-        self.grid_status_label.setStyleSheet("color: #0099FF; font-family: 'Space Grotesk', sans-serif;")
-        
+        self.grid_status_label = QLabel("ANALYZING PLAYLISTS...")
+        self.grid_status_label.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: bold;")
+        self.grid_status_label.hide()
         top_layout.addWidget(self.grid_status_label)
         top_layout.addStretch()
         
@@ -372,7 +367,9 @@ class YoutubeMusicPanel(KioraBaseContainer):
         scroll.setStyleSheet(get_minimal_scrollbar_style() + "QScrollArea { border: none; background: transparent; } QWidget { background: transparent; }")
         
         self.grid_widget = QWidget()
-        self.grid_layout = QGridLayout(self.grid_widget)
+        self.grid_layout = QVBoxLayout(self.grid_widget)
+        self.grid_layout.setAlignment(Qt.AlignTop)
+        self.grid_layout.setSpacing(5)
         scroll.setWidget(self.grid_widget)
         
         layout.addLayout(top_layout)
@@ -385,30 +382,52 @@ class YoutubeMusicPanel(KioraBaseContainer):
         layout = QVBoxLayout(view)
         
         top_layout = QHBoxLayout()
-        back_btn = QPushButton("◄ Volver a Playlists")
-        back_btn.setStyleSheet("color: #0099FF; background: transparent; border: 1px solid #0099FF; padding: 5px;")
+        top_layout.setContentsMargins(0, 0, 0, 10)
+        top_layout.setSpacing(0)
+        
+        back_btn = QPushButton("PLAYLISTS ◄")
+        back_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2A2A2A;
+                color: #A0A0A0;
+                font-family: 'Space Grotesk', sans-serif;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 6px 15px;
+                border: 1px solid #444444;
+                border-right: none;
+            }
+            QPushButton:hover { background-color: #333333; color: #E0E0E0; }
+        """)
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         
-        self.songs_title = QLabel("PLAYLIST TITLE")
-        self.songs_title.setStyleSheet("color: #FFB84D; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        self.songs_title = QLabel("TITLE")
+        self.songs_title.setStyleSheet("""
+            background-color: #FFFFFF;
+            color: #121212;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: bold;
+            font-size: 13px;
+            padding: 6px 15px;
+            border: 1px solid #FFFFFF;
+        """)
         
         top_layout.addWidget(back_btn)
-        top_layout.addSpacing(10)
         top_layout.addWidget(self.songs_title)
         top_layout.addStretch()
         
         self.install_all_btn = QPushButton("Instalar Todo")
         self.install_all_btn.setStyleSheet("""
-            QPushButton { background-color: #27ae60; color: #FFB84D; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
-            QPushButton:hover { background-color: #2ecc71; }
+            QPushButton { background-color: #333333; color: #FFFFFF; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
+            QPushButton:hover { background-color: #444444; }
             QPushButton:disabled { background-color: #555; color: #888; }
         """)
         self.install_all_btn.clicked.connect(self.start_download_all)
         
         self.stop_btn = QPushButton("Detener")
         self.stop_btn.setStyleSheet("""
-            QPushButton { background-color: #eb5757; color: #FFB84D; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
-            QPushButton:hover { background-color: #ff7675; }
+            QPushButton { background-color: #A31F34; color: #FFFFFF; font-weight: bold; padding: 5px 15px; border-radius: 3px; }
+            QPushButton:hover { background-color: #C82B46; }
             QPushButton:disabled { background-color: #555; color: #888; }
         """)
         self.stop_btn.clicked.connect(self.stop_downloads)
@@ -417,16 +436,53 @@ class YoutubeMusicPanel(KioraBaseContainer):
         top_layout.addWidget(self.install_all_btn)
         top_layout.addWidget(self.stop_btn)
         
+        # HEADER
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(10, 5, 10, 5)
+        
+        lbl_no = QLabel("NO")
+        lbl_no.setFixedWidth(40)
+        lbl_no.setStyleSheet("color: #A0A0A0; font-size: 10px; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        
+        lbl_station = QLabel("STATION")
+        lbl_station.setStyleSheet("color: #A0A0A0; font-size: 10px; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        
+        lbl_status = QLabel("STATUS")
+        lbl_status.setFixedWidth(80)
+        lbl_status.setAlignment(Qt.AlignCenter)
+        lbl_status.setStyleSheet("color: #A0A0A0; font-size: 10px; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        
+        lbl_action = QLabel("ACTION")
+        lbl_action.setFixedWidth(60)
+        lbl_action.setAlignment(Qt.AlignCenter)
+        lbl_action.setStyleSheet("color: #A0A0A0; font-size: 10px; font-weight: bold; font-family: 'Space Grotesk', sans-serif;")
+        
+        header_layout.addWidget(lbl_no)
+        header_layout.addWidget(lbl_station)
+        header_layout.addWidget(lbl_status)
+        header_layout.addWidget(lbl_action)
+        
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(get_minimal_scrollbar_style() + "QScrollArea { border: none; background: transparent; } QWidget { background: transparent; }")
         
         self.songs_container = QWidget()
+        self.songs_container.setStyleSheet("background-color: #121212;")
         self.songs_layout = QVBoxLayout(self.songs_container)
         self.songs_layout.setAlignment(Qt.AlignTop)
+        self.songs_layout.setSpacing(0)
+        
+        # Loading indicator for songs
+        self.songs_loading_label = QLabel("FETCHING TRACKS...")
+        self.songs_loading_label.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: bold; padding: 20px;")
+        self.songs_loading_label.setAlignment(Qt.AlignCenter)
+        self.songs_loading_label.hide()
+        
+        self.songs_layout.addWidget(self.songs_loading_label)
         scroll.setWidget(self.songs_container)
         
         layout.addLayout(top_layout)
+        layout.addLayout(header_layout)
         layout.addWidget(scroll)
         
         self.stacked_widget.addWidget(view)
@@ -435,17 +491,18 @@ class YoutubeMusicPanel(KioraBaseContainer):
     # --- LOGIC ---
 
     def load_base_playlists(self):
-        self.grid_status_label.setText("Fetching database...")
         # Clear grid
         for i in reversed(range(self.grid_layout.count())):
             self.grid_layout.itemAt(i).widget().setParent(None)
             
-        url = self.base_url_input.text()
-        browser = self.cookies_input.text()
+        self.grid_status_label.show()
+        
+        url = self.cfg.get("base_url")
+        browser = self.cfg.get("browser_for_cookies", "chrome")
         if not url:
             return
             
-        self.thread = FetchPlaylistThread(url, browser)
+        self.thread = FetchPlaylistThread(url, browser, fetch_counts=True)
         self.thread.finished.connect(self.on_base_fetched)
         self.thread.error.connect(lambda e: self.grid_status_label.setText(f"ERROR: {e}"))
         self._start_thread(self.thread)
@@ -467,16 +524,12 @@ class YoutubeMusicPanel(KioraBaseContainer):
             self._active_threads.remove(thread)
 
     def on_base_fetched(self, items):
-        self.grid_status_label.setText(f"DATABASE READY. {len(items)} MODULES FOUND.")
-        row, col = 0, 0
+        self.grid_status_label.hide()
         for i, item in enumerate(items):
-            card = SciFiCard(i+1, item['title'], item['url'])
+            count = item.get('count', '?')
+            card = SciFiCard(i+1, item['title'], item['url'], count)
             card.clicked.connect(lambda checked, url=item['url'], title=item['title']: self.open_playlist(url, title))
-            self.grid_layout.addWidget(card, row, col)
-            col += 1
-            if col > 2: # 3 columnas
-                col = 0
-                row += 1
+            self.grid_layout.addWidget(card)
 
     def open_playlist(self, url, title):
         if url.startswith('/'):
@@ -488,19 +541,22 @@ class YoutubeMusicPanel(KioraBaseContainer):
         # Clear list
         for i in reversed(range(self.songs_layout.count())):
             widget = self.songs_layout.itemAt(i).widget()
-            if widget:
+            if widget and widget != self.songs_loading_label:
                 widget.setParent(None)
+                
         self.current_song_widgets.clear()
+        self.songs_loading_label.show()
         self.install_all_btn.setEnabled(False)
         self.install_all_btn.setText("Cargando...")
         
-        browser = self.cookies_input.text()
-        self.thread = FetchPlaylistThread(url, browser)
+        browser = self.cfg.get("browser_for_cookies", "chrome")
+        self.thread = FetchPlaylistThread(url, browser, fetch_counts=False)
         self.thread.finished.connect(self.on_songs_fetched)
         self.thread.error.connect(lambda e: self.songs_title.setText(f"ERROR: {e}"))
         self._start_thread(self.thread)
 
     def on_songs_fetched(self, items):
+        self.songs_loading_label.hide()
         self.install_all_btn.setEnabled(True)
         self.install_all_btn.setText("Instalar Todo")
         
@@ -508,7 +564,7 @@ class YoutubeMusicPanel(KioraBaseContainer):
         items = sorted(items, key=lambda x: x['title'])
         
         # Comprobar instalados (simulación simple validando si existe algún archivo)
-        dl_path = Path.home() / "Music" / "KioraDownloads"
+        dl_path = Path(self.cfg.get("download_path", str(Path.home() / "Music" / "KioraDownloads")))
         existing_files = [f.stem for f in dl_path.glob("*.mp3")] if dl_path.exists() else []
         
         for i, item in enumerate(items):

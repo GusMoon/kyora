@@ -41,16 +41,16 @@ class SidebarDelegate(QStyledItemDelegate):
                 shift_x = -falloff * 15.0
                 
             if scale_xy != 1.0 or opacity != 1.0 or shift_x != 0.0:
-                painter.setOpacity(opacity)
+                # painter.setOpacity removed
                 painter.translate(rect.center())
                 painter.translate(shift_x, 0)
                 painter.scale(scale_xy, scale_xy)
                 painter.translate(-rect.center())
             
-        primary_color = QColor("#FFB84D") if is_selected else QColor("#A0C0FF")
-        glow_color = QColor("#0099FF")
-        bg_color = QColor(0, 153, 255, 45 if is_selected else (15 if is_hovered else 0))
-        border_color = QColor("#0099FF") if is_selected else QColor("#182533")
+        primary_color = QColor("#FFFFFF") if is_selected else QColor("#A0A0A0")
+        glow_color = QColor("#444444")
+        bg_color = QColor(255, 255, 255, 15 if is_selected else (5 if is_hovered else 0))
+        border_color = QColor("#444444") if is_selected else QColor("#2A2A2A")
         
         margin = 2
         h_margin = 8
@@ -79,7 +79,7 @@ class SidebarDelegate(QStyledItemDelegate):
         
         # Fondo sólido del lado derecho (no transparente)
         right_block_w = 12
-        right_block_color = QColor("#0099FF") if is_selected else QColor("#182533")
+        right_block_color = QColor("#444444") if is_selected else QColor("#2A2A2A")
         painter.setBrush(right_block_color)
         painter.drawRect(x + w - right_block_w, y, right_block_w, h)
         
@@ -93,7 +93,7 @@ class SidebarDelegate(QStyledItemDelegate):
         row_idx = str(index.row() + 1).zfill(2)
         num_font = QFont("Space Grotesk", 9)
         painter.setFont(num_font)
-        painter.setPen(QColor("#FFB84D"))
+        painter.setPen(QColor("#FFFFFF"))
         num_rect = QRect(x + chamfer, y, 22, h)
         painter.drawText(num_rect, Qt.AlignVCenter | Qt.AlignCenter, row_idx)
         
@@ -115,7 +115,7 @@ class SidebarDelegate(QStyledItemDelegate):
             arrow_path.closeSubpath()
             
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#FFB84D") if is_selected else QColor("#80BFFF"))
+            painter.setBrush(QColor("#FFFFFF") if is_selected else QColor("#666666"))
             painter.drawPath(arrow_path)
             text_x += arrow_size + 8
         elif not is_dir:

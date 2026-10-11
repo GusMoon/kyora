@@ -11,7 +11,7 @@ class ConfigurationPanel(KioraBaseContainer):
             QListWidget {
                 background-color: transparent;
                 border: none;
-                color: #0099FF;
+                color: #FFFFFF;
                 font-family: 'Space Grotesk', sans-serif;
                 font-size: 13px;
                 font-weight: 600;
@@ -20,16 +20,16 @@ class ConfigurationPanel(KioraBaseContainer):
             }
             QListWidget::item {
                 padding: 15px;
-                border-bottom: 1px solid #182533;
+                border-bottom: 1px solid #2A2A2A;
                 margin-bottom: 4px;
             }
             QListWidget::item:selected {
-                background-color: rgba(0, 153, 255, 0.15);
-                color: #FFB84D;
-                border-left: 4px solid #0099FF;
+                background-color: #1E1E1E;
+                color: #FFFFFF;
+                border-left: 4px solid #444444;
             }
             QListWidget::item:hover:!selected {
-                background-color: rgba(58, 35, 38, 0.4);
+                background-color: #22181A;
             }
         """)
         

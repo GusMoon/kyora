@@ -8,46 +8,46 @@ class SciFiDialogBase(QDialog):
         self.resize(350, 150)
         
         # Un pequeño hack para que el fondo redondeado funcione bien sin esquinas negras
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # self.setAttribute(Qt.WA_TranslucentBackground)
         
         self.setStyleSheet("""
             QDialog {
-                background-color: #0A1118;
-                border: 2px solid #0099FF;
+                background-color: #121212;
+                border: 2px solid #444444;
                 border-radius: 5px;
             }
             QLabel {
-                color: #FFB84D;
+                color: #FFFFFF;
                 font-family: 'Space Grotesk';
                 font-size: 14px;
                 background-color: transparent;
             }
             QLabel#Title {
-                color: #0099FF;
+                color: #FFFFFF;
                 font-weight: bold;
                 font-size: 16px;
                 letter-spacing: 2px;
             }
             QLineEdit {
-                background-color: #182533;
-                border: 1px solid #0099FF;
-                color: #FFB84D;
+                background-color: #2A2A2A;
+                border: 1px solid #444444;
+                color: #FFFFFF;
                 padding: 5px;
                 font-family: 'Space Grotesk';
                 font-size: 13px;
             }
             QPushButton {
                 background-color: transparent;
-                color: #0099FF;
-                border: 1px solid #0099FF;
+                color: #FFFFFF;
+                border: 1px solid #444444;
                 padding: 6px 15px;
                 font-weight: bold;
                 font-family: 'Space Grotesk';
                 border-radius: 2px;
             }
             QPushButton:hover {
-                background-color: #0099FF;
-                color: #0A1118;
+                background-color: #FFFFFF;
+                color: #121212;
             }
         """)
 
@@ -125,7 +125,7 @@ class SciFiContextMenu(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # self.setAttribute(Qt.WA_TranslucentBackground)
         
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -134,13 +134,13 @@ class SciFiContextMenu(QWidget):
         self.container = QFrame(self)
         self.container.setStyleSheet("""
             QFrame {
-                background-color: rgba(10, 17, 24, 0.95);
-                border: 1px solid #0099FF;
+                background-color: #0A1117;
+                border: 1px solid #444444;
                 border-radius: 4px;
             }
             QPushButton {
                 background-color: transparent;
-                color: #FFB84D;
+                color: #FFFFFF;
                 border: none;
                 border-radius: 0px;
                 padding: 10px 30px 10px 15px;
@@ -149,9 +149,9 @@ class SciFiContextMenu(QWidget):
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: rgba(0, 153, 255, 0.25);
-                color: #0099FF;
-                border-left: 3px solid #0099FF;
+                background-color: #2A2A2A;
+                color: #FFFFFF;
+                border-left: 3px solid #444444;
                 padding-left: 12px;
             }
         """)

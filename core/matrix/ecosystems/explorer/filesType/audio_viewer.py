@@ -25,9 +25,9 @@ class SciFiAudioWaveTimeline(QWidget):
         self.phase = 0.0
         
         self.waves = [
-            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(0, 153, 255, 180), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
-            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(0, 200, 255, 120), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
-            {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(0, 100, 255, 90), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 16, "freq": 0.04, "speed": 1.0, "color": QColor(255, 255, 255, 100), "nodes": True, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 10, "freq": 0.06, "speed": 0.8, "color": QColor(200, 200, 200, 80), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
+            {"base_amp": 6, "freq": 0.09, "speed": 1.2, "color": QColor(150, 150, 150, 60), "nodes": False, "target_amp": 1.0, "current_amp": 1.0},
         ]
         
         self.timer = QTimer(self)
@@ -135,18 +135,18 @@ class SciFiAudioWaveTimeline(QWidget):
         hx = margin + ratio * track_w
         
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 153, 255, 100))
+        painter.setBrush(QColor(255, 255, 255, 40))
         painter.drawEllipse(QPointF(hx, cy), 10, 10)
         
         painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.setBrush(QColor(0, 153, 255))
+        painter.setBrush(QColor(150, 150, 150))
         painter.drawEllipse(QPointF(hx, cy), 4.5, 4.5)
 
 class VolumePopup(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
         self.setFixedSize(40, 130)
-        self.setStyleSheet("background-color: rgba(10, 17, 24, 0.95); border: 1px solid #0099FF; border-radius: 4px;")
+        self.setStyleSheet("background-color: #0A1117; border: 1px solid #444444; border-radius: 4px;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 15, 10, 15)
         
@@ -154,8 +154,8 @@ class VolumePopup(QWidget):
         self.slider.setRange(0, 100)
         self.slider.setValue(100)
         self.slider.setStyleSheet("""
-            QSlider::groove:vertical { border: 1px solid #182533; width: 4px; background: #0A1118; margin: 0 2px; }
-            QSlider::handle:vertical { background: #0099FF; border: 1px solid #0099FF; height: 10px; margin: 0 -4px; border-radius: 5px; }
+            QSlider::groove:vertical { border: 1px solid #2A2A2A; width: 4px; background: #121212; margin: 0 2px; }
+            QSlider::handle:vertical { background: #444444; border: 1px solid #444444; height: 10px; margin: 0 -4px; border-radius: 5px; }
         """)
         layout.addWidget(self.slider, alignment=Qt.AlignHCenter)
 
@@ -209,7 +209,7 @@ class AudioPlayerWidget(QWidget):
         super().__init__(parent)
         self.resize(500, 140)
         self.setStyleSheet("""
-            QWidget { background-color: rgba(10, 10, 10, 0.85); border: 1px solid #182533; border-radius: 8px;}
+            QWidget { background-color: #0B0B0B; border: 1px solid #2A2A2A; border-radius: 8px;}
             QLabel, QPushButton { border: none; background: transparent; }
         """)
         
@@ -219,7 +219,7 @@ class AudioPlayerWidget(QWidget):
         
         self.song_name_lbl = QLabel("NO TRACK")
         self.song_name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.song_name_lbl.setStyleSheet("color: #FFB84D; font-family: 'Space Grotesk'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
+        self.song_name_lbl.setStyleSheet("color: #FFFFFF; font-family: 'Space Grotesk'; font-size: 16px; font-weight: bold; letter-spacing: 2px;")
         
         self.progress_slider = SciFiAudioWaveTimeline()
         
@@ -227,8 +227,8 @@ class AudioPlayerWidget(QWidget):
         btns_layout.setContentsMargins(0, 8, 0, 0)
         
         btn_style = """
-            QPushButton { color: #80BFFF; font-family: 'Space Grotesk', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
-            QPushButton:hover { color: #FFB84D; }
+            QPushButton { color: #666666; font-family: 'Space Grotesk', 'Segoe UI Symbol'; font-size: 14px; font-weight: bold;}
+            QPushButton:hover { color: #FFFFFF; }
         """
         
         self.btn_vol = QPushButton("VOL")
