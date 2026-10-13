@@ -1,0 +1,33 @@
+# Registro de Cambios: Implementación de Secciones D y E (Categorías y Cronómetro)
+
+- **Fecha y hora:** 2026-10-12 23:40:00
+- **Archivos afectados:**
+  - `* core/matrix/ecosystems/tasks/domain/entities.py`
+  - `* core/matrix/ecosystems/tasks/domain/repositories.py`
+  - `* core/matrix/ecosystems/tasks/infrastructure/database.py`
+  - `* core/matrix/ecosystems/tasks/infrastructure/sqlite_task_repository.py`
+  - `* core/matrix/ecosystems/tasks/use_cases/manage_tasks.py`
+  - `* core/matrix/ecosystems/tasks/presentation/tasks_viewmodel.py`
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/category_dialog.py`
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/timer_dialog.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/folder_container.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/task_create_dialog.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/task_detail_dialog.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/taskMetadataMain.py`
+  - `* core/matrix/ecosystems/tasks/presentation/taskCard.py`
+  - `* core/matrix/ecosystems/tasks/presentation/tasks_view.py`
+  - `* ecosystemTasks.txt`
+- **Explicación breve:** Se implementaron en su totalidad la Sección D (Categorías y clasificación - TAR-026 a TAR-031) y la Sección E (Cronómetro y estimación del tiempo - TAR-032 a TAR-044) en el ecosistema de tareas de Kiora.
+- **Cambios lógicos:**
+  - Dominio: Creadas entidades `Category` y `TimeEntry`. Extendida entidad `Task` con atributos `category_id`, `category_name`, `category_color`, `estimated_duration_minutes` y `time_spent_seconds`.
+  - Persistencia relacional: Nuevas tablas `categories` y `time_entries` en SQLite con integridad referencial ON DELETE SET NULL / CASCADE, índices de rendimiento y migración automática no destructiva. Se corrigió el orden de inicialización para ejecutar los `ALTER TABLE` antes de los `CREATE INDEX` en bases de datos SQLite preexistentes, previniendo el error `OperationalError: no such column: category_id`. Inserción transaccional de sesiones de tiempo acumulando `time_spent_seconds`.
+  - Casos de uso: Soporte de filtrado por categoría en `get_tasks_grouped_by_status`, métodos CRUD para categorías personalizadas y registro de sesiones de tiempo.
+  - ViewModel: Control centralizado reactivo de cronómetro con `QTimer`, prevención de múltiples cronómetros simultáneos (TAR-044), pausa, reanudación, finalización y señal de fin de sesión (TAR-041).
+  - UI / Modales:
+    - `FolderContainer`: Pestañas dinámicas y actualizables (General, Subtareas, Cronómetro).
+    - `TaskCreateDialog`: Selector de categoría, creación on-the-fly y toggle de duración estimada en horas y minutos con presets.
+    - `TaskDetailDialog`: Pestaña dedicada de Cronómetro Sci-Fi con display digital grande, botones de control (Iniciar, Pausar, Reanudar, Detener), historial de sesiones y diálogo de ajuste de tiempo.
+    - `TasksView`: Barra superior de chips de categorías Sci-Fi para filtrado dinámico del tablero Kanban (`TODAS`, chips por categoría con sus colores y `SIN CATEGORÍA`), junto a botón `+ NUEVA CATEGORÍA`.
+    - `TaskCard`: Badges sutiles de categoría (con color) y tiempo invertido/estimado.
+- **Instalaciones:** N/A
+- **Toggles:** N/A

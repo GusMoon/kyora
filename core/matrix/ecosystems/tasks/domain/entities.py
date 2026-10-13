@@ -19,6 +19,44 @@ class TaskStatus:
 
 
 @dataclass
+class Category:
+    """
+    Representa una categoría de clasificación para tareas.
+
+    Attributes:
+        id: Identificador único de la categoría.
+        name: Nombre descriptivo de la categoría.
+        color: Código de color hexadecimal para la interfaz de usuario.
+        created_at: Fecha de creación en formato ISO-8601.
+    """
+    name: str
+    id: str = ""
+    color: Optional[str] = "#FFAA77"
+    created_at: str = ""
+
+
+@dataclass
+class TimeEntry:
+    """
+    Representa un registro de sesión de tiempo invertido en una tarea.
+
+    Attributes:
+        id: Identificador único del registro de tiempo.
+        task_id: Identificador de la tarea vinculada.
+        duration_seconds: Duración efectiva de la sesión en segundos.
+        started_at: Marca temporal de inicio en formato ISO-8601.
+        ended_at: Marca temporal de fin en formato ISO-8601.
+        created_at: Marca temporal de creación en formato ISO-8601.
+    """
+    task_id: str
+    duration_seconds: int
+    id: str = ""
+    started_at: str = ""
+    ended_at: str = ""
+    created_at: str = ""
+
+
+@dataclass
 class SubTask:
     """
     Representa una subtarea perteneciente a una tarea principal.
@@ -56,6 +94,11 @@ class Task:
         status_name: Nombre legible del estado actual.
         priority: Nivel de prioridad de la tarea (0=normal, mayor=más urgente).
         due_date: Fecha límite de entrega en formato ISO-8601 o YYYY-MM-DD.
+        category_id: Clave de la categoría asignada (opcional).
+        category_name: Nombre legible de la categoría.
+        category_color: Color distintivo de la categoría.
+        estimated_duration_minutes: Duración estimada total en minutos.
+        time_spent_seconds: Tiempo total invertido acumulado en segundos.
         created_at: Marca temporal de creación.
         updated_at: Marca temporal de última modificación.
         subtasks: Colección de subtareas asociadas.
@@ -68,6 +111,11 @@ class Task:
     status_name: str = "pending"
     priority: int = 0
     due_date: Optional[str] = None
+    category_id: Optional[str] = None
+    category_name: Optional[str] = None
+    category_color: Optional[str] = None
+    estimated_duration_minutes: Optional[int] = None
+    time_spent_seconds: int = 0
     created_at: str = ""
     updated_at: str = ""
     subtasks: List[SubTask] = field(default_factory=list)

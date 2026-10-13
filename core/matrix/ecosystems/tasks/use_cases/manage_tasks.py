@@ -3,7 +3,7 @@ from datetime import datetime
 import uuid
 import re
 
-from core.matrix.ecosystems.tasks.domain.entities import Task, SubTask
+from core.matrix.ecosystems.tasks.domain.entities import Task, SubTask, Category, TimeEntry
 from core.matrix.ecosystems.tasks.domain.repositories import TaskRepository
 
 
@@ -43,15 +43,26 @@ class TaskUseCases:
         if hasattr(self.repository, "set_directory"):
             self.repository.set_directory(path)
 
-    def get_tasks_grouped_by_status(self) -> Dict[str, List[Task]]:
+    def get_tasks_grouped_by_status(self, category_id_filter: Optional[str] = None) -> Dict[str, List[Task]]:
         """
         Recupera todas las tareas y las agrupa por estado (pending, in_progress, completed).
+        Permite filtrar por categoría específica o consultar todas (TAR-029).
         Ordena las tareas por fecha límite más cercana (las sin fecha al final).
+
+        Args:
+            category_id_filter: ID de categoría para filtrar opcionalmente.
 
         Returns:
             Dict[str, List[Task]]: Tareas agrupadas por su nombre de estado.
         """
         tasks = self.repository.get_all_tasks()
+
+        # Filtrado por categoría si se especificó (TAR-029)
+        if category_id_filter:
+            if category_id_filter == "__none__":
+                tasks = [t for t in tasks if not t.category_id]
+            else:
+                tasks = [t for t in tasks if t.category_id == category_id_filter]
 
         def sort_key(t: Task) -> float:
             if t.due_date:
@@ -81,10 +92,12 @@ class TaskUseCases:
         due_date: Optional[str] = None,
         subtasks: Optional[List[str]] = None,
         status: str = "pending",
-        priority: int = 0
+        priority: int = 0,
+        category_id: Optional[str] = None,
+        estimated_duration_minutes: Optional[int] = None
     ) -> Task:
         """
-        Crea y persiste una nueva tarea en el sistema.
+        Crea y persiste una nueva tarea en el sistema (TAR-001 al TAR-006, TAR-026, TAR-032).
 
         Args:
             title: Título de la tarea.
@@ -93,6 +106,8 @@ class TaskUseCases:
             subtasks: Lista de títulos de subtareas a crear.
             status: Estado inicial ('pending', 'in_progress', 'completed').
             priority: Nivel de prioridad.
+            category_id: Clave de la categoría asignada opcional (TAR-026).
+            estimated_duration_minutes: Duración estimada en minutos opcional (TAR-032, TAR-033).
 
         Returns:
             Task: La entidad persistida con identificador asignado.
@@ -126,11 +141,15 @@ class TaskUseCases:
             due_date=due_date,
             status_name=norm_status,
             priority=priority,
+            category_id=category_id if category_id else None,
+            estimated_duration_minutes=estimated_duration_minutes,
+            time_spent_seconds=0,
             subtasks=subs
         )
 
         self.repository.save_task(task)
         return task
+
 
     def update_task_status(self, task_id: str, new_status: str) -> None:
         """
@@ -179,10 +198,13 @@ class TaskUseCases:
         due_date: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[int] = None,
-        subtasks: Optional[List[SubTask]] = None
+        subtasks: Optional[List[SubTask]] = None,
+        category_id: Optional[str] = None,
+        estimated_duration_minutes: Optional[int] = None
     ) -> Optional[Task]:
         """
-        Actualiza la información descriptiva, fecha límite y subtareas de una tarea existente.
+        Actualiza la información descriptiva, fecha límite, categoría y subtareas de una tarea existente
+        (TAR-007, TAR-008, TAR-030).
 
         Args:
             task_id: Identificador de la tarea.
@@ -192,6 +214,8 @@ class TaskUseCases:
             status: Nombre del nuevo estado opcional.
             priority: Nivel de prioridad opcional.
             subtasks: Lista actualizada de subtareas opcional.
+            category_id: Nueva categoría asignada o None/vacío para desasignar (TAR-030, TAR-031).
+            estimated_duration_minutes: Nueva duración estimada en minutos opcional.
 
         Returns:
             Optional[Task]: Tarea actualizada o None si no existe.
@@ -203,6 +227,9 @@ class TaskUseCases:
         task.title = title
         task.description = description
         task.due_date = due_date
+        task.category_id = category_id if category_id else None
+        if estimated_duration_minutes is not None:
+            task.estimated_duration_minutes = estimated_duration_minutes
         if status is not None:
             task.status_name = status.strip().lower().replace("-", "_")
         if priority is not None:
@@ -244,4 +271,65 @@ class TaskUseCases:
         else:
             self.repository.save_task(task)
         return True
+
+    def get_categories(self) -> List[Category]:
+        """Recupera el catálogo completo de categorías disponibles (TAR-028)."""
+        return self.repository.get_all_categories()
+
+    def create_category(self, name: str, color: str = "#FFAA77") -> Category:
+        """
+        Registra una nueva categoría personalizada (TAR-027).
+
+        Args:
+            name: Nombre de la categoría (ej. 'Materias', 'Proyectos').
+            color: Color hexadecimal asignado.
+
+        Returns:
+            Category: Instancia creada y persistida.
+        """
+        now = datetime.now().isoformat()
+        cat_id = f"cat-{str(uuid.uuid4())[:8]}"
+        category = Category(id=cat_id, name=name.strip(), color=color, created_at=now)
+        self.repository.save_category(category)
+        return category
+
+    def delete_category(self, category_id: str) -> None:
+        """Elimina una categoría del sistema."""
+        self.repository.delete_category(category_id)
+
+    def add_time_session(
+        self,
+        task_id: str,
+        duration_seconds: int,
+        started_at: str = "",
+        ended_at: str = ""
+    ) -> None:
+        """
+        Registra una sesión de tiempo transcurrido en el cronómetro y actualiza
+        el acumulado total de la tarea (TAR-042, TAR-043).
+
+        Args:
+            task_id: Identificador de la tarea vinculada.
+            duration_seconds: Tiempo efectivo registrado en segundos.
+            started_at: Marca temporal de inicio de la sesión.
+            ended_at: Marca temporal de finalización.
+        """
+        if duration_seconds <= 0:
+            return
+
+        now = datetime.now().isoformat()
+        entry = TimeEntry(
+            id=str(uuid.uuid4()),
+            task_id=task_id,
+            duration_seconds=duration_seconds,
+            started_at=started_at or now,
+            ended_at=ended_at or now,
+            created_at=now
+        )
+        self.repository.add_time_entry(entry)
+
+    def get_task_time_entries(self, task_id: str) -> List[TimeEntry]:
+        """Obtiene el historial de sesiones de tiempo registradas para una tarea (TAR-042, TAR-043)."""
+        return self.repository.get_time_entries_for_task(task_id)
+
 

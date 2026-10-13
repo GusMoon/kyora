@@ -31,41 +31,41 @@ La idea está bien delimitada para una primera versión. No necesitas comenzar c
 
 ### C. Subtareas
 
-- TAR-018. Permitir agregar subtareas a una tarea principal.
-- TAR-019. Permitir asignar un nombre a cada subtarea.
-- TAR-020. Permitir agregar una descripción individual a cada subtarea, de forma opcional.
-- TAR-021. Permitir marcar cada subtarea como completada o pendiente.
-- TAR-022. Permitir editar las subtareas existentes.
-- TAR-023. Permitir eliminar subtareas.
-- TAR-024. Mostrar las subtareas asociadas a su tarea principal.
-- TAR-025. Permitir crear tareas sin subtareas cuando la actividad no requiera desglosarse.
+✓ TAR-018. Permitir agregar subtareas a una tarea principal.
+✓ TAR-019. Permitir asignar un nombre a cada subtarea.
+✓ TAR-020. Permitir agregar una descripción individual a cada subtarea, de forma opcional.
+✓ TAR-021. Permitir marcar cada subtarea como completada o pendiente.
+✓ TAR-022. Permitir editar las subtareas existentes.
+✓ TAR-023. Permitir eliminar subtareas.
+✓ TAR-024. Mostrar las subtareas asociadas a su tarea principal.
+✓ TAR-025. Permitir crear tareas sin subtareas cuando la actividad no requiera desglosarse.
 
 ### D. Categorías y clasificación
 
-- TAR-026. Permitir asignar una categoría a una tarea.
-- TAR-027. Permitir crear categorías personalizadas, por ejemplo, materias, proyectos personales, trabajo o actividades administrativas.
-- TAR-028. Permitir seleccionar una categoría existente al crear o editar una tarea.
-- TAR-029. Permitir consultar las tareas agrupadas o filtradas por categoría.
-- TAR-030. Permitir modificar la categoría asignada a una tarea.
-- TAR-031. Permitir que una tarea no tenga categoría cuando su clasificación no sea necesaria.
+✓ TAR-026. Permitir asignar una categoría a una tarea.
+✓ TAR-027. Permitir crear categorías personalizadas, por ejemplo, materias, proyectos personales, trabajo o actividades administrativas.
+✓ TAR-028. Permitir seleccionar una categoría existente al crear o editar una tarea.
+✓ TAR-029. Permitir consultar las tareas agrupadas o filtradas por categoría.
+✓ TAR-030. Permitir modificar la categoría asignada a una tarea.
+✓ TAR-031. Permitir que una tarea no tenga categoría cuando su clasificación no sea necesaria.
 
 ### E. Cronómetro y estimación del tiempo
 
 Este apartado tendrá dos formas de establecer el tiempo disponible: al crear la tarea o al comenzar a trabajar en ella.
 
-- TAR-032. Permitir definir una duración estimada durante la creación de una tarea.
-- TAR-033. Permitir registrar la duración estimada en horas y minutos.
-- TAR-034. Permitir guardar una tarea sin establecer una duración estimada.
-- TAR-035. Permitir iniciar un cronómetro desde la vista de detalles de la tarea.
-- TAR-036. Si la tarea no tiene una duración estimada, solicitar cuánto tiempo se dispone para realizarla al iniciar el cronómetro.
-- TAR-037. Permitir confirmar o modificar el tiempo disponible antes de iniciar el cronómetro.
-- TAR-038. Mostrar el tiempo restante mientras el cronómetro esté activo.
-- TAR-039. Permitir pausar y reanudar el cronómetro.
-- TAR-040. Permitir detener el cronómetro.
-- TAR-041. Notificar al usuario cuando se agote el tiempo establecido.
-- TAR-042. Permitir consultar el tiempo registrado para una tarea.
-- TAR-043. Mantener la relación entre el registro de tiempo y la tarea correspondiente.
-- TAR-044. Evitar que se inicien varios cronómetros simultáneos para una misma tarea.
+✓ TAR-032. Permitir definir una duración estimada durante la creación de una tarea.
+✓ TAR-033. Permitir registrar la duración estimada en horas y minutos.
+✓ TAR-034. Permitir guardar una tarea sin establecer una duración estimada.
+✓ TAR-035. Permitir iniciar un cronómetro desde la vista de detalles de la tarea.
+✓ TAR-036. Si la tarea no tiene una duración estimada, solicitar cuánto tiempo se dispone para realizarla al iniciar el cronómetro.
+✓ TAR-037. Permitir confirmar o modificar el tiempo disponible antes de iniciar el cronómetro.
+✓ TAR-038. Mostrar el tiempo restante mientras el cronómetro esté activo.
+✓ TAR-039. Permitir pausar y reanudar el cronómetro.
+✓ TAR-040. Permitir detener el cronómetro.
+✓ TAR-041. Notificar al usuario cuando se agote el tiempo establecido.
+✓ TAR-042. Permitir consultar el tiempo registrado para una tarea.
+✓ TAR-043. Mantener la relación entre el registro de tiempo y la tarea correspondiente.
+✓ TAR-044. Evitar que se inicien varios cronómetros simultáneos para una misma tarea.
 
 ### F. Vista general y consulta de tareas
 
@@ -99,3 +99,7 @@ Este apartado tendrá dos formas de establecer el tiempo disponible: al crear la
 - Indicador de vencimiento: Mostrar visualmente si una tarea está vencida, próxima a vencer o todavía tiene tiempo. Se calcularía a partir de la fecha límite, sin añadir un cuarto estado a la tarea.
 - Resumen de productividad: Mostrar cuántas tareas están pendientes, en progreso y completadas, así como el tiempo dedicado a ellas. Sería una vista informativa, sin convertir el módulo en un sistema complejo de estadísticas.
 - Historial de sesiones de trabajo: Registrar cada sesión de cronómetro con su hora de inicio, hora de finalización y duración. Así podrías consultar cuánto tiempo dedicaste a una tarea en varias sesiones.
+
+
+
+
