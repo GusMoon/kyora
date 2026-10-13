@@ -1,0 +1,24 @@
+# Registro de Cambios: Espacio de trabajo dinámico, subtareas colapsadas y apertura directa
+
+- **Fecha y hora:** 2026-10-13 14:00:00
+- **Archivos afectados:**
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/workspace_panel.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/task_detail_dialog.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/__init__.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/subTasks/subtask_item.py`
+  - `* core/matrix/ecosystems/tasks/presentation/taskCard.py`
+- **Explicación breve:** La zona derecha del detalle pasa a ser un espacio de trabajo configurable (descripción y/o una subtarea ampliada), las subtareas arrancan cerradas y las tareas sin descripción se abren directamente con un clic.
+- **Cambios lógicos:**
+  - **Apertura directa:** en `TaskCard`, un clic sobre una tarea sin descripción emite `open_requested` de inmediato, sin la espera de 220ms del doble clic. Con descripción se mantiene el modo enfoque.
+  - **Subtareas cerradas por defecto:** `SubtaskEditorItem` arranca siempre con la nota colapsada, incluso si tiene texto; el botón muestra `▾ Nota` o `+ Nota` según haya contenido y se mantiene actualizado al editar.
+  - **Espacio de trabajo (`WorkspacePanel`):**
+    - Por defecto solo la descripción. Cada ítem de subtarea gana un botón `⤢` que la amplía en un panel con check, título y nota editables.
+    - Combinaciones: descripción sola, subtarea sola o ambas al 50%. Siempre hay al menos un panel visible (máximo dos: descripción + una subtarea).
+    - Con dos paneles: alternar entre lado a lado y apilado (uno arriba y otro abajo) e intercambiar su orden.
+    - La zona izquierda con las pestañas no se ve afectada.
+  - **Sincronización:** el `SubtaskEditorItem` sigue siendo la única fuente de verdad; el panel ampliado se sincroniza en ambos sentidos (título, check y nota) con guardas de igualdad para evitar saltos de cursor. Al eliminar la subtarea ampliada su panel se cierra solo.
+  - `SubtaskEditorItem` expone `CHECKED_STYLE` / `UNCHECKED_STYLE`, reutilizados por el panel ampliado.
+  - `get_updated_data()` no cambia (`desc_input` apunta al editor de la descripción del espacio de trabajo).
+  - El diálogo de creación de tarea no cambia, salvo que sus subtareas también arrancan colapsadas por compartir `SubtaskEditorItem`.
+- **Instalaciones:** N/A
+- **Toggles:** N/A

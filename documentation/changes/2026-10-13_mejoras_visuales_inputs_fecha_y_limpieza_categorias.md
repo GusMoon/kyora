@@ -1,0 +1,27 @@
+# Registro de Cambios: Ocultamiento de Categorías Superiores, Visualización en Cards, Rediseño de Inputs y Eliminación de Categorías por Defecto
+
+- **Fecha y hora:** 2026-10-13 07:07:00
+- **Archivos afectados:**
+  - `* core/matrix/ecosystems/tasks/infrastructure/database.py`
+  - `* core/matrix/ecosystems/tasks/infrastructure/tasks.db`
+  - `* core/matrix/ecosystems/tasks/presentation/tasks_view.py`
+  - `* core/matrix/ecosystems/tasks/presentation/taskCard.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/task_create_dialog.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/task_detail_dialog.py`
+- **Explicación breve:** Se eliminó la barra superior de categorías del tablero principal delegando la visualización de categorías directamente a las tarjetas (TaskCard). Se solucionó la colisión en los selectores de horas y minutos ampliando su ancho y estilizando sus controles de incremento. Se eliminó la separación/espacio gris oscuro en la fila de fecha permitiendo que el selector ocupe el ancho completo de forma uniforme. Se vaciaron las categorías predefinidas de la base de datos para permitir el registro manual por el usuario.
+- **Cambios lógicos:**
+  - **1. Visualización de categorías exclusiva en tarjetas (TaskCard):**
+    - En `TasksView` (`tasks_view.py`) se retiró la barra superior con chips de filtrado (`category_bar_layout`), permitiendo que el tablero Kanban ocupe la vista sin sobrecargar la cabecera.
+    - En `TaskCard` (`taskCard.py`) se perfeccionó el badge de categoría (`lbl_cat_badge`), aumentando su altura fija a 18px, espaciado y legibilidad con tipografía Space Grotesk en fondo oscuro y borde distintivo del color de la categoría.
+    - Se previno la excepción de Shiboken `RuntimeError: libshiboken: Internal C++ object (TaskCard) already deleted` en `mouseDoubleClickEvent` de `TaskCard` aceptando el evento y retornando tras la apertura del modal.
+  - **2. Descolisión y mejora visual de selectores de horas y minutos:**
+    - En `TaskCreateDialog` y `TaskDetailDialog` se aumentó el ancho de `spin_hours` y `spin_mins` de 52px a 80px y su altura a 28px con `spin_style` Sci-Fi personalizado (botones laterales arriba/abajo claramente delimitados con padding interno).
+    - Los textos y flechas ahora cuentan con espacio óptimo y legibilidad completa.
+  - **3. Corrección del espacio oscuro en la fecha de entrega:**
+    - Se retiró el ancho rígido de 130px de `date_edit` y el espaciador elástico `date_input_row.addStretch()`.
+    - `date_edit` ahora utiliza `QSizePolicy.Expanding, QSizePolicy.Fixed`, cubriendo de manera uniforme el ancho completo de la tarjeta de fecha y alineándose con la cuadrícula de botones rápidos de días inferiores.
+  - **4. Eliminación de categorías por defecto:**
+    - En `database.py` se estableció `DEFAULT_CATEGORIES = []` y se eliminó la inserción automática en `initialize_schema()`.
+    - Se depuraron de la base de datos activa las categorías preexistentes, iniciando en 0 categorías registradas para que el usuario las cree libremente mediante el modal de categorías.
+- **Instalaciones:** N/A
+- **Toggles:** N/A

@@ -26,8 +26,21 @@ class SciFiBaseModal(QDialog):
         self._active_resize_edge = None
         self._resize_start_pos = None
         self._resize_start_geo = None
+        self._is_geometry_locked = False
 
         self._apply_base_style()
+
+    def fit_to_rect(self, rect):
+        """
+        Ajusta el modal a un rectángulo (p. ej. toda la ventana) y bloquea
+        arrastre y redimensionado mientras permanezca maximizado.
+
+        Args:
+            rect: QRect en coordenadas globales de pantalla.
+        """
+        self._is_geometry_locked = True
+        self.setMinimumSize(min(self.minimumWidth(), rect.width()), min(self.minimumHeight(), rect.height()))
+        self.setGeometry(rect)
 
     def _determine_edge(self, pos):
         x, y = pos.x(), pos.y()
@@ -70,6 +83,9 @@ class SciFiBaseModal(QDialog):
             self.setCursor(Qt.ArrowCursor)
 
     def mousePressEvent(self, event):
+        if self._is_geometry_locked:
+            super().mousePressEvent(event)
+            return
         if event.button() == Qt.LeftButton:
             edge = self._determine_edge(event.position().toPoint())
             if edge:
@@ -86,6 +102,9 @@ class SciFiBaseModal(QDialog):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._is_geometry_locked:
+            super().mouseMoveEvent(event)
+            return
         pos = event.position().toPoint()
 
         # Si se está redimensionando
@@ -184,22 +203,16 @@ class SciFiBaseModal(QDialog):
                 font-family: 'Space Grotesk';
                 font-size: 12px;
                 border-radius: 4px;
-                min-width: 130px;
+                min-width: 80px;
             }}
             QDateEdit:focus {{
                 border: 1px solid #FFAA77;
             }}
             QDateEdit::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 22px;
-                border-left: 1px solid #333333;
-                background-color: #1E1E1E;
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-            }}
-            QDateEdit::drop-down:hover {{
-                background-color: #2E2E2E;
+                width: 0px;
+                height: 0px;
+                border: none;
+                background: transparent;
             }}
             QCalendarWidget QWidget#qt_datetimedit_calendar {{
                 background-color: #161616;

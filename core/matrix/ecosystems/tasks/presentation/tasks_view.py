@@ -1,7 +1,7 @@
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QScrollArea, QPushButton, QFileDialog, QDialog
+    QScrollArea, QPushButton, QFileDialog, QDialog, QGraphicsBlurEffect
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor
@@ -9,7 +9,7 @@ from PySide6.QtGui import QPainter, QColor
 from core.matrix.ecosystems.tasks.presentation.tasks_viewmodel import TasksViewModel
 from core.matrix.ecosystems.tasks.presentation.taskCard import TaskCard
 from core.matrix.ecosystems.tasks.presentation.rootComponents.taskMetadata.taskMetadataMain import (
-    TaskCreateDialog, TaskDetailDialog, CategoryCreateDialog
+    TaskCreateDialog, TaskDetailDialog, CategoryCreateDialog, DescriptionReader
 )
 from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
 from core.matrix.ecosystems.motherBoard.globalComponents.simple_dialogs import SciFiConfirmDialog
@@ -91,7 +91,6 @@ class TasksView(QWidget):
 
         self._setup_ui()
         self._connect_signals()
-        self._refresh_category_chips()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -103,52 +102,17 @@ class TasksView(QWidget):
         self.body_layout.setSpacing(10)
 
         # =============================================================
-        # BARRA DE FILTRADO POR CATEGORÍAS (TAR-029)
+        # TABLERO KANBAN CENTRADO (Las categorías se visualizan en los cards)
         # =============================================================
-        self.category_bar_layout = QHBoxLayout()
-        self.category_bar_layout.setContentsMargins(4, 0, 4, 0)
-        self.category_bar_layout.setSpacing(8)
-
-        lbl_cat_title = QLabel("CATEGORÍAS:")
-        lbl_cat_title.setStyleSheet("color: #777777; font-size: 11px; font-weight: bold; font-family: 'Space Grotesk'; letter-spacing: 0.8px;")
-        self.category_bar_layout.addWidget(lbl_cat_title)
-
-        self.chips_container = QWidget()
-        self.chips_layout = QHBoxLayout(self.chips_container)
-        self.chips_layout.setContentsMargins(0, 0, 0, 0)
-        self.chips_layout.setSpacing(6)
-        self.category_bar_layout.addWidget(self.chips_container)
-
-        self.category_bar_layout.addStretch()
-
-        btn_add_cat = QPushButton("+ NUEVA CATEGORÍA")
-        btn_add_cat.setFixedHeight(26)
-        btn_add_cat.setCursor(Qt.PointingHandCursor)
-        btn_add_cat.setStyleSheet("""
-            QPushButton {
-                background-color: #1A1A1A;
-                border: 1px solid #333333;
-                color: #FFAA77;
-                font-size: 10px;
-                font-weight: bold;
-                font-family: 'Space Grotesk';
-                padding: 0 10px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #262626;
-                border-color: #FFAA77;
-            }
-        """)
-        btn_add_cat.clicked.connect(self._on_add_category_clicked)
-        self.category_bar_layout.addWidget(btn_add_cat)
-
-        self.body_layout.addLayout(self.category_bar_layout)
 
         # =============================================================
         # TABLERO KANBAN CENTRADO
         # =============================================================
-        self.board_layout = QHBoxLayout()
+        # Contenedor propio para poder desenfocar el tablero al abrir el modo enfoque
+        self.board_container = QWidget()
+        self.board_container.setStyleSheet("background: transparent;")
+        self.board_layout = QHBoxLayout(self.board_container)
+        self.board_layout.setContentsMargins(0, 0, 0, 0)
         self.board_layout.addStretch()
 
         self.columns = {}
@@ -158,7 +122,57 @@ class TasksView(QWidget):
             self.board_layout.addWidget(col_widget)
 
         self.board_layout.addStretch()
-        self.body_layout.addLayout(self.board_layout)
+        self.body_layout.addWidget(self.board_container)
+
+        # Overlay de enfoque: se superpone al tablero (desenfocado) sin alterar los cards
+        self.description_reader = DescriptionReader(self)
+        self.description_reader.closed.connect(lambda: self._set_board_blur(False))
+        self.description_reader.open_task_requested.connect(self._on_card_double_clicked)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.description_reader.isVisible():
+            self.description_reader.reposition()
+
+    def _set_board_blur(self, enabled: bool):
+        """Activa o retira el desenfoque del tablero mientras el overlay está abierto."""
+        if enabled:
+            blur = QGraphicsBlurEffect(self.board_container)
+            blur.setBlurRadius(14)
+            self.board_container.setGraphicsEffect(blur)
+        else:
+            self.board_container.setGraphicsEffect(None)
+
+    def _on_description_requested(self, task_id: str):
+        """Abre el modo enfoque con la descripción y la réplica de la tarea seleccionada."""
+        task = self.viewmodel.get_task_by_id(task_id)
+        if not task or not (task.description or "").strip():
+            return
+
+        preview = self._build_card(task)
+        preview.setFixedWidth(DescriptionReader.SIDE_WIDTH)
+        # La réplica es solo informativa: sin clics, arrastre ni borrado
+        preview.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self._set_board_blur(True)
+        self.description_reader.show_description(task.id, task.title, task.description, preview)
+
+    def _build_card(self, task) -> TaskCard:
+        """Construye un TaskCard a partir de una entidad Task."""
+        return TaskCard(
+            task_id=task.id,
+            title=task.title,
+            status=task.status,
+            due_date=task.due_date,
+            description=task.description,
+            created_at=task.created_at,
+            subtasks=task.subtasks,
+            priority=getattr(task, "priority", 0),
+            category_name=getattr(task, "category_name", None),
+            category_color=getattr(task, "category_color", None),
+            estimated_duration_minutes=getattr(task, "estimated_duration_minutes", None),
+            time_spent_seconds=getattr(task, "time_spent_seconds", 0)
+        )
 
     def _connect_signals(self):
         self.viewmodel.tasks_updated.connect(self._on_tasks_updated)
@@ -169,103 +183,20 @@ class TasksView(QWidget):
             col.add_task_requested.connect(self._on_add_task_clicked)
 
     def _refresh_category_chips(self):
-        """Renderiza los botones de filtrado rápido por categoría en el tablero (TAR-029)."""
-        while self.chips_layout.count():
-            child = self.chips_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-
-        selected_id = self.viewmodel.get_selected_category_id()
-
-        # Botón "TODAS"
-        btn_all = QPushButton("TODAS")
-        btn_all.setFixedHeight(24)
-        btn_all.setCursor(Qt.PointingHandCursor)
-        is_all_active = (selected_id is None)
-        btn_all.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {"#A31F34" if is_all_active else "#1A1A1A"};
-                border: 1px solid {"#C42B42" if is_all_active else "#2D2D2D"};
-                color: {"#FFFFFF" if is_all_active else "#999999"};
-                font-size: 10px;
-                font-weight: bold;
-                font-family: 'Space Grotesk';
-                padding: 0 10px;
-                border-radius: 12px;
-            }}
-            QPushButton:hover {{
-                border-color: #FFAA77;
-                color: #FFFFFF;
-            }}
-        """)
-        btn_all.clicked.connect(lambda: self._select_category_filter(None))
-        self.chips_layout.addWidget(btn_all)
-
-        # Categorías dinámicas
-        categories = self.viewmodel.get_categories()
-        for cat in categories:
-            is_active = (selected_id == cat.id)
-            col = cat.color or "#FFAA77"
-            btn_cat = QPushButton(f"● {cat.name.upper()}")
-            btn_cat.setFixedHeight(24)
-            btn_cat.setCursor(Qt.PointingHandCursor)
-            btn_cat.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {"#242424" if is_active else "#161616"};
-                    border: 1px solid {col if is_active else "#2E2E2E"};
-                    color: {col if is_active else "#AAAAAA"};
-                    font-size: 10px;
-                    font-weight: bold;
-                    font-family: 'Space Grotesk';
-                    padding: 0 10px;
-                    border-radius: 12px;
-                }}
-                QPushButton:hover {{
-                    border-color: {col};
-                    color: {col};
-                }}
-            """)
-            btn_cat.clicked.connect(lambda _, c_id=cat.id: self._select_category_filter(c_id))
-            self.chips_layout.addWidget(btn_cat)
-
-        # Botón "SIN CATEGORÍA"
-        is_none_active = (selected_id == "__none__")
-        btn_none = QPushButton("SIN CATEGORÍA")
-        btn_none.setFixedHeight(24)
-        btn_none.setCursor(Qt.PointingHandCursor)
-        btn_none.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {"#2A2A2A" if is_none_active else "#161616"};
-                border: 1px solid {"#888888" if is_none_active else "#2A2A2A"};
-                color: {"#FFFFFF" if is_none_active else "#666666"};
-                font-size: 10px;
-                font-weight: bold;
-                font-family: 'Space Grotesk';
-                padding: 0 8px;
-                border-radius: 12px;
-            }}
-            QPushButton:hover {{
-                border-color: #AAAAAA;
-                color: #DDDDDD;
-            }}
-        """)
-        btn_none.clicked.connect(lambda: self._select_category_filter("__none__"))
-        self.chips_layout.addWidget(btn_none)
+        """No-op: Las categorías ya no se muestran en una barra superior, sino en cada tarjeta (TaskCard)."""
+        pass
 
     def _select_category_filter(self, category_id: Optional[str]):
         self.viewmodel.filter_by_category(category_id)
-        self._refresh_category_chips()
 
     def _on_categories_updated(self, categories: list):
-        self._refresh_category_chips()
+        pass
 
     def _on_add_category_clicked(self):
         diag = CategoryCreateDialog(self)
         if diag.exec() == QDialog.Accepted:
             data = diag.get_data()
-            new_cat = self.viewmodel.create_category(data["name"], data["color"])
-            if new_cat:
-                self._select_category_filter(new_cat.id)
+            self.viewmodel.create_category(data["name"], data["color"])
 
     def _on_timer_finished(self, task_id: str, task_title: str):
         """Notifica al usuario que se ha completado la sesión de cronómetro (TAR-041)."""
@@ -284,7 +215,8 @@ class TasksView(QWidget):
             parent=self,
             initial_status=status,
             categories=self.viewmodel.get_categories(),
-            create_category_callback=self.viewmodel.create_category
+            create_category_callback=self.viewmodel.create_category,
+            viewmodel=self.viewmodel
         )
         if dialog.exec() == QDialog.Accepted:
             data = dialog.get_data()
@@ -315,6 +247,8 @@ class TasksView(QWidget):
             viewmodel=self.viewmodel
         )
         dialog.delete_requested.connect(self._on_delete_task_requested)
+        # La tarea abierta ocupa toda la ventana para maximizar la visibilidad del contenido
+        dialog.fit_to_rect(self.window().frameGeometry())
 
         if dialog.exec() == QDialog.Accepted:
             updated_data = dialog.get_updated_data()
@@ -347,7 +281,10 @@ class TasksView(QWidget):
     def _on_tasks_updated(self, tasks_grouped: dict):
         """
         Renderiza las tarjetas actualizadas en sus respectivas columnas.
+        Cierra el modo enfoque si estaba abierto para no mostrar datos obsoletos.
         """
+        self.description_reader.close_reader()
+
         for status, col in self.columns.items():
             layout = col.items_layout
             while layout.count():
@@ -356,22 +293,10 @@ class TasksView(QWidget):
                     child.widget().deleteLater()
 
             for task in tasks_grouped.get(status, []):
-                card = TaskCard(
-                    task_id=task.id,
-                    title=task.title,
-                    status=task.status,
-                    due_date=task.due_date,
-                    description=task.description,
-                    created_at=task.created_at,
-                    subtasks=task.subtasks,
-                    priority=getattr(task, "priority", 0),
-                    category_name=getattr(task, "category_name", None),
-                    category_color=getattr(task, "category_color", None),
-                    estimated_duration_minutes=getattr(task, "estimated_duration_minutes", None),
-                    time_spent_seconds=getattr(task, "time_spent_seconds", 0)
-                )
+                card = self._build_card(task)
                 card.move_status_requested.connect(self.viewmodel.move_task_status)
                 card.open_requested.connect(self._on_card_double_clicked)
+                card.description_requested.connect(self._on_description_requested)
                 card.delete_requested.connect(self._on_delete_task_requested)
                 card.toggle_subtask_requested.connect(self.viewmodel.toggle_subtask_status)
                 layout.addWidget(card)

@@ -1,0 +1,29 @@
+# Registro de Cambios: Reorganización Modular en Subcarpetas de taskMetadata
+
+- **Fecha y hora:** 2026-10-13 06:52:00
+- **Archivos afectados:**
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/__init__.py`
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/subTasks/__init__.py`
+  - `+ core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/chronometer/__init__.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/task_create_dialog.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/task_detail_dialog.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/category_dialog.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/general/toggle_switch.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/subTasks/subtask_item.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/chronometer/timer_dialog.py` (movido)
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/taskMetadataMain.py`
+  - `* core/matrix/ecosystems/tasks/presentation/rootComponents/taskMetadata/__init__.py`
+- **Explicación breve:** Se reorganizó la estructura del paquete `taskMetadata` creando tres submódulos dedicados (`general`, `subTasks`, `chronometer`), reubicando los archivos correspondientes a cada área funcional y actualizando los imports en el orquestador principal `taskMetadataMain.py` para mantener retrocompatibilidad total.
+- **Cambios lógicos:**
+  - **Creación de submódulos dedicados:**
+    - `general/`: Agrupa componentes relacionados a la información general de la tarea y diálogos principales (`task_create_dialog.py`, `task_detail_dialog.py`, `category_dialog.py`, `toggle_switch.py`).
+    - `subTasks/`: Agrupa componentes del CRUD y edición de subtareas (`subtask_item.py`).
+    - `chronometer/`: Agrupa componentes del diálogo de confirmación y ajuste de cronómetro (`timer_dialog.py`).
+  - **Componentes base en la raíz de taskMetadata:**
+    - Se conservaron en la raíz de `taskMetadata/` los componentes base reutilizables: `base_modal.py`, `folder_container.py`, `fading_text_edit.py`, junto con `taskMetadataMain.py` y `__init__.py`.
+  - **Alineación de importaciones y orquestación:**
+    - Se actualizaron las referencias relativas internas en cada componente reubicado hacia sus nuevos destinos y componentes base.
+    - Se configuraron los archivos `__init__.py` de cada nueva subcarpeta.
+    - Se actualizó `taskMetadataMain.py` y `taskMetadata/__init__.py` para orquestar y reexportar todos los componentes de manera transparente hacia `tasks_view.py` y el resto del sistema.
+- **Instalaciones:** N/A
+- **Toggles:** N/A

@@ -1,9 +1,24 @@
 import sqlite3
 import os
+import sys
 from contextlib import contextmanager
 from typing import Generator
 
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "tasks.db")
+def _get_default_db_path() -> str:
+    # En ejecutable compilado (PyInstaller), guardar en %LOCALAPPDATA%\Kiora para persistencia segura
+    if getattr(sys, "frozen", False):
+        appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if appdata:
+            kiora_dir = os.path.join(appdata, "Kiora", "data")
+            os.makedirs(kiora_dir, exist_ok=True)
+            return os.path.join(kiora_dir, "tasks.db")
+        else:
+            exe_dir = os.path.dirname(sys.executable)
+            return os.path.join(exe_dir, "tasks.db")
+    # Modo de desarrollo estándar
+    return os.path.join(os.path.dirname(__file__), "tasks.db")
+
+DEFAULT_DB_PATH = _get_default_db_path()
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -66,12 +81,8 @@ DEFAULT_STATUSES = [
     (3, "completed", "#00FA9A")
 ]
 
-DEFAULT_CATEGORIES = [
-    ("cat-trabajo", "Trabajo", "#FFA500"),
-    ("cat-proyectos", "Proyectos personales", "#00BFFF"),
-    ("cat-materias", "Materias", "#9370DB"),
-    ("cat-admin", "Actividades administrativas", "#00FA9A")
-]
+# No se pre-registran categorías por defecto; el usuario las crea a demanda.
+DEFAULT_CATEGORIES = []
 
 
 class DatabaseManager:
@@ -113,6 +124,30 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    @staticmethod
+    def _normalize_subtask_positions(cursor: sqlite3.Cursor) -> None:
+        """
+        Renumera `position` de las subtareas como 0, 1, 2... por tarea.
+
+        Corrige datos antiguos con posiciones duplicadas o con huecos conservando el orden
+        existente (position, luego created_at y rowid como desempate). Es idempotente:
+        solo actualiza las filas cuya posición no coincide con la secuencia esperada.
+        """
+        rows = cursor.execute(
+            "SELECT id, task_id, position FROM subtasks "
+            "ORDER BY task_id, position ASC, created_at ASC, rowid ASC;"
+        ).fetchall()
+
+        counters = {}
+        for row in rows:
+            expected = counters.get(row["task_id"], 0)
+            counters[row["task_id"]] = expected + 1
+            if row["position"] != expected:
+                cursor.execute(
+                    "UPDATE subtasks SET position = ? WHERE id = ?;",
+                    (expected, row["id"])
+                )
+
     def initialize_schema(self) -> None:
         """
         Ejecuta las sentencias DDL para inicializar tablas, índices, estados y categorías por defecto,
@@ -136,9 +171,14 @@ class DatabaseManager:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(category_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_subtasks_task_position ON subtasks(task_id, position);"
+                )
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_time_entries_task_id ON time_entries(task_id);")
             except Exception:
                 pass
+
+            self._normalize_subtask_positions(cursor)
 
             # Estados por defecto
             for status_id, name, color in DEFAULT_STATUSES:

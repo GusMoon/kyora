@@ -126,6 +126,19 @@ class TasksViewModel(QObject):
         except Exception as e:
             self.task_error.emit(f"Error al eliminar categoría: {str(e)}")
 
+    def update_category(self, category_id: str, name: str) -> Optional[Category]:
+        """
+        Modifica el nombre de una categoría existente y actualiza la vista.
+        """
+        try:
+            cat = self._use_cases.update_category(category_id, name)
+            self.categories_updated.emit(self.get_categories())
+            self.load_tasks()
+            return cat
+        except Exception as e:
+            self.task_error.emit(f"Error al editar categoría: {str(e)}")
+            return None
+
     def create_new_task(
         self,
         title: str,
@@ -277,6 +290,22 @@ class TasksViewModel(QObject):
             return False
         except Exception as e:
             self.task_error.emit(f"Error al alternar subtarea: {str(e)}")
+            return False
+
+    def reorder_subtasks(self, task_id: str, ordered_subtask_ids: list) -> bool:
+        """
+        Persiste de inmediato el orden de las subtareas tras un arrastre.
+
+        No recarga el tablero: las tarjetas solo muestran contadores y no dependen del orden.
+
+        Returns:
+            bool: True si se guardó, False en caso de error.
+        """
+        try:
+            self._use_cases.reorder_subtasks(task_id, ordered_subtask_ids)
+            return True
+        except Exception as e:
+            self.task_error.emit(f"Error al reordenar subtareas: {str(e)}")
             return False
 
     # =========================================================================

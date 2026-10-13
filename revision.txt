@@ -1,0 +1,13 @@
+✓ En el cart de la tarea se ve la información muy compacta sobre todo el atributo de subtareas, requiero una visibilidad mejorada de la información.
+✓ Cuando no se agregue una fecha estimada entonces debemos optimizar el card para que no lo muestre en lugar de dejar el atributo vacío
+✓ Cuando abre la descripción debe mostrarme un contenedor especial unicamente donde me muestre el texto, de esta forma se podrá leer mejor y evitamos errores de dimesiones en cuestión del cart que actualmente puedes hacer scroll horizontal y eso mueve el enfoque de visibilidad del propio componente
+✓ Ahora al hacer un clic entonces abrirá la descripción de la tarea en un cart del lado izquierdo de la pantalla, y debemos agregar una funcion de enfoque, cuando se abra este nuevo cart el fondo debe estar desenfocado y debemos añadir una función al los cards de las tareas para que se pueda visualizar a que tarea pertenece esa descripción y colocarlo a un lado de la descripción, desde aqui se podrá abrir la tarea o simplemente cerrarlo.
+✓ Cuando se abra la tarea el card que actualmente está centrado deberá estar maximizado y debe ocupar todo el ancho y alto de la pantalla, esto por temas del visibilidad del contenido y mejora la experiencia del usuario.
+✓ La barra de completado deberá tener un degradado
+✓ Ahora la zona donde se encunetra la descripción será dinamica ya que podremos decidir que información pondremo en esa zona, por default irá "La descripción" deberá ser visiblie, sin embargo al entrar a la sección de subtareas podremos hacer grande una subtarea un especifico que deseemos trabajar para que se vea como una minisección de mayor dimensión, también podremos tener la capacidad de elegir una ver la descripción y una subtarea al mismo tiempo(sabe recalcar que la zona izquierda de las pestañas siempre deberá ser visible). de forma que podamos acomadarlas en la zona derecha ocupando un 50% ya sea uno al lado del otro o uno arriba del otro ocupando dimensiones igualitarias esto sin afectar la zona izquierda.
+- Mejorar el diseño del cronometro
+- Mejorar el diseño del calendario expandible
+✓ Cuando se acceda a las subtareas requiero que por default estén cerradas y noa biertas mostrando su contenido
+✓ requiero que me permita moverla de pocicion segun quiera ordenarlas y ese orden sea guardado(ojo con la base de datos)
+- Al finalizar la tarea me debe mostrar estadisticas(De a que hora se creo la tarea, a que hora finalizó, subtareas creadas, tiempo definido para realizar, tiempo real de realizacion, si se cumplio la tarea a tiempo y forma cumpliendo con todas las subtareas.)
+- Mejorar el icono de trash

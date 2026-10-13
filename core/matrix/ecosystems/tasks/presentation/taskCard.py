@@ -1,10 +1,10 @@
 """
 Componente visual de tarjeta de tarea (TaskCard) dentro del tablero Kanban.
-Diseño SciFi de Kiora con altura uniforme y vista extendida adaptable con scroll:
-- Vista principal compacta (68px fija): barra de acento, título, subtareas, fecha.
-  Sin preview de descripción en la vista principal para mantener consistencia visual.
-- 1 Clic: Abre/cierra la vista extendida con la descripción completa.
-  El contenedor adapta su alto al texto hasta un límite con scroll vertical fluido.
+Diseño SciFi de Kiora con altura uniforme (84px) y tres filas de información:
+título, categoría/tiempo y progreso de subtareas.
+- El panel de fecha límite solo se muestra cuando la tarea tiene fecha.
+- 1 Clic: Con descripción abre el modo enfoque (la tarjeta nunca cambia de tamaño);
+  sin descripción abre directamente la tarea.
 - 2 Clics: Abre el modal de metadatos y edición completa (taskMetadata).
 - Arrastrar (Drag & Drop): Mueve la tarea entre columnas Kanban.
 """
@@ -12,15 +12,14 @@ from typing import Optional, List
 from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QHBoxLayout, 
-    QFrame, QPushButton, QSizePolicy, QScrollArea
+    QWidget, QVBoxLayout, QLabel, QHBoxLayout,
+    QFrame, QPushButton
 )
-from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QTimer
-from PySide6.QtGui import QDrag, QPixmap, QFont, QFontMetrics, QColor
+from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QTimer
+from PySide6.QtGui import QDrag
 
 from core.matrix.ecosystems.tasks.domain.entities import SubTask
-from core.matrix.ecosystems.motherBoard.globalComponents.styles import get_minimal_scrollbar_style
-from core.matrix.ecosystems.tasks.presentation.rootComponents.taskMetadata.fading_text_edit import FadingScrollArea
+from core.matrix.ecosystems.motherBoard.globalComponents.gradient_progress_bar import GradientProgressBar
 
 
 class TaskCard(QWidget):
@@ -28,7 +27,7 @@ class TaskCard(QWidget):
     Tarjeta de tarea interactiva dentro del tablero Kanban.
 
     Interacciones:
-    - 1 Clic: Si la tarea tiene descripción, expande/colapsa la vista de descripción.
+    - 1 Clic: Si la tarea tiene descripción, emite description_requested.
     - 2 Clics (Doble clic): Abre el modal flotante de metadatos y edición completa.
     - Arrastrar: Mueve la tarjeta entre columnas de estado.
     - Botón ✕: Solicita la eliminación de la tarea.
@@ -37,14 +36,18 @@ class TaskCard(QWidget):
     open_requested = Signal(str)
     delete_requested = Signal(str)
     toggle_subtask_requested = Signal(str, str, bool)
+    description_requested = Signal(str)
+
+    CARD_HEIGHT = 84
+    DATE_PANEL_WIDTH = 65
 
     def __init__(
-        self, 
-        task_id: str, 
-        title: str, 
-        status: str, 
-        due_date: str = None, 
-        description: str = "", 
+        self,
+        task_id: str,
+        title: str,
+        status: str,
+        due_date: str = None,
+        description: str = "",
         created_at: str = "",
         subtasks: Optional[List[SubTask]] = None,
         priority: int = 0,
@@ -69,20 +72,16 @@ class TaskCard(QWidget):
         self.estimated_duration_minutes = estimated_duration_minutes
         self.time_spent_seconds = time_spent_seconds
 
-        self.is_expanded = False
         self.drag_start_position = QPoint()
         self._drag_started = False
-
-        # Altura fija de la vista principal cerrada
-        self.base_height = 68
-        self.calculated_desc_height = self._compute_description_height()
+        self._subtasks_bar: Optional[GradientProgressBar] = None
 
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
         self._set_default_style()
-        self.setFixedHeight(self.base_height)
+        self.setFixedHeight(self.CARD_HEIGHT)
 
-        # Timer para desacoplar 1 clic (expandir) de 2 clics (abrir detalle en modal)
+        # Timer para desacoplar 1 clic (leer descripción) de 2 clics (abrir detalle en modal)
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
         self._click_timer.setInterval(220)
@@ -90,63 +89,52 @@ class TaskCard(QWidget):
 
         self._setup_ui()
 
-    def _compute_description_height(self) -> int:
-        """
-        Calcula la altura adaptada para el contenedor de descripción según el texto,
-        garantizando un rango visualmente balanceado (65px - 180px) con scroll.
-        """
-        if not self.has_description:
-            return 0
-
-        font = QFont("Space Grotesk", 12)
-        fm = QFontMetrics(font)
-        # Ancho utilizable dentro del área de texto del card
-        usable_width = 300
-        bounding = fm.boundingRect(QRect(0, 0, usable_width, 10000), Qt.TextWordWrap, self.description_text)
-        # Altura del texto + etiqueta de encabezado + padding superior/inferior
-        needed_height = bounding.height() + 52
-        return max(65, min(needed_height, 180))
-
-    def _setup_ui(self):
-        # Layout principal vertical del Card
-        self.card_main_layout = QVBoxLayout(self)
-        self.card_main_layout.setContentsMargins(0, 0, 0, 0)
-        self.card_main_layout.setSpacing(0)
-
-        # =============================================================
-        # 1. FILA COMPACTA (Vista principal sin descripción)
-        # =============================================================
-        self.compact_widget = QWidget()
-        self.compact_widget.setFixedHeight(self.base_height)
-        compact_layout = QHBoxLayout(self.compact_widget)
-        compact_layout.setContentsMargins(0, 0, 0, 0)
-        compact_layout.setSpacing(0)
-
-        # Barra lateral de estado Kanban
+    # ------------------------------------------------------------------
+    # Construcción de la interfaz
+    # ------------------------------------------------------------------
+    def _resolve_accent_color(self) -> str:
         status_norm = self.current_status.strip().lower().replace("-", "_")
         if status_norm == "completed":
-            accent_color = "#00FA9A"
-        elif status_norm in ("in_progress", "in-progress"):
-            accent_color = "#00BFFF"
-        else:
-            accent_color = "#FFA500"
+            return "#00FA9A"
+        if status_norm == "in_progress":
+            return "#00BFFF"
+        return "#FFA500"
 
-        self.accent_bar = QFrame()
-        self.accent_bar.setFixedWidth(5)
-        self.accent_bar.setFixedHeight(self.base_height)
-        self.accent_bar.setStyleSheet(f"background-color: {accent_color};")
-        compact_layout.addWidget(self.accent_bar)
+    def _setup_ui(self):
+        accent_color = self._resolve_accent_color()
 
-        # Contenido Central (Título + Subtareas + Indicador Expandir)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Barra lateral de estado Kanban
+        accent_bar = QFrame()
+        accent_bar.setFixedWidth(5)
+        accent_bar.setStyleSheet(f"background-color: {accent_color};")
+        main_layout.addWidget(accent_bar)
+
         center_layout = QVBoxLayout()
         center_layout.setContentsMargins(12, 8, 8, 8)
         center_layout.setSpacing(4)
         center_layout.setAlignment(Qt.AlignVCenter)
+        center_layout.addLayout(self._build_title_row())
+        center_layout.addLayout(self._build_info_row())
 
-        # Fila superior: Título y botón ✕
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.setSpacing(4)
+        if self.subtasks:
+            center_layout.addLayout(self._build_subtasks_row())
+
+        main_layout.addLayout(center_layout, 1)
+
+        # Panel de fecha límite: solo existe si la tarea tiene fecha
+        if self.due_date_str:
+            date_frame = self._build_date_panel(accent_color)
+            if date_frame:
+                main_layout.addWidget(date_frame)
+
+    def _build_title_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
 
         title_label = QLabel(self.title_text.upper())
         title_label.setWordWrap(False)
@@ -154,10 +142,8 @@ class TaskCard(QWidget):
             "font-weight: 900; font-size: 13px; font-family: 'Space Grotesk'; "
             "color: #FFFFFF; letter-spacing: 0.8px;"
         )
-        top_row.addWidget(title_label)
-        top_row.addStretch()
+        row.addWidget(title_label, 1)
 
-        # Botón de eliminación (✕)
         self.btn_delete = QPushButton("✕")
         self.btn_delete.setFixedSize(18, 18)
         self.btn_delete.setCursor(Qt.PointingHandCursor)
@@ -178,120 +164,122 @@ class TaskCard(QWidget):
             }
         """)
         self.btn_delete.clicked.connect(lambda: self.delete_requested.emit(self.task_id))
-        top_row.addWidget(self.btn_delete)
-        center_layout.addLayout(top_row)
+        row.addWidget(self.btn_delete)
+        return row
 
-        # Fila inferior: Categoría, Subtareas, Tiempo e indicador de descripción
-        footer_info_row = QHBoxLayout()
-        footer_info_row.setContentsMargins(0, 0, 0, 0)
-        footer_info_row.setSpacing(6)
+    def _build_info_row(self) -> QHBoxLayout:
+        """Fila de categoría, tiempo estimado/invertido e indicador de descripción."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
 
-        # Badge de Categoría (TAR-026, TAR-047)
         if self.category_name:
-            cat_color = self.category_color or "#FFAA77"
-            lbl_cat_badge = QLabel(f"● {self.category_name.upper()}")
-            lbl_cat_badge.setStyleSheet(f"""
-                QLabel {{
-                    color: {cat_color};
+            lbl_cat_badge = QLabel(self.category_name.upper())
+            lbl_cat_badge.setFixedHeight(17)
+            lbl_cat_badge.setToolTip(f"Categoría: {self.category_name}")
+            lbl_cat_badge.setStyleSheet("""
+                QLabel {
+                    color: #CCCCCC;
                     font-size: 9px;
                     font-weight: bold;
                     font-family: 'Space Grotesk';
-                    background-color: #121212;
-                    border: 1px solid {cat_color};
+                    letter-spacing: 0.6px;
+                    background-color: #1A1A1A;
+                    border: 1px solid #383838;
                     border-radius: 3px;
-                    padding: 1px 4px;
-                }}
-            """)
-            footer_info_row.addWidget(lbl_cat_badge)
-
-        if self.subtasks:
-            done_cnt = sum(1 for st in self.subtasks if st.is_completed)
-            tot_cnt = len(self.subtasks)
-            sub_text = f"☑ {done_cnt}/{tot_cnt}" if done_cnt > 0 else f"☑ {tot_cnt}"
-
-            lbl_sub_info = QLabel(sub_text)
-            lbl_sub_info.setStyleSheet("""
-                QLabel {
-                    color: #FFAA77;
-                    font-size: 10px;
-                    font-weight: bold;
-                    font-family: 'Space Grotesk';
+                    padding: 1px 6px;
                 }
             """)
-            footer_info_row.addWidget(lbl_sub_info)
+            row.addWidget(lbl_cat_badge)
 
-        # Badge de Tiempo estimado / invertido (TAR-032, TAR-042)
-        time_badge_txt = ""
-        if self.time_spent_seconds > 0:
-            sp_m = self.time_spent_seconds // 60
-            if self.estimated_duration_minutes:
-                time_badge_txt = f"⏱ {sp_m}m/{self.estimated_duration_minutes}m"
-            else:
-                time_badge_txt = f"⏱ {sp_m}m"
-        elif self.estimated_duration_minutes:
-            h = self.estimated_duration_minutes // 60
-            m = self.estimated_duration_minutes % 60
-            dur_txt = f"{h}h{m}m" if h > 0 and m > 0 else (f"{h}h" if h > 0 else f"{m}m")
-            time_badge_txt = f"⏱ {dur_txt}"
+        time_text = self._format_time_badge()
+        if time_text:
+            lbl_time_badge = QLabel(time_text)
+            lbl_time_badge.setStyleSheet(
+                "color: #999999; font-size: 10px; font-family: 'Space Grotesk';"
+            )
+            row.addWidget(lbl_time_badge)
 
-        if time_badge_txt:
-            lbl_time_badge = QLabel(time_badge_txt)
-            lbl_time_badge.setStyleSheet("""
-                QLabel {
-                    color: #999999;
-                    font-size: 10px;
-                    font-family: 'Space Grotesk';
-                }
-            """)
-            footer_info_row.addWidget(lbl_time_badge)
+        row.addStretch()
 
-        footer_info_row.addStretch()
-
-        # Indicador para desplegar descripción si la tarea la contiene
         if self.has_description:
-            self.arrow_lbl = QLabel("▼")
-            self.arrow_lbl.setStyleSheet("""
-                QLabel {
-                    color: #777777;
-                    font-size: 10px;
-                    font-weight: bold;
-                    font-family: 'Space Grotesk';
-                }
-            """)
-            footer_info_row.addWidget(self.arrow_lbl)
+            lbl_desc = QLabel("≡ DESCRIPCIÓN")
+            lbl_desc.setToolTip("Clic para leer la descripción")
+            lbl_desc.setStyleSheet(
+                "color: #777777; font-size: 9px; font-weight: bold; "
+                "font-family: 'Space Grotesk'; letter-spacing: 0.6px;"
+            )
+            row.addWidget(lbl_desc)
+        return row
 
-        center_layout.addLayout(footer_info_row)
-        compact_layout.addLayout(center_layout)
+    def _format_time_badge(self) -> str:
+        """Texto de tiempo invertido/estimado (TAR-032, TAR-042). Vacío si no aplica."""
+        if self.time_spent_seconds > 0:
+            spent_minutes = self.time_spent_seconds // 60
+            if self.estimated_duration_minutes:
+                return f"⏱ {spent_minutes}m/{self.estimated_duration_minutes}m"
+            return f"⏱ {spent_minutes}m"
 
-        # Panel de Fecha Límite a la derecha
-        if self.due_date_str:
-            try:
-                dt = datetime.strptime(self.due_date_str[:10], "%Y-%m-%d")
-                month_str = dt.strftime("%b").upper()
-                day_str = dt.strftime("%d")
-            except Exception:
-                month_str = "---"
-                day_str = "--"
-        else:
-            month_str = "TBD"
-            day_str = "--"
+        if self.estimated_duration_minutes:
+            hours = self.estimated_duration_minutes // 60
+            minutes = self.estimated_duration_minutes % 60
+            if hours > 0 and minutes > 0:
+                return f"⏱ {hours}h{minutes}m"
+            if hours > 0:
+                return f"⏱ {hours}h"
+            return f"⏱ {minutes}m"
+        return ""
+
+    def _build_subtasks_row(self) -> QHBoxLayout:
+        """Fila de progreso de subtareas con texto legible y barra fina."""
+        total = len(self.subtasks)
+        done = sum(1 for st in self.subtasks if st.is_completed)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        lbl_progress = QLabel(f"SUBTAREAS {done}/{total}")
+        lbl_progress.setStyleSheet(
+            "color: #E0E0E0; font-size: 11px; font-weight: bold; "
+            "font-family: 'Space Grotesk'; letter-spacing: 0.5px;"
+        )
+        row.addWidget(lbl_progress)
+
+        bar = GradientProgressBar()
+        self._subtasks_bar = bar
+        bar.setRange(0, total)
+        bar.setValue(done)
+        bar.setFixedHeight(4)
+        row.addWidget(bar, 1)
+        return row
+
+    def _build_date_panel(self, accent_color: str) -> Optional[QFrame]:
+        try:
+            due = datetime.strptime(self.due_date_str[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
 
         date_frame = QFrame()
-        date_frame.setFixedWidth(65)
-        date_frame.setFixedHeight(self.base_height)
+        date_frame.setFixedWidth(self.DATE_PANEL_WIDTH)
         date_frame.setStyleSheet("background-color: #1A1A1A; border-left: 1px solid #333333;")
 
-        date_layout = QVBoxLayout(date_frame)
-        date_layout.setContentsMargins(0, 8, 0, 8)
-        date_layout.setSpacing(2)
+        layout = QVBoxLayout(date_frame)
+        layout.setContentsMargins(0, 8, 0, 8)
+        layout.setSpacing(2)
 
-        day_lbl = QLabel(day_str)
+        day_lbl = QLabel(due.strftime("%d"))
         day_lbl.setAlignment(Qt.AlignCenter)
-        day_lbl.setStyleSheet("font-size: 18px; font-family: 'Space Grotesk'; color: #FFFFFF; font-weight: 900;")
+        day_lbl.setStyleSheet(
+            "font-size: 18px; font-family: 'Space Grotesk'; color: #FFFFFF; font-weight: 900;"
+        )
 
-        month_lbl = QLabel(month_str)
+        month_lbl = QLabel(due.strftime("%b").upper())
         month_lbl.setAlignment(Qt.AlignCenter)
-        month_lbl.setStyleSheet("font-size: 10px; font-family: 'Space Grotesk'; color: #AAAAAA; font-weight: bold; letter-spacing: 1px;")
+        month_lbl.setStyleSheet(
+            "font-size: 10px; font-family: 'Space Grotesk'; color: #AAAAAA; "
+            "font-weight: bold; letter-spacing: 1px;"
+        )
 
         dot = QLabel()
         dot.setFixedSize(6, 6)
@@ -302,104 +290,18 @@ class TaskCard(QWidget):
         dot_layout.setAlignment(Qt.AlignCenter)
         dot_layout.addWidget(dot)
 
-        date_layout.addWidget(day_lbl)
-        date_layout.addWidget(month_lbl)
-        date_layout.addStretch()
-        date_layout.addLayout(dot_layout)
+        layout.addWidget(day_lbl)
+        layout.addWidget(month_lbl)
+        layout.addStretch()
+        layout.addLayout(dot_layout)
+        return date_frame
 
-        compact_layout.addWidget(date_frame)
-        self.card_main_layout.addWidget(self.compact_widget)
-
-        # =============================================================
-        # 2. VISTA EXTENDIDA: DESCRIPCIÓN COMPLETA CON SCROLL ADAPTABLE
-        # =============================================================
-        if self.has_description:
-            self.expanded_container = QFrame()
-            self.expanded_container.setStyleSheet(
-                "background-color: #141414; border-top: 1px solid #2A2A2A; "
-                "border-bottom-left-radius: 4px; border-bottom-right-radius: 4px;"
-            )
-            self.expanded_container.hide()
-
-            expanded_layout = QVBoxLayout(self.expanded_container)
-            expanded_layout.setContentsMargins(0, 0, 0, 0)
-            expanded_layout.setSpacing(0)
-
-            # Scroll Area Sci-Fi con barras minimalistas y efecto sutil de desvanecimiento
-            self.desc_scroll = FadingScrollArea(bg_color=QColor(20, 20, 20))
-            self.desc_scroll.setWidgetResizable(True)
-            self.desc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            self.desc_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            self.desc_scroll.setFixedHeight(self.calculated_desc_height)
-            self.desc_scroll.setStyleSheet(
-                get_minimal_scrollbar_style() + """
-                QScrollArea {
-                    border: none;
-                    background-color: transparent;
-                }
-                QWidget {
-                    background-color: transparent;
-                }
-                """
-            )
-
-            desc_content_widget = QWidget()
-            desc_content_widget.setStyleSheet("background: transparent;")
-            desc_content_layout = QVBoxLayout(desc_content_widget)
-            desc_content_layout.setContentsMargins(14, 10, 14, 10)
-            desc_content_layout.setSpacing(6)
-
-            desc_title = QLabel("DESCRIPCIÓN COMPLETA:")
-            desc_title.setStyleSheet(
-                "font-size: 10px; font-family: 'Space Grotesk'; color: #FFAA77; "
-                "font-weight: bold; letter-spacing: 1px;"
-            )
-            desc_content_layout.addWidget(desc_title)
-
-            self.desc_text_lbl = QLabel(self.description_text)
-            self.desc_text_lbl.setWordWrap(True)
-            self.desc_text_lbl.setStyleSheet("""
-                QLabel {
-                    color: #E2E2E2;
-                    font-size: 12px;
-                    font-family: 'Space Grotesk';
-                    line-height: 1.45;
-                }
-            """)
-            desc_content_layout.addWidget(self.desc_text_lbl)
-            desc_content_layout.addStretch()
-
-            self.desc_scroll.setWidget(desc_content_widget)
-            self.desc_scroll.viewport().installEventFilter(self)
-            expanded_layout.addWidget(self.desc_scroll)
-
-            self.card_main_layout.addWidget(self.expanded_container)
-        else:
-            self.expanded_container = None
-            self.desc_scroll = None
-
-    def toggle_expand(self):
-        """
-        Alterna la vista extendida mostrando/ocultando la descripción completa.
-        Adapta la altura del contenedor al texto sin romper proporciones.
-        """
-        if not self.has_description or not self.expanded_container:
-            return
-
-        self.is_expanded = not self.is_expanded
-        if self.is_expanded:
-            self.expanded_container.show()
-            if hasattr(self, "arrow_lbl"):
-                self.arrow_lbl.setText("▲ Ocultar")
-            self.setFixedHeight(self.base_height + self.calculated_desc_height)
-        else:
-            self.expanded_container.hide()
-            if hasattr(self, "arrow_lbl"):
-                self.arrow_lbl.setText("▼ Descripción")
-            self.setFixedHeight(self.base_height)
-        self.updateGeometry()
-
+    # ------------------------------------------------------------------
+    # Estilos
+    # ------------------------------------------------------------------
     def _set_default_style(self):
+        if self._subtasks_bar is not None:
+            self._subtasks_bar.setVisible(True)
         self.setStyleSheet("""
             TaskCard {
                 background-color: #222222;
@@ -413,6 +315,9 @@ class TaskCard(QWidget):
         """)
 
     def _set_ghost_style(self):
+        # La barra se pinta a mano y no obedece al QSS, por lo que se oculta aparte
+        if self._subtasks_bar is not None:
+            self._subtasks_bar.setVisible(False)
         self.setStyleSheet("""
             TaskCard {
                 background-color: transparent;
@@ -425,10 +330,13 @@ class TaskCard(QWidget):
             }
         """)
 
+    # ------------------------------------------------------------------
+    # Interacción
+    # ------------------------------------------------------------------
     def _handle_single_click(self):
         """Manejador ejecutado al detectar 1 solo clic tras el timeout."""
         if self.has_description:
-            self.toggle_expand()
+            self.description_requested.emit(self.task_id)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -439,7 +347,11 @@ class TaskCard(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             if not self._drag_started and (event.pos() - self.drag_start_position).manhattanLength() < 8:
-                # Inicia el timer de un solo clic si no se disparó ya
+                if not self.has_description:
+                    # Sin descripción no hay nada que leer: no se espera al doble clic
+                    event.accept()
+                    self.open_requested.emit(self.task_id)
+                    return
                 if self._click_timer.isActive():
                     self._click_timer.stop()
                 self._click_timer.start(220)
@@ -447,27 +359,18 @@ class TaskCard(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Si hay doble clic, cancelar el timer de 1 clic y abrir el modal
+            # Un doble clic cancela la lectura pendiente y abre el modal de detalle
             if self._click_timer.isActive():
                 self._click_timer.stop()
+            event.accept()
             self.open_requested.emit(self.task_id)
+            return
         super().mouseDoubleClickEvent(event)
-
-    def eventFilter(self, watched, event):
-        """Permite que el doble clic sobre el área de descripción también abra taskMetadata."""
-        if hasattr(self, "desc_scroll") and self.desc_scroll and watched == self.desc_scroll.viewport():
-            if event.type() == event.Type.MouseButtonDblClick and event.button() == Qt.LeftButton:
-                if self._click_timer.isActive():
-                    self._click_timer.stop()
-                self.open_requested.emit(self.task_id)
-                return True
-        return super().eventFilter(watched, event)
 
     def mouseMoveEvent(self, event):
         if not (event.buttons() & Qt.LeftButton):
             return
         if (event.pos() - self.drag_start_position).manhattanLength() >= 8:
-            # Al iniciar arrastre, cancelar cualquier click pendiente
             if self._click_timer.isActive():
                 self._click_timer.stop()
             self._drag_started = True

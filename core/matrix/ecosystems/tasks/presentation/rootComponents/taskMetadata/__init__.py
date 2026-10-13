@@ -12,6 +12,8 @@ from .taskMetadataMain import (
     FadingScrollTextEdit,
     FadingScrollArea,
     ScrollFadeOverlay,
+    CategoryCreateDialog,
+    TimerDurationDialog,
 )
 
 __all__ = [
@@ -24,4 +26,7 @@ __all__ = [
     "FadingScrollTextEdit",
     "FadingScrollArea",
     "ScrollFadeOverlay",
+    "CategoryCreateDialog",
+    "TimerDurationDialog",
 ]
+

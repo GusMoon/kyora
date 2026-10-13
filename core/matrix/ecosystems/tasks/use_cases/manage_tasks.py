@@ -272,6 +272,25 @@ class TaskUseCases:
             self.repository.save_task(task)
         return True
 
+    def reorder_subtasks(self, task_id: str, ordered_subtask_ids: List[str]) -> None:
+        """
+        Guarda el nuevo orden de las subtareas de una tarea.
+
+        Args:
+            task_id: Identificador de la tarea padre.
+            ordered_subtask_ids: Identificadores en el orden deseado; los repetidos se descartan.
+        """
+        seen = set()
+        unique_ids = []
+        for subtask_id in ordered_subtask_ids:
+            if subtask_id and subtask_id not in seen:
+                seen.add(subtask_id)
+                unique_ids.append(subtask_id)
+
+        if not unique_ids:
+            return
+        self.repository.reorder_subtasks(task_id, unique_ids)
+
     def get_categories(self) -> List[Category]:
         """Recupera el catálogo completo de categorías disponibles (TAR-028)."""
         return self.repository.get_all_categories()
@@ -296,6 +315,16 @@ class TaskUseCases:
     def delete_category(self, category_id: str) -> None:
         """Elimina una categoría del sistema."""
         self.repository.delete_category(category_id)
+
+    def update_category(self, category_id: str, name: str) -> Optional[Category]:
+        """Modifica el nombre de una categoría existente."""
+        cats = self.repository.get_all_categories()
+        target = next((c for c in cats if c.id == category_id), None)
+        if target:
+            target.name = name.strip()
+            self.repository.save_category(target)
+            return target
+        return None
 
     def add_time_session(
         self,

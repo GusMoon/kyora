@@ -44,6 +44,11 @@ class TaskRepository(ABC):
         pass
 
     @abstractmethod
+    def reorder_subtasks(self, task_id: str, ordered_subtask_ids: List[str]) -> None:
+        """Persiste el orden de las subtareas de una tarea."""
+        pass
+
+    @abstractmethod
     def delete_subtask(self, subtask_id: str) -> None:
         """Elimina una subtarea por su identificador."""
         pass

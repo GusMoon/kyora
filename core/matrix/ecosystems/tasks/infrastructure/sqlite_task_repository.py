@@ -159,7 +159,7 @@ class SqliteTaskRepository(TaskRepository):
         subtasks_query = """
         SELECT id, task_id, title, description, is_completed, position, created_at, updated_at
         FROM subtasks
-        ORDER BY task_id, position ASC;
+        ORDER BY task_id, position ASC, created_at ASC, rowid ASC;
         """
 
         with self.db_manager.get_connection() as conn:
@@ -229,7 +229,7 @@ class SqliteTaskRepository(TaskRepository):
         SELECT id, task_id, title, description, is_completed, position, created_at, updated_at
         FROM subtasks
         WHERE task_id = ?
-        ORDER BY position ASC;
+        ORDER BY position ASC, created_at ASC, rowid ASC;
         """
 
         with self.db_manager.get_connection() as conn:
@@ -479,6 +479,24 @@ class SqliteTaskRepository(TaskRepository):
                 )
             )
 
+    def reorder_subtasks(self, task_id: str, ordered_subtask_ids: List[str]) -> None:
+        """
+        Persiste el orden de las subtareas de una tarea en una sola transacción.
+
+        Los identificadores que aún no existen en la base (subtareas añadidas en un diálogo
+        sin guardar) se ignoran; recibirán su posición cuando la tarea se guarde.
+
+        Args:
+            task_id: Identificador de la tarea propietaria.
+            ordered_subtask_ids: Identificadores de subtareas en el orden deseado.
+        """
+        now = datetime.now().isoformat()
+        sql = "UPDATE subtasks SET position = ?, updated_at = ? WHERE id = ? AND task_id = ?;"
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            for position, subtask_id in enumerate(ordered_subtask_ids):
+                cursor.execute(sql, (position, now, subtask_id, task_id))
+
     def delete_subtask(self, subtask_id: str) -> None:
         """
         Elimina una subtarea individual por su identificador.
@@ -527,11 +545,11 @@ class SqliteTaskRepository(TaskRepository):
             cursor.execute(sql, (category.id, category.name, category.color, category.created_at))
 
     def delete_category(self, category_id: str) -> None:
-        """Elimina una categoría por su identificador."""
-        sql = "DELETE FROM categories WHERE id = ?;"
+        """Elimina una categoría por su identificador y desvincula las tareas asociadas."""
         with self.db_manager.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql, (category_id,))
+            cursor.execute("UPDATE tasks SET category_id = NULL WHERE category_id = ?;", (category_id,))
+            cursor.execute("DELETE FROM categories WHERE id = ?;", (category_id,))
 
     def add_time_entry(self, entry: TimeEntry) -> None:
         """
