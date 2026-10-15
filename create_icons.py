@@ -1,6 +1,6 @@
 import os
 
-base_path = r"c:\secondBrain\proyectos\kiora\core\matrix\ecosystems\motherBoard\globalComponents\icons"
+base_path = r"c:\secondBrain\proyectos\kiora\core\resources\icons"
 os.makedirs(base_path, exist_ok=True)
 
 font_icon_code = """from PySide6.QtGui import QFont

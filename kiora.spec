@@ -10,13 +10,13 @@ datas = [
     (os.path.join(project_dir, 'core', 'resources'), os.path.join('core', 'resources')),
 ]
 
-config_file = os.path.join(project_dir, 'core', 'matrix', 'ecosystems', 'global_config.json')
+config_file = os.path.join(project_dir, 'core', 'matrix', 'motherboard', 'global_config.json')
 if os.path.exists(config_file):
-    datas.append((config_file, os.path.join('core', 'matrix', 'ecosystems')))
+    datas.append((config_file, os.path.join('core', 'matrix', 'motherboard')))
 
-cookies_file = os.path.join(project_dir, 'core', 'matrix', 'ecosystems', 'studio', 'youtube_cookies.txt')
+cookies_file = os.path.join(project_dir, 'core', 'matrix', 'motherboard', 'ecosystems', 'studio', 'youtube_cookies.txt')
 if os.path.exists(cookies_file):
-    datas.append((cookies_file, os.path.join('core', 'matrix', 'ecosystems', 'studio')))
+    datas.append((cookies_file, os.path.join('core', 'matrix', 'motherboard', 'ecosystems', 'studio')))
 
 icon_path = os.path.join(project_dir, 'core', 'resources', 'kiora.ico')
 
