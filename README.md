@@ -1,6 +1,6 @@
 # Kyora
 
-Aplicación de escritorio todo en uno, enfocada en la multitarea y el enfoque personal. Organiza el trabajo en ecosistemas (tareas, bitácora, calendario, explorador de archivos y música) sobre una interfaz principal común.
+Aplicación de escritorio todo en uno, enfocada en la multitarea y el enfoque personal. Organiza el trabajo en ecosistemas (tareas, bitácora, calendario, directorio de archivos y música) sobre una interfaz principal común.
 
 ## Stack
 
@@ -29,11 +29,10 @@ python main.py
 
 El núcleo vive en `core/matrix/motherboard/`:
 
-- `globalComponents/`: componentes y funciones globales que cualquier ecosistema puede usar.
-- `rootComponents/`: interfaz raíz heredada (`rootView.py` y launcher), aún no conectada a `motherboardRoot.py`.
-- `globalArtifacts/`: elementos visuales globales de la ventana raíz (el `Reactor`).
-- `internalArtifacts/`: información de la ventana raíz (fecha y hora, ubicación y clima).
-- `ecosystems/`: un subpaquete por ecosistema (`tasks`, `logbook`, `calendar`, `explorer`, `studio`).
+- `artifacts/`: artefactos visuales de la ventana raíz.
+  - `globalArtifacts/`: elementos visuales globales (el `Reactor`).
+- `modules/`: módulos globales (tema, estilos, diálogos, componentes y `directory`, con sus `components/`) que cualquier ecosistema puede usar; ver `definitions.txt`.
+- `ecosystems/`: un subpaquete por ecosistema (`tasks`, `logbook`, `calendar`, `studio`).
 - `motherboardRoot.py`: ventana raíz (punto de entrada de `main.py`).
 
 Los íconos viven en `core/resources/icons/`.

@@ -1,8 +1,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QListWidget
 
-from core.matrix.motherboard.globalComponents import kyora_theme as kt
-from core.matrix.motherboard.globalComponents.base_container import KioraBaseContainer
+from core.matrix.motherboard.modules import kyora_theme as kt
+from core.matrix.motherboard.modules.base_container import KioraBaseContainer
 
 
 class ConfigurationPanel(KioraBaseContainer):

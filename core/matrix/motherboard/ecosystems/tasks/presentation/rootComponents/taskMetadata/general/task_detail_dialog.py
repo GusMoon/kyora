@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate, Signal, QPointF, QCoreApplication, QEvent, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
 from core.resources.icons.information.calendar import get_calendar_icon
 from core.resources.icons.trash import get_trash_icon
-from core.matrix.motherboard.globalComponents.gradient_progress_bar import GradientProgressBar
-from core.matrix.motherboard.globalComponents.simple_dialogs import SciFiConfirmDialog
+from core.matrix.motherboard.modules.gradient_progress_bar import GradientProgressBar
+from core.matrix.motherboard.modules.simple_dialogs import SciFiConfirmDialog
 from core.matrix.motherboard.ecosystems.tasks.domain.entities import Task, SubTask, Category, TimeEntry
 
 from ..base_modal import SciFiBaseModal

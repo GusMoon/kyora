@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QPoint
 from PySide6.QtGui import QDrag
 from ..drag_handle import DragHandle, SUBTASK_MIME
 from core.matrix.motherboard.ecosystems.tasks.domain.entities import SubTask
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
 
 CHECKED_STYLE = """
     QPushButton {

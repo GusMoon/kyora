@@ -1,0 +1,6 @@
+Habera definir algunos puntos:
+1. Un ecosistema es un espacio de trabajo en donde puedes realizar multiples funciones
+2. los modulos son aquellas herramientas que usa el ecosistema para funcionar, existen 2 tipos de modulos:
+   a. modulos Globales: son aquellas que están disponibles en todos los ecosistemas
+   b. modulos Locales: son aquellas que están disponibles solo en el ecosistema en el que se encuentran
+3. 

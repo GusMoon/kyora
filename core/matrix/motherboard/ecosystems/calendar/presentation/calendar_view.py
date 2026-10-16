@@ -19,7 +19,7 @@ from core.matrix.motherboard.ecosystems.calendar.presentation.rootComponents.dia
 )
 from core.matrix.motherboard.ecosystems.calendar.presentation.rootComponents.item_detail import ItemDetail
 from core.matrix.motherboard.ecosystems.calendar.presentation.rootComponents.month_grid import MonthGrid
-from core.matrix.motherboard.globalComponents.simple_dialogs import SciFiConfirmDialog
+from core.matrix.motherboard.modules.simple_dialogs import SciFiConfirmDialog
 
 DAY_MODE, MONTH_MODE = 0, 1
 

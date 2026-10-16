@@ -9,7 +9,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainterPath
 
 from core.matrix.motherboard.ecosystems.calendar.domain.entities import AgendaItem
-from core.matrix.motherboard.globalComponents import kyora_theme as kt
+from core.matrix.motherboard.modules import kyora_theme as kt
 
 FONT_FAMILY = kt.FONT
 

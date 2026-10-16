@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QRect, QMimeData, QPoint
 from PySide6.QtGui import QFontMetrics, QPainter, QColor, QPen, QDrag
 
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
 
 from ..drag_handle import DragHandle, SUBTASK_MIME, PANE_MIME
 from ..fading_text_edit import FadingScrollTextEdit

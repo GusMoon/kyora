@@ -9,7 +9,7 @@ la ventana raíz de Kyora. Se agregan aquí a medida que se implementan.
 | Clase | `MotherboardRoot` (`QMainWindow`) |
 | Marco | Sin marco (`Qt.FramelessWindowHint`) |
 | Tamaño | Maximizada |
-| Cierre | Tecla `Esc` |
+| Cierre | Tecla `Esc` (primero oculta el módulo abierto) u opción Cerrar del reactor |
 
 ## Fondo
 Pintado en `paintEvent`: color base más un halo radial centrado en la ventana.
@@ -24,64 +24,95 @@ Pintado en `paintEvent`: color base más un halo radial centrado en la ventana.
 | Radio del halo | `GLOW_RADIUS_FACTOR` | 0.6 × lado mayor de la ventana |
 
 ## Reactor
-Componente circular sci-fi en el centro de la ventana. Código:
-[reactor.py](../../core/matrix/motherboard/globalArtifacts/reactor.py). Fondo transparente, no captura el ratón.
+Componente circular sci-fi, centrado en la ventana, con su centro en el borde derecho mientras se navega el [directorio](rootDirectoryUI.md). Código:
+[reactor.py](../../core/matrix/motherboard/artifacts/globalArtifacts/reactor.py). Fondo transparente.
 
 | Propiedad | Valor |
 |---|---|
 | Clase | `Reactor` (`QWidget`) |
-| Tamaño | `REACTOR_SIZE_FACTOR` = 0.5 × lado menor de la ventana, cuadrado y centrado |
+| Tamaño | `REACTOR_SIZE_FACTOR` = 0.5 × lado menor de la ventana (tamaño completo), cuadrado. En reposo se dibuja al `REST_SCALE` = 0.55 de ese tamaño y crece al abrirse el menú |
 | Colores | `BRIGHT` `#ebeef2`, `MID` `#969ba2`, `DIM` `#5a5e64`, `FAINT` blanco α22 |
-| Animación de entrada | `INTRO_MS` = 3400 ms, una sola vez |
-| Mirada del icono | Los ojos siguen al cursor (también fuera de la ventana); `LOOK_FOLLOW` = 0.22 de suavizado por cuadro de `LOOK_TICK_MS` = 16 ms |
+| Animación de entrada | `INTRO_MS` = 2400 ms, una sola vez |
 | Rotación continua | `SPIN_MS` = 90000 ms por vuelta, en bucle |
 
 Capas, de afuera hacia adentro (radio como % del radio del widget):
-- Banda tenue en 90 con círculos finos en 97, 92, 70, 58 y 46.
-- Arcos exteriores en 100, arriba y abajo.
-- Anillo principal en 78–80, con arcos gruesos en 74 y 64.
-- Marcas de graduación cada 3° entre 84 y 87.5 (mayor cada 15°).
-- 70 puntos dispersos entre 83 y 93 (semilla fija).
-- Búho central, dibujado en `Reactor._draw_owl` en `MID`: dos aros (ojos) con el centro hueco, dos cejas concéntricas a cada ojo que se unen arriba en el eje, y un pico en rombo entre los aros. Semiancho `OWL_HALF_WIDTH` = 42, justo dentro del círculo fino de 46.
+- Círculos finos en 96 y 92.
+- Arcos gruesos opuestos en 94 y arcos finos en 99 que giran en sentido contrario.
+- Anillo principal en 78–80.
+- Marcas de graduación cada 3° entre 69/71 y 75 (mayor cada 15°).
+- Cuatro grupos de tres puntos junto al círculo exterior.
+- Centro vacío, dentro del anillo de marcas.
 
-Etapas de la entrada. El icono se dibuja primero (fracción de `INTRO_MS`
-0.00–`ICON_INTRO_END` = 0.45); los anillos empiezan en `RINGS_INTRO_START` = 0.35
-y sus intervalos son fracción de ese tramo restante:
+Etapas de la entrada (intervalos como fracción de `INTRO_MS`):
 
 | Etapa | Elemento | Efecto | Intervalo |
 |---|---|---|---|
-| 0 | Búho central | Se trazan los aros de los ojos; después las cejas desde su punta exterior; al final el pico crece desde su centro | 0.00–0.45 de la entrada |
-| 1 | Banda y círculos finos | Se trazan dando la vuelta | 0.00–0.35 |
+| 1 | Círculos finos | Se trazan dando la vuelta | 0.00–0.45 |
 | 2 | Anillo principal | Se traza dando la vuelta | 0.15–0.50 |
-| 3 | Arcos exteriores | Crecen desde su centro | 0.35–0.60 |
-| 4 | Arcos gruesos | Crecen en barrido | 0.45–0.80 |
-| 5 | Marcas de graduación | Aparecen en barrido | 0.55–0.90 |
-| 6 | Puntos | Aparecen escalonados | 0.70–1.00 |
+| 3 | Arcos gruesos y finos | Crecen en barrido | 0.35–0.80 |
+| 4 | Marcas de graduación | Aparecen en barrido | 0.50–0.90 |
+| 5 | Puntos | Aparecen | 0.70–1.00 |
 
-Mirada: cada aro de ojo se desplaza hasta `OWL_LOOK_RANGE` = 4 (píxeles del
-diseño de referencia) hacia el cursor; las cejas y el pico no se mueven. El
-reactor calcula la dirección con el cursor respecto al centro; la fuerza satura
-a una distancia de 30 % del lado menor del reactor.
+Rotación continua: los arcos gruesos giran a 0.5×, los finos a −0.8×, las marcas a 0.2× y los puntos a 0.1×.
 
-Rotación continua: los arcos gruesos de 74 giran en un sentido, los de 64 en el
-contrario a 1.5× la velocidad; las marcas giran a 0.2× y los puntos a 0.5×.
+## Reactor como navegador
+Con la entrada terminada y el cursor dentro del círculo del reactor aparece el menú
+en su centro; al salir del círculo se retira. El reactor conserva todas
+sus capas. Navega entre los módulos (`MODULES`) y emite `option_selected(str)` al activar uno;
+`MotherboardRoot.open_module` atiende el id. La navegación de carpetas del directorio no
+vive aquí ([ADR 0003](../adr/0003-dial-de-carpetas-en-el-directorio.md)).
 
-## Información (esquina superior izquierda)
-Columna `info_panel` de `MotherboardRoot`, en `INFO_MARGIN` = (16, 12) px desde la
-esquina superior izquierda, con `INFO_ROW_SPACING` = 10 px entre elementos. Arriba va
-la hora en grande; debajo, una `InfoRow` por atributo (patrón en
-[globalKyoraUI.md](globalKyoraUI.md#fila-de-información)).
+| Propiedad | Valor |
+|---|---|
+| Transición | `MENU_MS` = 700 ms, en ambos sentidos (al salir se reproduce al revés). Primero crece (hasta `GROW_END` = 0.45) y después aparece el menú |
+| Abrir | El cursor sobre el círculo reducido; una vez abierto lo mantiene el círculo completo |
+| Interacción | La rueda recibe clics y arrastre desde `MENU_OPEN_AT` = 0.9 de la transición |
+| Opciones | Se reparten por todo el círculo y la rueda envuelve |
+| Nombre en el núcleo | Se recorta con «…» a `CORE_LABEL_WIDTH` = 50 % del radio |
 
-| Elemento | Componente | Icono | Muestra | Fuente |
-|---|---|---|---|---|
-| Hora | [dateAndHour.py](../../core/matrix/motherboard/internalArtifacts/dateAndHour.py) `DateAndHour` | ninguno | `HH:MM` (72 pt, negrita), cada segundo | Reloj del sistema |
-| Fecha | `DateAndHour` | [calendar.py](../../core/resources/icons/information/calendar.py) | `dd/mm/aaaa` | Reloj del sistema |
-| Ubicación | [location.py](../../core/matrix/motherboard/internalArtifacts/location.py) `Location` | [location.py](../../core/resources/icons/information/location.py) | `Ciudad, País`; `Ubicación desconocida` si falla | `http://ip-api.com/json/` por IP, espera 5 s |
-| Clima | [weather.py](../../core/matrix/motherboard/internalArtifacts/weather.py) `Weather` | [weather.py](../../core/resources/icons/information/weather.py) | Temperatura `NN.N°C`; `--°C` si falla o no hay coordenadas | Open-Meteo `current_weather`, espera 5 s |
+### Aparición del menú
+Etapas, como fracción de la transición:
 
-Flujo: `Location.located(lat, lon)` está conectada a `Weather.set_coordinates`,
-así que la temperatura se consulta al conocerse la ubicación. Las consultas de
-red corren en un hilo aparte y no bloquean la interfaz. Si la IP pertenece a
-Cloudflare WARP y la ciudad es Cancún, `fetch_location` fuerza Mérida, México.
+| Etapa | Efecto | Intervalo |
+|---|---|---|
+| Crecimiento | El reactor pasa de `REST_SCALE` a su tamaño completo | 0.00–0.45 |
+| Núcleo | El anillo, el icono y el nombre crecen desde el 60 % mientras se encienden | 0.30–0.70 |
+| Banda | El anillo de opciones se expande desde el núcleo hasta su tamaño | 0.40–0.85 |
+| Opciones | Los iconos giran `MENU_SPIN_IN` = 120° hasta su sitio, crecen y se encienden; entra la sombra | 0.55–1.00 |
 
-Tipografía y colores: ver [globalKyoraUI.md](globalKyoraUI.md).
+### Estructura del menú
+Todo concéntrico al centro del reactor, de dentro hacia fuera:
+
+1. **Núcleo:** radio `CENTER_HIT` = 27 %, con el icono y el nombre de la opción elegida. El cambio de opción es inmediato; el anillo fino da un destello de `FLASH_MS` = 160 ms.
+2. **Espacio** libre entre el núcleo y la banda de opciones.
+3. **Banda de opciones:** anillo relleno entre `RING_INNER` = 33 % y `RING_OUTER` = 62 % del radio, con borde en ambos radios. Un icono por opción, repartidos por igual en todo el círculo; la elegida (la más cercana a la posición de abajo, `SELECTED_ANGLE` = 270°) va más grande y brillante.
+4. **Sombra:** tramo de ±`SHADOW_SPAN` = 34° que cubre solo la banda, bajo la opción elegida.
+
+### Giro del anillo
+| Acción | Efecto |
+|---|---|
+| Arrastrar alrededor del centro (más de `DRAG_THRESHOLD` = 4 px) | Los iconos siguen al cursor; al soltar queda la opción más cercana abajo |
+| Rueda del ratón | Gira un paso por muesca; hacia arriba retrocede |
+| Clic en el núcleo o en la opción de abajo | Emite su id |
+| Girar y dejar una opción abajo `HOLD_MS` = 2000 ms | Emite su id sin soltar ni pulsar. La cuenta empieza en cuanto la opción queda abajo (a menos de `ALIGN_TOL` = 0.1 opciones), con el ratón soltado o no, y rellena en el sentido del reloj tres anillos (principal en 78 %, borde de la banda y borde del núcleo). Cambiar de opción, desalinearla o cerrarse el menú la reinicia. Solo corre tras girar el anillo (arrastre o rueda), así que la opción inicial no se ejecuta sola |
+
+El cursor es una mano abierta sobre el menú, cerrada al arrastrar y de puntero sobre lo que activa.
+
+### Fijado para el directorio
+`set_pinned(True)` deja el reactor a tamaño completo, sin menú ni gestos (el cursor es una
+flecha). `set_gaps(path)` le quita del dibujo (anillos, arcos, marcas) las zonas del
+`QPainterPath` dado, en coordenadas del widget; el [directorio](rootDirectoryUI.md) lo usa
+para escribir los nombres de las carpetas encima. Al soltarlo (`set_pinned(False)`) vuelve
+a su tamaño de reposo sin mostrar el menú mientras se cierra.
+
+| Opción | Id emitido | Icono | Resultado |
+|---|---|---|---|
+| Directorio | `DIRECTORY` | [explorer.py](../../core/resources/icons/explorer.py) | Desliza el reactor al borde derecho y muestra [rootDirectory](rootDirectoryUI.md) |
+| Calendario | `CALENDAR` | [agenda.py](../../core/resources/icons/agenda.py) | Abre `CalendarView` a pantalla completa, en el día de hoy |
+| Cerrar | `CLOSE` | [close.py](../../core/resources/icons/close.py) | Cierra la aplicación |
+
+Los módulos se construyen la primera vez que se abren. `Esc` retrocede un nivel: cierra el
+panel abierto, después sube un nivel en el directorio y, desde sus carpetas principales,
+vuelve al reactor centrado; desde el reactor cierra la ventana. El reactor no recibe
+pulsaciones mientras se desliza (`REACTOR_SLIDE_MS` = 450 ms). El calendario abre sin recordatorios ni salto a Tareas, y los archivos
+pulsados en el directorio aún no abren ningún visor.

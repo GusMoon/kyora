@@ -2,10 +2,10 @@ from PySide6.QtWidgets import (QFrame, QListWidget, QVBoxLayout, QLineEdit, QPus
                                QHBoxLayout, QLabel, QStackedWidget, QWidget, QScrollArea, QGridLayout, QSizePolicy, QTabWidget)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen
-from core.matrix.motherboard.globalComponents.base_container import KioraBaseContainer
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
-from core.matrix.motherboard.globalComponents import kyora_theme as kt
-from core.matrix.motherboard.ecosystems.explorer.filesType.text_viewer import TextViewerPanel
+from core.matrix.motherboard.modules.base_container import KioraBaseContainer
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules import kyora_theme as kt
+from core.matrix.motherboard.modules.directory.filesType.text_viewer import TextViewerPanel
 from core.matrix.motherboard.ecosystems.studio.mp3installer import MP3InstallerEcosystem, get_js_runtime_opts
 import yt_dlp
 import json

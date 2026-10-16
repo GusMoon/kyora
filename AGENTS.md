@@ -9,11 +9,9 @@ NO asumas ni inventes esquemas, rutas o estados.
 ANTES de escribir código, DEBES leer con la herramienta de lectura de archivos solo lo relevante a la tarea:
 
 * Si tocas la ventana principal o el fondo -> Lee `core/matrix/motherboard/motherboardRoot.py` y `docs/reference/motherboardRootUI.md`
-* Si tocas el reactor u otro artefacto visual global -> Lee `core/matrix/motherboard/globalArtifacts/`
+* Si tocas el reactor u otro artefacto visual global -> Lee `core/matrix/motherboard/artifacts/globalArtifacts/`
 * Si tocas un ícono -> Lee `core/resources/icons/` y créalo ahí, en la subcarpeta de su categoría (p. ej. `information/`); nunca dentro del componente que lo usa
-* Si tocas la navegación heredada (`rootView.py`) -> Lee `core/matrix/motherboard/rootComponents/rootView.py`
-* Si tocas el launcher de ecosistemas -> Lee `core/matrix/motherboard/rootComponents/launcher.py`
-* Si tocas colores, tipografía o componentes compartidos -> Lee `core/matrix/motherboard/globalComponents/kyora_theme.py`
+* Si tocas colores, tipografía o componentes compartidos -> Lee `core/matrix/motherboard/modules/kyora_theme.py`
 * Si tocas un ecosistema -> Lee su carpeta en `core/matrix/motherboard/ecosystems/<nombre>/`
 * Si dudas de una decisión pasada -> Busca por palabra clave en `docs/adr/`; no leas todos
 * Si necesitas un procedimiento -> Revisa `docs/how-to/`

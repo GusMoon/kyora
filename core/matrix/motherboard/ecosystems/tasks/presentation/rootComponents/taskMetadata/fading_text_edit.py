@@ -6,7 +6,7 @@ from typing import Optional
 from PySide6.QtWidgets import QTextEdit, QScrollArea, QAbstractScrollArea, QWidget
 from PySide6.QtCore import Qt, QTimer, QRect, QVariantAnimation, QAbstractAnimation
 from PySide6.QtGui import QPainter, QLinearGradient, QColor
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
 
 
 class ScrollFadeOverlay(QWidget):

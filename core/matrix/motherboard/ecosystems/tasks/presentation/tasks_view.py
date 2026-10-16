@@ -11,8 +11,8 @@ from core.matrix.motherboard.ecosystems.tasks.presentation.taskCard import TaskC
 from core.matrix.motherboard.ecosystems.tasks.presentation.rootComponents.taskMetadata.taskMetadataMain import (
     TaskCreateDialog, TaskDetailDialog, CategoryCreateDialog, DescriptionReader
 )
-from core.matrix.motherboard.globalComponents.styles import get_minimal_scrollbar_style
-from core.matrix.motherboard.globalComponents.simple_dialogs import SciFiConfirmDialog
+from core.matrix.motherboard.modules.styles import get_minimal_scrollbar_style
+from core.matrix.motherboard.modules.simple_dialogs import SciFiConfirmDialog
 
 
 class DropColumn(QWidget):

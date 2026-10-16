@@ -19,7 +19,7 @@ from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QTimer
 from PySide6.QtGui import QDrag
 
 from core.matrix.motherboard.ecosystems.tasks.domain.entities import SubTask
-from core.matrix.motherboard.globalComponents.gradient_progress_bar import GradientProgressBar
+from core.matrix.motherboard.modules.gradient_progress_bar import GradientProgressBar
 
 
 class TaskCard(QWidget):
