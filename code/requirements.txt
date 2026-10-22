@@ -1,0 +1,12 @@
+PySide6-Essentials==6.12.0
+PySide6-Addons==6.12.0  # vista previa del explorador: audio y vídeo (QtMultimedia)
+pypdfium2==5.14.0  # vista previa del explorador: páginas de PDF
+pywin32==312
+psutil==7.2.2
+# Bluetooth (encender/apagar y dispositivos): paquetes oficiales de pywinrt
+winrt-runtime==3.2.1
+winrt-Windows.Devices.Bluetooth==3.2.1
+winrt-Windows.Devices.Enumeration==3.2.1
+winrt-Windows.Devices.Radios==3.2.1
+winrt-Windows.Foundation==3.2.1
+winrt-Windows.Foundation.Collections==3.2.1

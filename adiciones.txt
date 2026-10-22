@@ -1,0 +1,16 @@
+LO QUE VAMOS AGREGAR:
+1. Que nos deje conectarnos a un red de internet nos muestre las redes disponibles, nos deje escribir contraseña y nos diga si estamos conectados o desconectados
+2. En el panel lateral vamos definir que solamente debe mostrar información que es relevante para nuestro flujo de trabajo diario:
+	- Hora
+	- Fecha
+	- Clima
+	- Uso de RAM
+	- Uso de Memoria
+	- Uso de CPU
+3. Requiero agregar un comando para cerrar un escritorio (win + "-")
+4. Requiero agregar un comando para que me salgan las opciones de apagar, reiniciar y suspender
+
+
+LO QUE VAMOS A MEJORAR:
+1. El botón de apagar lo vamos a cambiar por un icono de lechuza y que al pasar por este me de las opciones de desconectar Kyora, igual requiero es que me deje ejecutar desde este nuevo menú las opciones de reiniciar, abrir, y los archivos .bat que tenemos para que no tengamos que hacerlo desde el explorer de archivos.
+2. El borde de color de las ventanas requiero que sea un poco mas visible y mas rápido que se vea mas y el rango del color sea mayor.
