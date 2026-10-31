@@ -63,7 +63,7 @@ DEFAULTS = {
     ],
     "hotkeys": _default_hotkeys(),
     "hotkeys_offered": sorted(NEW_HOTKEYS),  # qué atajos nuevos de NEW_HOTKEYS ya se ofrecieron a este config.json
-    "music": {"browser": "chrome", "cookies_file": ""},  # cookies de YouTube: del navegador, o de un cookies.txt (si existe %APPDATA%\Kyora\cookies.txt se usa solo)
+    "music": {"browser": "chrome", "cookies_file": "", "sync": True},  # sync: lo que bajas sube a Supabase para tu móvil. Cookies de YouTube: del navegador, o de un cookies.txt (si existe %APPDATA%\Kyora\cookies.txt se usa solo)
     "web_shortcuts": [],  # páginas del buscador: [{"name": "youtube", "url": "https://youtube.com"}]
     "defaults": {"browser": ""},  # navegador con el que abren las páginas (ruta del .exe; vacío: el predeterminado de Windows)
     "chat": {"max_mb": 50, "history": 50},  # el chat con Supabase (credenciales en supabase/.env): límite por archivo y mensajes que se cargan

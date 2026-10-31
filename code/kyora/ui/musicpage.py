@@ -604,6 +604,8 @@ class MusicPage(DockPage):
             self._streamed(result)
         elif kind == "progress":
             self._progress(result)
+        elif kind == "sync":
+            self._sync_note(result)
         elif kind == "finished":
             self.running = False
             self._summary(result)
@@ -632,6 +634,16 @@ class MusicPage(DockPage):
         if result["state"] == "error":
             self._say(result["error"], warn=True)
         self._sync()
+
+    def _sync_note(self, result):
+        """La canción que se acaba de bajar sube a tu cuenta para que el móvil la vea: se cuenta en la línea de avisos."""
+        title = result.get("title") or "la canción"
+        if result["state"] == "uploading":
+            self._say(f"Mandando «{title}» a tu móvil…")
+        elif result["state"] == "synced":
+            self._say(f"En tu móvil: «{title}»")
+        else:
+            self._say(result.get("message") or "No se pudo mandar la canción al móvil", warn=True)
 
     def _summary(self, result):
         left = sum(s["state"] in ("pending", "error") for s in self.songs)

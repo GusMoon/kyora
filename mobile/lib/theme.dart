@@ -13,9 +13,10 @@ class Palette {
   static const accent = Color(0xFFE3B25A);
   static const warn = Color(0xFFE07A5F);
   static const edge = Color(0x14FFFFFF);
+  static const pick = Color(0xFF2E2E2E);
 
-  /// El relleno de mis burbujas: un toque del acento sobre el fondo oscuro (liso, como en la PC).
-  static Color get mine => Color.lerp(plate, accent, 0.16)!;
+  /// El relleno de mis burbujas: un gris algo más claro, liso (como el mensaje del usuario en Claude, igual que en la PC).
+  static Color get mine => pick;
 }
 
 ThemeData buildTheme() {

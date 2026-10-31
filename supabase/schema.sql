@@ -2,8 +2,8 @@
 -- Kyora · chat · esquema completo de Supabase
 --
 -- Pégalo entero en Supabase > SQL Editor y pulsa Run. Se puede ejecutar varias veces sin error (es idempotente).
--- Crea: los tipos, las tablas (conversaciones, mensajes y adjuntos), la seguridad por fila (RLS), el bucket privado de
--- archivos con sus políticas, la publicación para Realtime y las funciones RPC que usa Kyora como "endpoints".
+-- Crea: los tipos, las tablas (conversaciones, mensajes, adjuntos y canciones), la seguridad por fila (RLS), el bucket
+-- privado de archivos con sus políticas, la publicación para Realtime y las funciones RPC que usa Kyora como "endpoints".
 --
 -- Modelo: una sola persona con varios dispositivos (PC y móvil) que entran con la misma cuenta de Supabase Auth.
 -- Cada fila es de su dueño (owner_id = auth.uid()); nadie más ve ni toca nada.
@@ -334,5 +334,98 @@ grant execute on function public.ensure_default_conversation()                  
 grant execute on function public.send_message(uuid, uuid, text, timestamptz, text, jsonb) to authenticated;
 grant execute on function public.list_messages(uuid, timestamptz, timestamptz, integer)   to authenticated;
 grant execute on function public.delete_message(uuid)                                    to authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 7. Música: lo que la PC baja con «Descargar» sube a tu cuenta y la app del móvil lo ve y lo guarda en su carpeta.
+--    El MP3 vive en el mismo bucket (chat-files), en  <owner_id>/music/<track_id>/<archivo>; aquí solo sus datos.
+--    El id lo crea la PC a partir del id del vídeo: bajar la misma canción otra vez no la duplica.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.music_tracks (
+  id            uuid        primary key,
+  owner_id      uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  title         text        not null,
+  file_name     text        not null,
+  storage_path  text        not null,
+  mime_type     text        not null default 'audio/mpeg',
+  size_bytes    bigint      not null default 0 check (size_bytes >= 0),
+  playlist      text,                                                   -- la lista de YouTube de la que viene (opcional)
+  created_at    timestamptz not null default now()
+);
+create index if not exists music_tracks_owner_created_idx on public.music_tracks (owner_id, created_at desc);
+
+alter table public.music_tracks enable row level security;
+revoke all on public.music_tracks from anon;
+
+drop policy if exists "music_tracks: owner select" on public.music_tracks;
+drop policy if exists "music_tracks: owner insert" on public.music_tracks;
+drop policy if exists "music_tracks: owner update" on public.music_tracks;
+drop policy if exists "music_tracks: owner delete" on public.music_tracks;
+create policy "music_tracks: owner select" on public.music_tracks for select to authenticated
+  using (owner_id = (select auth.uid()));
+create policy "music_tracks: owner insert" on public.music_tracks for insert to authenticated
+  with check (owner_id = (select auth.uid()));
+create policy "music_tracks: owner update" on public.music_tracks for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+create policy "music_tracks: owner delete" on public.music_tracks for delete to authenticated
+  using (owner_id = (select auth.uid()));
+
+alter table public.music_tracks replica identity full;
+do $$ begin
+  alter publication supabase_realtime add table public.music_tracks;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
+-- Registra (o actualiza) una canción ya subida a Storage. Repetirla con el mismo p_id no la duplica.
+create or replace function public.add_music_track(
+  p_id            uuid,
+  p_title         text,
+  p_file_name     text,
+  p_storage_path  text,
+  p_mime_type     text   default 'audio/mpeg',
+  p_size_bytes    bigint default 0,
+  p_playlist      text   default null
+)
+returns jsonb
+language plpgsql security invoker set search_path = public
+as $$
+declare
+  v_row public.music_tracks;
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  insert into public.music_tracks (id, title, file_name, storage_path, mime_type, size_bytes, playlist)
+  values (p_id, coalesce(nullif(btrim(p_title), ''), p_file_name), p_file_name, p_storage_path,
+          coalesce(nullif(p_mime_type, ''), 'audio/mpeg'), coalesce(p_size_bytes, 0), nullif(btrim(p_playlist), ''))
+  on conflict (id) do update
+     set title = excluded.title, file_name = excluded.file_name, storage_path = excluded.storage_path,
+         mime_type = excluded.mime_type, size_bytes = excluded.size_bytes, playlist = excluded.playlist
+   where public.music_tracks.owner_id = auth.uid()
+  returning * into v_row;
+  if v_row.id is null then
+    raise exception 'track_id_taken' using errcode = '42501';   -- ese id es de otra cuenta
+  end if;
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Las canciones de tu cuenta, de la más nueva a la más antigua.
+create or replace function public.list_music_tracks(p_limit integer default 100)
+returns jsonb
+language sql stable security invoker set search_path = public
+as $$
+  select coalesce(jsonb_agg(to_jsonb(t) order by t.created_at desc, t.id), '[]'::jsonb)
+    from (
+      select * from public.music_tracks
+       where owner_id = auth.uid()
+       order by created_at desc, id
+       limit least(greatest(coalesce(p_limit, 100), 1), 500)
+    ) t;
+$$;
+
+revoke all on function public.add_music_track(uuid, text, text, text, text, bigint, text) from public, anon;
+revoke all on function public.list_music_tracks(integer)                                  from public, anon;
+grant execute on function public.add_music_track(uuid, text, text, text, text, bigint, text) to authenticated;
+grant execute on function public.list_music_tracks(integer)                                  to authenticated;
 
 -- Fin. Ahora crea tu usuario en Authentication > Users (ver supabase/README.md).

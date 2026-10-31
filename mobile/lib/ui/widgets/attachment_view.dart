@@ -153,9 +153,10 @@ class _FileAttachment extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => _open(context),
         child: Container(
-          constraints: const BoxConstraints(minWidth: 220),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(color: Palette.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.edge)),
+          constraints: const BoxConstraints(minWidth: 240),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          // una tarjeta lisa con borde fino, como las de la PC
+          decoration: BoxDecoration(color: Palette.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.edge)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

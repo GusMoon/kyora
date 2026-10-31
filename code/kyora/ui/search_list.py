@@ -34,10 +34,13 @@ def kind_label(r):
 
 
 class ResultList(QWidget):
-    def __init__(self, theme, on_launch):
+    def __init__(self, theme, on_launch, on_pick=None):
+        """`on_launch(resultado)` abre el elegido; `on_pick(resultado)`, si se da, atiende el clic en un archivo (que
+        se previsualiza antes de abrirse); Enter sigue abriendo directo."""
         super().__init__()
         self.theme = theme
         self.on_launch = on_launch
+        self.on_pick = on_pick
         self.results = []
         self.note = ""
         self.selected = 0
@@ -131,7 +134,13 @@ class ResultList(QWidget):
     def mouseReleaseEvent(self, event):
         row = self._row_at(event.position())
         if event.button() == Qt.LeftButton and row is not None:
-            self.on_launch(self.results[row])
+            result = self.results[row]
+            if self.on_pick and result["kind"] == "path" and not result.get("is_dir"):
+                self.selected = row
+                self.update()
+                self.on_pick(result)
+            else:
+                self.on_launch(result)
 
     # ---------- pintura ----------
 

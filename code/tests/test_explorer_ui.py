@@ -52,3 +52,18 @@ def test_kyora_icons_are_drawn_for_folders_and_files(tmp_path):
     assert icons.icon(QFileInfo(str(tmp_path))).cacheKey() == folder.cacheKey()  # dibujado una sola vez
     assert icons.type(QFileInfo(str(tmp_path / "nota.txt"))) == "Archivo TXT"
     assert icons.type(QFileInfo(str(tmp_path))) == "Carpeta"
+
+
+def test_folder_icons_take_the_wallpaper_color_and_redraw_only_when_it_changes(tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from kyora.ui.explorer.file_icons import KyoraIcons, folder_tone
+
+    QApplication.instance() or QApplication([])
+    icons = KyoraIcons()
+    first = icons.folder()
+    icons.set_color(icons._color)
+    assert icons.folder().cacheKey() == first.cacheKey()  # mismo color: no se repinta
+    icons.set_color("#c9884a")
+    assert icons.folder().cacheKey() != first.cacheKey()
+    assert 0.57 <= folder_tone("#101010").lightnessF() <= 0.73  # un fondo oscuro no da una carpeta que no se ve

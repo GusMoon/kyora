@@ -415,6 +415,15 @@ def plus(p, box):
     p.drawLine(_at(box, 0.2, 0.5), _at(box, 0.8, 0.5))
 
 
+def copy(p, box):
+    """Dos hojas, una detrás de la otra: copiar."""
+    p.drawRoundedRect(_at(box, 0.3, 0.3).x(), _at(box, 0.3, 0.3).y(), box.width() * 0.5, box.height() * 0.56, 2, 2)
+    back = QPainterPath(_at(box, 0.2, 0.7))
+    back.lineTo(_at(box, 0.2, 0.14))
+    back.lineTo(_at(box, 0.62, 0.14))
+    p.drawPath(back)
+
+
 def trash(p, box):
     p.drawLine(_at(box, 0.2, 0.28), _at(box, 0.8, 0.28))
     p.drawLine(_at(box, 0.4, 0.28), _at(box, 0.42, 0.16))

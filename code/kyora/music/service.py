@@ -43,6 +43,7 @@ class MusicService:
         self._songs = {}  # playlist -> canciones de la última vez que se abrió
         self._urls = {}  # id -> (cuándo, enlace local del proxy)
         self._proxy = StreamProxy()  # QtMultimedia no manda las cabeceras de YouTube: este las manda por él
+        self.on_done = None  # `on_done(id, ruta, título, lista)`: se llama con cada canción recién bajada (sube a Supabase)
         self._done = self._load()
 
     def register(self, registry):
@@ -200,8 +201,14 @@ class MusicService:
     def download(self, playlist, ids=None):
         """Pone en cola las canciones `ids` de la lista (todas las que falten si no se dan)."""
         playlist = str(playlist)
+        explicit = ids is not None
         if ids is None:
             ids = [s["id"] for s in self._songs.get(playlist, [])]
+        if explicit and self.on_done:  # una canción concreta que ya estaba bajada: se vuelve a mandar al móvil si no había ido
+            titles = {s["id"]: s.get("title") for s in self._songs.get(playlist, [])}
+            for video_id in ids:
+                if self.is_done(video_id):
+                    self.on_done(video_id, self._done[video_id], titles.get(video_id), playlist)
         wanted = [i for i in ids if not self.is_done(i)]
         if not wanted:
             self._emit({"kind": "finished", "playlist": playlist, "done": 0, "failed": 0, "cancelled": False})
@@ -268,6 +275,7 @@ class MusicService:
             with self._runner(opts) as ydl:
                 info = ydl.extract_info(ytdlp.video_url(video_id), download=True)
                 path = ytdlp.final_path(info, ydl)
+                title = (info or {}).get("title") if isinstance(info, dict) else None
         except Exception as exc:  # noqa: BLE001
             if self._cancel.is_set():
                 progress(0, "pending")
@@ -278,4 +286,9 @@ class MusicService:
         self._done[video_id] = str(path)
         self._save()
         progress(100, "done")
+        if self.on_done:
+            try:
+                self.on_done(video_id, str(path), title, playlist)
+            except Exception:  # noqa: BLE001 - mandarla al móvil es un extra: nunca debe estropear una descarga ya hecha
+                log.warning("No se pudo poner %s en la cola del móvil", video_id, exc_info=True)
         return True

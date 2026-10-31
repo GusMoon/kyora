@@ -81,7 +81,7 @@ def test_clock_text():
 
 # ---------- la cápsula en el panel ----------
 
-def test_the_panel_grows_with_music_and_has_two_buttons():
+def test_the_panel_grows_with_music_and_has_its_buttons():
     dock = make()
     main = dock.main
     base = main.size[0]
@@ -229,33 +229,88 @@ def test_a_cover_only_lands_on_the_song_that_asked_for_it(monkeypatch):
     assert main.pill.cover is None
 
 
-def test_buttons_are_one_row_under_the_screen_with_a_bigger_pause():
+def test_three_equal_keys_under_the_screen_and_a_close_button_inside_it():
     pill = musicpill.MusicPill(THEME)
     pill.set_state("x", True, "id", has_next=True)
     box = quickdock.QRectF(0, 0, 380, musicpill.PILL_H)
-    assert [n for n, _ in pill.hits(box)] == ["music_prev", "music_stop", "music_toggle", "music_next"]
+    assert [n for n, _ in pill.hits(box)] == ["music_toggle", "music_prev", "music_next", "music_stop"]
     rects = dict(pill.hits(box))
-    order = [rects[n] for n in ("music_prev", "music_stop", "music_toggle", "music_next")]
+    order = [rects[n] for n in ("music_toggle", "music_prev", "music_next")]
     assert all(a.right() < b.left() for a, b in pairwise(order))                    # en fila, de izquierda a derecha
-    assert len({round(r.center().y(), 1) for r in order}) == 1                           # todos a la misma altura
-    assert rects["music_toggle"].width() == musicpill.BIG > rects["music_prev"].width() == musicpill.BTN
+    assert len({round(r.center().y(), 1) for r in order}) == 1                           # todas a la misma altura
+    assert len({round(r.width(), 1) for r in order}) == 1                                # y del mismo tamaño
     assert order[0].left() >= 0 and order[-1].right() <= 380
     screen = pill.layout(box)["screen"]
     assert all(r.top() > screen.bottom() for r in order) and order[-1].bottom() <= musicpill.PILL_H
+    close = rects["music_stop"]                                                          # la ✕: arriba a la derecha de la pantalla
+    assert screen.contains(close) and close.right() > screen.center().x() and close.top() - screen.top() < 20
     pill.set_state("x", True, "id", has_next=False)
     assert "music_next" not in [n for n, _ in pill.hits(box)]
 
 
-def test_screen_holds_waves_time_and_title_with_an_avatar():
+def test_screen_holds_waves_time_and_title_without_touching_the_close_button():
     pill = musicpill.MusicPill(THEME)
     pill.set_state("Una canción", True, "id")
     rects = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))
-    screen = rects["screen"]
-    for name in ("wave", "time", "title", "avatar"):
-        assert screen.contains(rects[name]), name
-    assert rects["wave"].bottom() < rects["time"].top() and rects["time"].bottom() <= rects["title"].top()
-    assert rects["avatar"].left() > rects["title"].right() and rects["avatar"].width() == musicpill.AVATAR
-    assert abs(screen.center().x() - (rects["title"].left() + rects["avatar"].right()) / 2) < 1      # el grupo va centrado
+    glass = rects["glass"]
+    assert rects["screen"].contains(glass)
+    for name in ("wave", "time", "title", "close"):
+        assert glass.contains(rects[name]), name
+    assert rects["title"].top() < rects["time"].top() and rects["time"].bottom() <= rects["wave"].top()
+    assert rects["title"].right() < rects["close"].left()                                # el nombre no pisa la ✕
+    assert rects["title"].width() == musicpill.title_width()
+
+
+def paint_pill(pill, over, hover=None):
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+
+    image = QPixmap(380, musicpill.PILL_H)
+    image.fill(QColor("#000000"))
+    p = QPainter(image)
+    pill.paint(p, quickdock.QRectF(0, 0, 380, musicpill.PILL_H), hover, over)
+    p.end()
+    return image.toImage()
+
+
+def test_the_close_button_only_shows_while_the_cursor_is_over_the_card():
+    pill = musicpill.MusicPill(THEME)
+    pill.set_state("x", True, "id", has_next=True)
+    close = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))["close"].center().toPoint()
+    hidden, shown = paint_pill(pill, over=False), paint_pill(pill, over=True)
+    assert hidden.pixelColor(close) != shown.pixelColor(close)
+    assert paint_pill(pill, over=False, hover="music_stop") != hidden                   # bajo la ✕ siempre se ve
+
+
+def test_the_card_tracks_the_cursor_and_forgets_it_on_leave():
+    dock = make()
+    main = dock.main
+    main.set_music({"title": "x", "playing": True, "id": "i", "next": True})
+    main.resize(380, main.size[0] - 2 * quickdock.PAD)
+    main.grab()
+    inside = dict(main._hits)["music_toggle"].center()
+    move = QMouseEvent(QEvent.MouseMove, QPointF(inside), QPointF(inside), Qt.NoButton, Qt.NoButton, Qt.NoModifier)
+    main.mouseMoveEvent(move)
+    assert main._over_pill
+    away = QPointF(5, main.height() - 5)                                                 # abajo: los iconos, no la tarjeta
+    main.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, away, away, Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    assert not main._over_pill
+    main.mouseMoveEvent(move)
+    main.leaveEvent(None)
+    assert not main._over_pill
+
+
+def test_the_screen_is_painted_once_and_reused_until_something_changes():
+    from PySide6.QtGui import QPixmap
+
+    pill = musicpill.MusicPill(THEME)
+    pill.set_state("x", True, "id", has_next=True)
+    paint_pill(pill, over=False)
+    first = pill._baked[1]
+    paint_pill(pill, over=True)
+    assert pill._baked[1] is first                                                       # solo cambió lo de encima
+    pill.cover = QPixmap(40, 40)
+    paint_pill(pill, over=False)
+    assert pill._baked[1] is not first                                                   # llegó la carátula: se rehace
 
 
 def test_main_page_sends_prev_and_next():

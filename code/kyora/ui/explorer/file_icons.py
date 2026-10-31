@@ -1,29 +1,25 @@
-"""Iconos propios del explorador (en lugar de los de Windows), como las imágenes de referencia:
+"""Iconos propios del explorador (en lugar de los de Windows), lisos y sencillos:
 
-- Carpeta: fondo gris oscuro con su pestaña, unas hojas claras asomando y delante una solapa de cristal esmerilado
-  (se ven las hojas desenfocadas a través).
-- Archivo: hoja casi blanca con la esquina doblada, un pequeño logo de rombos y unas barras grises.
+- Carpeta: dos piezas planas (la de atrás con su pestaña, más oscura, y la de delante) en un color del fondo de pantalla.
+- Archivo: hoja gris clara con la esquina doblada y unas rayas de texto.
 
 Se dibujan una vez por tamaño y se guardan; además es más rápido que pedirle cada icono a Windows.
 """
 import os
 
-from PySide6.QtCore import QFileInfo, QPointF, QRectF, Qt
+from PySide6.QtCore import QFileInfo, QRectF, Qt
 from PySide6.QtGui import (
     QAbstractFileIconProvider,
-    QBrush,
     QColor,
     QGuiApplication,
     QIcon,
-    QImage,
-    QLinearGradient,
     QPainter,
     QPainterPath,
-    QPen,
     QPixmap,
 )
 
 SIZES = (16, 20, 24, 32, 48, 64, 96, 128)
+FOLDER_COLOR = "#7fa6d6"  # mientras no haya paleta del fondo de pantalla
 
 
 def _unit(p, rect):
@@ -33,139 +29,64 @@ def _unit(p, rect):
     p.scale(side / 100, side / 100)
 
 
-def _sheet(p, x, y, w, h, angle, color):
-    p.save()
-    p.translate(x + w / 2, y + h / 2)
-    p.rotate(angle)
-    p.setPen(Qt.NoPen)
-    p.setBrush(QColor(color))
-    p.drawRoundedRect(QRectF(-w / 2, -h / 2, w, h), 3, 3)
-    p.setBrush(QColor("#b9b9b9"))
-    for i, frac in enumerate((0.62, 0.8, 0.5, 0.7)):
-        p.drawRoundedRect(QRectF(-w / 2 + 7, -h / 2 + 9 + i * 7, (w - 14) * frac, 2.6), 1.3, 1.3)
-    p.restore()
+def folder_tone(color):
+    """El color del fondo de pantalla, con la claridad justa para que la carpeta se vea sobre un panel oscuro."""
+    h, s, l, _ = QColor(color).getHslF()
+    return QColor.fromHslF(max(h, 0.0), min(s, 0.7), min(max(l, 0.58), 0.72))
 
 
-def _papers(p):
-    _sheet(p, 22, 16, 50, 58, -7, "#d9d9d9")
-    _sheet(p, 30, 13, 50, 58, 5, "#ededed")
-    _sheet(p, 25, 19, 52, 58, -1, "#f7f7f7")
-
-
-def _flap():
-    path = QPainterPath()
-    path.moveTo(7, 44)
-    path.quadTo(7, 39, 12, 39)
-    path.lineTo(88, 39)
-    path.quadTo(93, 39, 93, 44)
-    path.lineTo(91, 84)
-    path.quadTo(90.5, 90, 85, 90)
-    path.lineTo(15, 90)
-    path.quadTo(9.5, 90, 9, 84)
-    path.closeSubpath()
-    return path
-
-
-def paint_folder(p, rect):
+def paint_folder(p, rect, color=FOLDER_COLOR):
+    front = folder_tone(color)
+    back = front.darker(135)
     p.save()
     p.setRenderHint(QPainter.Antialiasing)
     _unit(p, rect)
-    # fondo con su pestaña
-    back = QPainterPath()
-    back.moveTo(9, 20)
-    back.quadTo(9, 13, 16, 13)
-    back.lineTo(36, 13)
-    back.quadTo(40, 13, 42, 16)
-    back.lineTo(45, 20)
-    back.lineTo(84, 20)
-    back.quadTo(91, 20, 91, 27)
-    back.lineTo(91, 80)
-    back.lineTo(9, 80)
-    back.closeSubpath()
-    grad = QLinearGradient(0, 13, 0, 80)
-    grad.setColorAt(0, QColor("#5a5a5c"))
-    grad.setColorAt(1, QColor("#2a2a2c"))
     p.setPen(Qt.NoPen)
-    p.fillPath(back, grad)
-    # hojas
-    _papers(p)
-    # solapa de cristal: las hojas desenfocadas a través
-    flap = _flap()
-    blurred = QImage(25, 25, QImage.Format_ARGB32_Premultiplied)  # reducir y ampliar = desenfoque barato
-    blurred.fill(Qt.transparent)
-    q = QPainter(blurred)
-    q.setRenderHint(QPainter.Antialiasing)
-    q.scale(0.25, 0.25)
-    _papers(q)
-    q.end()
-    p.save()
-    p.setClipPath(flap)
-    p.setOpacity(0.55)
-    p.setRenderHint(QPainter.SmoothPixmapTransform)
-    p.drawImage(QRectF(0, 0, 100, 100), blurred)
+    tab = QPainterPath()  # la pieza de atrás, con su pestaña
+    tab.moveTo(8, 24)
+    tab.quadTo(8, 14, 18, 14)
+    tab.lineTo(36, 14)
+    tab.quadTo(41, 14, 44, 19)
+    tab.lineTo(47, 23)
+    tab.lineTo(82, 23)
+    tab.quadTo(92, 23, 92, 33)
+    tab.lineTo(92, 80)
+    tab.lineTo(8, 80)
+    tab.closeSubpath()
+    p.fillPath(tab, back)
+    p.setBrush(front)  # la de delante
+    p.drawRoundedRect(QRectF(8, 31, 84, 55), 9, 9)
     p.restore()
-    glass = QLinearGradient(0, 39, 0, 90)
-    glass.setColorAt(0, QColor(150, 150, 152, 150))
-    glass.setColorAt(0.5, QColor(92, 92, 95, 200))
-    glass.setColorAt(1, QColor(52, 52, 55, 235))
-    p.fillPath(flap, glass)
-    edge = QLinearGradient(0, 39, 0, 90)  # filete de luz arriba
-    edge.setColorAt(0, QColor(255, 255, 255, 150))
-    edge.setColorAt(0.25, QColor(255, 255, 255, 25))
-    edge.setColorAt(1, QColor(255, 255, 255, 10))
-    p.setPen(QPen(QBrush(edge), 1.2))
-    p.setBrush(Qt.NoBrush)
-    p.drawPath(flap)
-    p.restore()
-
-
-def _diamond(p, cx, cy, r):
-    path = QPainterPath(QPointF(cx, cy - r))
-    path.lineTo(cx + r, cy)
-    path.lineTo(cx, cy + r)
-    path.lineTo(cx - r, cy)
-    path.closeSubpath()
-    p.drawPath(path)
 
 
 def paint_file(p, rect):
     p.save()
     p.setRenderHint(QPainter.Antialiasing)
     _unit(p, rect)
-    fold = 20
+    fold = 22
     page = QPainterPath()
-    page.moveTo(20, 10)
-    page.lineTo(80 - fold, 10)
-    page.lineTo(80, 10 + fold)
-    page.lineTo(80, 86)
-    page.quadTo(80, 92, 74, 92)
-    page.lineTo(26, 92)
-    page.quadTo(20, 92, 20, 86)
-    page.lineTo(20, 16)
-    page.quadTo(20, 10, 26, 10)
+    page.moveTo(24, 8)
+    page.lineTo(76 - fold, 8)
+    page.lineTo(76, 8 + fold)
+    page.lineTo(76, 84)
+    page.quadTo(76, 92, 68, 92)
+    page.lineTo(32, 92)
+    page.quadTo(24, 92, 24, 84)
+    page.lineTo(24, 16)
+    page.quadTo(24, 8, 32, 8)
     page.closeSubpath()
     p.setPen(Qt.NoPen)
-    p.setBrush(QColor(0, 0, 0, 60))  # sombra suave
-    p.save()
-    p.translate(0, 1.6)
-    p.drawPath(page)
-    p.restore()
-    grad = QLinearGradient(0, 10, 0, 92)
-    grad.setColorAt(0, QColor("#fbfbfb"))
-    grad.setColorAt(1, QColor("#ececec"))
-    p.fillPath(page, grad)
-    corner = QPainterPath(QPointF(80 - fold, 10))  # la esquina doblada
-    corner.lineTo(80 - fold, 10 + fold - 4)
-    corner.quadTo(80 - fold, 10 + fold, 80 - fold + 4, 10 + fold)
-    corner.lineTo(80, 10 + fold)
+    p.fillPath(page, QColor("#ebebee"))
+    corner = QPainterPath()  # la esquina doblada
+    corner.moveTo(76 - fold, 8)
+    corner.lineTo(76 - fold, 8 + fold - 5)
+    corner.quadTo(76 - fold, 8 + fold, 76 - fold + 5, 8 + fold)
+    corner.lineTo(76, 8 + fold)
     corner.closeSubpath()
-    p.fillPath(corner, QColor("#d2d2d2"))
-    p.setBrush(QColor("#c9c9c9"))  # logo de cuatro rombos
-    for dx, dy in ((0, -4.2), (4.2, 0), (0, 4.2), (-4.2, 0)):
-        _diamond(p, 32 + dx, 26 + dy, 3.2)
-    p.setBrush(QColor("#d9d9d9"))
-    for y, w in ((50, 44), (60, 34), (70, 26)):
-        p.drawRoundedRect(QRectF(29, y, w, 5), 2.5, 2.5)
+    p.fillPath(corner, QColor("#cbcbd1"))
+    p.setBrush(QColor("#b7b7be"))  # las rayas de texto
+    for y, w, h in ((30, 24, 4), (42, 40, 4), (53, 40, 6), (65, 40, 4), (75, 28, 4)):
+        p.drawRoundedRect(QRectF(33, y, w, h), h / 2, h / 2)
     p.restore()
 
 
@@ -190,10 +111,17 @@ class KyoraIcons(QAbstractFileIconProvider):
     def __init__(self):
         super().__init__()
         self._folder = self._file = None
+        self._color = FOLDER_COLOR
+
+    def set_color(self, color):
+        """Carpetas en otro color (el del fondo de pantalla). Se repintan la próxima vez que se pidan."""
+        if color != self._color:
+            self._color, self._folder = color, None
 
     def folder(self):
         if self._folder is None:
-            self._folder = _pixmaps(paint_folder)
+            color = self._color
+            self._folder = _pixmaps(lambda p, rect: paint_folder(p, rect, color))
         return self._folder
 
     def file(self):

@@ -25,6 +25,7 @@ from kyora.ui.configpage import ConfigPage
 from kyora.ui.dock import DockPage, PageDock
 from kyora.ui.hub.cards import paint_glass, paint_well
 from kyora.ui.musicpill import PILL_H as MUSIC_H
+from kyora.ui.musicpill import RADIUS as BODY_R  # las esquinas del cuerpo, las mismas que las del reproductor
 from kyora.ui.musicpill import Covers, MusicPill
 from kyora.ui.panels import BluetoothPage, ClockPage
 from kyora.ui.topdock import _button_down
@@ -42,7 +43,6 @@ PILL_R = 14
 DOCK_ICON = 26  # los iconos de abajo, más grandes que el resto
 BIG, MEDIUM, TEXT = 40, 28, 14  # la hora, la temperatura y los porcentajes; el texto de lo demás
 GAP = 8  # entre las dos tarjetas
-CARD_ALPHA = 8  # lo que aclara cada tarjeta el fondo del panel: se ve, pero poco
 GROW_MS = 220  # lo que tarda el panel en crecer (o encogerse) al empezar (o acabar) la música
 MARQUEE_MS = 33  # el nombre de lo que suena, cuando no cabe, se desliza
 
@@ -88,6 +88,7 @@ class QuickMain(DockPage):
         self._ram = None
         self._battery = None  # (porcentaje, enchufada)
         self._hover = None
+        self._over_pill = False  # el cursor está sobre la tarjeta de lo que suena (sale su ✕)
         self._hits = []
         self.refresh = None  # lo que pide el estado del Bluetooth (lo pone el panel)
         self.setMouseTracking(True)
@@ -196,8 +197,9 @@ class QuickMain(DockPage):
 
     def mouseMoveEvent(self, event):
         name = self._name_at(event.position())
-        if name != self._hover:
-            self._hover = name
+        over = self._shown and self._pill_rect().contains(event.position())
+        if name != self._hover or over != self._over_pill:
+            self._hover, self._over_pill = name, over
             self.setCursor(Qt.PointingHandCursor if name else Qt.ArrowCursor)
             self.setToolTip(self._tip(name))
             self.update()
@@ -207,11 +209,11 @@ class QuickMain(DockPage):
             return f"Wi-Fi: {self._wifi['ssid']}" if self._wifi.get("connected") else "Wi-Fi: sin conexión"
         if name == "music_toggle":
             return "Pausa" if self.pill.playing else "Seguir"
-        return {"bluetooth": "Bluetooth", "config": "Configuración", "clock": "Calendario", "music_stop": "Detener",
+        return {"bluetooth": "Bluetooth", "config": "Configuración", "clock": "Calendario", "music_stop": "Detener y cerrar",
                 "music_prev": "Anterior", "music_next": "Siguiente"}.get(name, "")
 
     def leaveEvent(self, _):
-        self._hover = None
+        self._hover, self._over_pill = None, False
         self.update()
 
     def mouseReleaseEvent(self, event):
@@ -232,14 +234,12 @@ class QuickMain(DockPage):
         y = self.height() - (INFO_H + GAP + DOCK_H)  # lo de siempre queda pegado abajo: al crecer, la cápsula sale arriba
         if self._shown:
             box = QRectF(0, y - GAP - MUSIC_H, w, MUSIC_H)
-            self.pill.paint(p, box, self._hover)
+            self.pill.paint(p, box, self._hover, self._over_pill)
             self._hits.extend(self.pill.hits(box))
         for paint, height in ((self._paint_info, INFO_H), (self._paint_dock, DOCK_H)):
             card = QRectF(0, y, w, height)
-            if paint == self._paint_info:  # la tarjeta de la información; los iconos de abajo van sin fondo
-                p.setPen(Qt.NoPen)
-                p.setBrush(QColor(255, 255, 255, CARD_ALPHA))
-                p.drawRoundedRect(card, 14, 14)
+            if paint == self._paint_info:  # la tarjeta de la información, con el cuerpo del reproductor; los iconos de abajo van sin fondo
+                paint_glass(p, self.theme, card, BODY_R, fill=QColor(self.theme.plate_bottom), shadow=False)
             paint(p, card)
             y += height + GAP
 

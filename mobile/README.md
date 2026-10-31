@@ -27,21 +27,22 @@ La app no lleva tu correo ni tu contraseña: solo la URL de tu proyecto y su cla
 - **Enviar** texto, **fotos** (galería o cámara) y **archivos** (hasta 50 MB). El mensaje sale «en espera» al instante; sin internet se queda así y se manda solo al volver, sin duplicarse.
 - **Fotos** con miniatura y pantalla completa con zoom; **archivos** como tarjeta (se abren con la app del teléfono).
 - **Mantener pulsado** un mensaje: copiar el texto o borrarlo (también se borra en la PC).
+- **Música** (el icono ♪ de arriba): las canciones que bajas en la PC con **Descargar** suben solas a tu cuenta y salen aquí. Con la app abierta (aunque estés en el chat) **se guardan solas** en la carpeta que elijas (por omisión, *Música/Kyora*, y salen en el reproductor del teléfono). Con la carpeta (icono de arriba) eliges *Música* o *Descargas*, la subcarpeta y si se guardan solas. Las canciones anteriores a la primera vez que abriste la app quedan pendientes: tócalas o pulsa **Guardar todas**.
 
-No incluye (todavía): notificaciones con la app cerrada, que los mensajes «en espera» sobrevivan a cerrar la app, ni iPhone.
+No incluye (todavía): guardar canciones con la app cerrada (se ponen al día al abrirla), notificaciones con la app cerrada, que los mensajes «en espera» sobrevivan a cerrar la app, ni iPhone.
 
 ## Si algo no va
 | Síntoma | Qué hacer |
 |---|---|
 | «Correo o contraseña incorrectos» | Usa el mismo usuario de *Authentication > Users* que pusiste en `supabase\.env`. |
-| «Falta crear la base de datos» | Ejecuta `supabase\schema.sql` en Supabase > SQL Editor. |
+| «Falta crear la base de datos» o «Falta la parte de música» | Ejecuta `supabase\schema.sql` en Supabase > SQL Editor (también si lo ejecutaste antes de que existiera la música: es seguro repetirlo). |
 | «Esta app se compiló sin los datos de Supabase» | Ejecuta `scripts\preparar_movil.bat` (crea `mobile\env.json`) y vuelve a compilar. |
 | «Sin conexión» | Revisa internet; si estás conectado, la app reintenta sola cada pocos segundos. |
 | Los mensajes de la PC no llegan al instante | Mira que `schema.sql` se ejecutó completo (publica `messages` y `attachments` en Realtime). Al reabrir la app se ponen al día. |
 | Comprobar la PC → base de datos | `scripts\probar_chat.bat --send` manda un mensaje de prueba. |
 
 ## Para quien toque el código
-- Flutter 3 + `supabase_flutter`. Carpeta `lib/`: `data/` (el contrato con Supabase: `chat_repository.dart`, y `chat_backend.dart` para poder probar con uno falso), `state/chat_controller.dart` (mensajes, bandeja «en espera», reintentos, Realtime y puesta al día), `ui/` (pantallas y burbujas), `models/`, `util/`.
+- Flutter 3 + `supabase_flutter`. Carpeta `lib/`: `data/` (el contrato con Supabase: `chat_repository.dart`, y `chat_backend.dart` para poder probar con uno falso), `state/chat_controller.dart` (mensajes, bandeja «en espera», reintentos, Realtime y puesta al día), `ui/` (pantallas y burbujas), `models/`, `util/`. La música: `state/music_controller.dart`, `data/music_backend.dart` y `data/music_store.dart` (ajustes y guardado; el guardado real es código nativo en `android/.../MainActivity.kt`, con MediaStore).
 - El contrato con Supabase es el mismo que usa la PC: ver `supabase\endpoints.md` (funciones `send_message`, `list_messages`…, bucket `chat-files`, Realtime).
 - Pruebas: `flutter analyze` y `flutter test` (41 pruebas, sin red). La prueba **en vivo** usa el mismo repositorio contra tu Supabase real: `set KYORA_LIVE=1` y `flutter test test\live_test.dart` (lee `supabase\.env`, manda un mensaje con un archivo, comprueba el tiempo real, lo baja y lo borra).
 - `mobile\env.json` (URL y clave pública) lo genera `scripts\preparar_movil.bat` y no se sube a git.

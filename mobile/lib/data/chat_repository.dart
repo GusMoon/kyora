@@ -5,11 +5,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
 import '../models/message.dart';
+import '../models/track.dart';
 import 'chat_backend.dart';
+import 'music_backend.dart';
 
 /// El chat sobre Supabase: el mismo contrato que usa la PC (supabase/endpoints.md). Sesión con correo y contraseña,
-/// funciones RPC para enviar y leer, Storage para los archivos y Realtime para lo que llega al instante.
-class ChatRepository implements ChatBackend {
+/// funciones RPC para enviar y leer, Storage para los archivos y Realtime para lo que llega al instante. También sirve la
+/// música: las canciones que la PC sube con «Descargar» (`music_tracks` y sus MP3 en el mismo bucket).
+class ChatRepository implements ChatBackend, MusicBackend {
   ChatRepository(this._client);
 
   final SupabaseClient _client;
@@ -86,6 +89,48 @@ class ChatRepository implements ChatBackend {
   @override
   Future<String> signedUrl(String storagePath) =>
       _guard(() => _client.storage.from(AppConfig.bucket).createSignedUrl(storagePath, 3600));
+
+  // ---------- música ----------
+
+  @override
+  Future<List<Track>> listTracks({int limit = 200}) async {
+    final data = await _guard(() => _client.rpc('list_music_tracks', params: {'p_limit': limit}));
+    return [
+      for (final item in (data as List<dynamic>? ?? const [])) Track.fromJson(Map<String, dynamic>.from(item as Map)),
+    ];
+  }
+
+  @override
+  Future<Uint8List> downloadTrack(String storagePath) =>
+      _guard(() => _client.storage.from(AppConfig.bucket).download(storagePath));
+
+  @override
+  Stream<void> trackChanges() {
+    late final StreamController<void> controller;
+    RealtimeChannel? channel;
+    controller = StreamController<void>(
+      onListen: () {
+        final created = _client.channel('kyora-musica-${DateTime.now().microsecondsSinceEpoch}');
+        created.onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'music_tracks',
+          callback: (_) => controller.add(null),
+        );
+        created.subscribe((status, error) {
+          // al (re)conectarse también se pide la lista: así no se pierde lo que llegó con la conexión cortada
+          if (!controller.isClosed && status == RealtimeSubscribeStatus.subscribed) controller.add(null);
+        });
+        channel = created;
+      },
+      onCancel: () async {
+        final current = channel;
+        channel = null;
+        if (current != null) await _client.removeChannel(current);
+      },
+    );
+    return controller.stream;
+  }
 
   // ---------- tiempo real ----------
 
@@ -168,6 +213,9 @@ ChatException explainPostgrest(PostgrestException e) {
   final text = e.message.toLowerCase();
   if (code == 'PGRST202' || code == '42883' || text.contains('could not find the function')) {
     return ChatException('Falta crear la base de datos: ejecuta supabase/schema.sql en Supabase.', code: code);
+  }
+  if (code == 'PGRST205' || code == '42P01' || text.contains('music_tracks')) {
+    return ChatException('Falta la parte de música: vuelve a ejecutar supabase/schema.sql en Supabase.', code: code);
   }
   if (code == 'PGRST301' || code == 'PGRST303' || code == '401' || text.contains('jwt')) {
     return ChatException('La sesión caducó: vuelve a entrar.', retryable: true, code: code);

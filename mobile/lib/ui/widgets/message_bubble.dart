@@ -6,8 +6,9 @@ import '../../theme.dart';
 import '../../util/format.dart';
 import 'attachment_view.dart';
 
-/// Una burbuja de mensaje: las de este dispositivo a la derecha, las de los otros (la PC) a la izquierda con el nombre del
-/// dispositivo. Lleva la hora de envío y el estado: reloj «En espera», ✓ enviado, o el error con «Reintentar».
+/// Un mensaje, con el aire de un chat con un agente (como Claude): lo de este dispositivo en una burbuja gris a la derecha;
+/// lo de los otros (la PC) como texto suelto a la izquierda, sin burbuja, firmado con un ✦ y el nombre del dispositivo.
+/// Lleva la hora de envío y el estado: reloj «En espera», ✓ enviado, o el error con «Reintentar».
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
@@ -29,37 +30,45 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failed = message.state == SendState.failed;
-    final maxWidth = MediaQuery.sizeOf(context).width * 0.8;
+    final width = MediaQuery.sizeOf(context).width;
+    final boxed = mine && message.hasText; // solo lo mío con texto va en burbuja; los adjuntos sueltos, como tarjetas
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: mine ? 4 : 6),
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
+          constraints: BoxConstraints(maxWidth: width * (mine ? 0.8 : 0.92)),
           child: Column(
             crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
               if (showDevice)
                 Padding(
-                  padding: const EdgeInsets.only(left: 6, bottom: 2, top: 4),
-                  child: Text(message.device, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700)),
+                  padding: const EdgeInsets.only(bottom: 4, top: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('✦', style: TextStyle(color: Palette.accent, fontSize: 15)),
+                      const SizedBox(width: 6),
+                      Text(message.device, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
                 ),
               GestureDetector(
                 key: Key('bubble-${message.id}'),
                 onLongPress: onLongPress,
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                  padding: boxed || failed ? const EdgeInsets.fromLTRB(14, 10, 14, 8) : const EdgeInsets.symmetric(vertical: 2),
                   decoration: BoxDecoration(
-                    color: mine ? Palette.mine : Palette.plate,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: failed ? Palette.warn : Palette.edge),
+                    color: boxed ? Palette.mine : null,
+                    borderRadius: BorderRadius.circular(18),
+                    border: failed ? Border.all(color: Palette.warn) : null,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
                       for (final attachment in message.attachments) AttachmentView(attachment: attachment, controller: controller),
-                      if (message.hasText) Text(message.body!, style: const TextStyle(fontSize: 16, height: 1.25)),
+                      if (message.hasText) Text(message.body!, style: const TextStyle(fontSize: 16, height: 1.35)),
                       const SizedBox(height: 4),
                       _Meta(message: message, mine: mine, onRetry: onRetry),
                     ],
@@ -83,7 +92,7 @@ class _Meta extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const small = TextStyle(color: Palette.dim, fontSize: 12);
+    const small = TextStyle(color: Palette.dim, fontSize: 13);
     final state = message.state;
     if (state == SendState.failed) {
       return Column(

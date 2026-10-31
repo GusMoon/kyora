@@ -1,8 +1,9 @@
 """El chat, dentro del buscador (Ctrl+Shift+C, o la sección Chat de la píldora), con el mismo montaje que las notas.
 
-Arriba, el estado de la conexión; en medio, los mensajes en burbujas planas (los de este dispositivo a la derecha, los de
-tus otros dispositivos a la izquierda) con la **hora** de envío y su **estado**: un reloj y «En espera» mientras no han
-salido, una marca ✓ cuando ya están **enviados**; abajo, el compositor. Fotos y archivos salen como miniatura o tarjeta
+Con el aire de un chat con un agente (como Claude): arriba, el estado de la conexión; en medio, lo de este dispositivo en
+burbujas grises a la derecha y lo de tus otros dispositivos como texto suelto a la izquierda, firmado con un ✦; cada
+mensaje con su **hora** y su **estado** (un reloj y «En espera» mientras no ha salido, ✓ cuando ya está **enviado**); abajo,
+un compositor grande y redondo con «+» (adjuntar) y la flecha de enviar. Fotos y archivos salen como miniatura o tarjeta
 (clic: se abren). Todo se pinta a mano, como el resto de Kyora.
 
 Teclado: Enter envía, Shift+Enter salta de línea, Ctrl+O adjunta archivos, Ctrl+V pega texto, fotos del portapapeles o
@@ -20,7 +21,7 @@ from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMimeData, QObject, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
@@ -35,29 +36,41 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QFileDialog, QFrame, QTextEdit, QWidget
 
 from kyora.search.folders import human_size
-from kyora.ui import glyphs
+from kyora.ui import doc_excerpt, glyphs
 from kyora.ui.bar import accent, font
 from kyora.ui.explorer import file_icons
 from kyora.ui.explorer.style import _css, stylesheet
 from kyora.ui.hub.cards import FLAT_EDGE, paint_flat, paint_flat_well
+from kyora.ui.search_tree import TreeList
 
 log = logging.getLogger("kyora.ui")
 
 MARGIN = 16
 HEAD_H = 34
-FOOT_H = 26
-GAP = 8  # entre mensajes
+FOOT_H = 16  # el margen de abajo (el aviso corto, si lo hay, sale encima del compositor)
+GAP = 2  # entre mensajes (además de la fila de acciones reservada bajo cada uno)
 PAD_X, PAD_Y = 12, 8  # dentro de una burbuja
-BODY_PX, TIME_PX = 14, 12
+HEAD_LABEL_H = 32  # la línea de arriba cuando firma un dispositivo (lechuza y nombre)
+HEAD_TIME_H = 18  # y cuando solo lleva la hora (visible al pasar el cursor)
+ACT_H = 26  # la fila de acciones bajo cada mensaje (siempre reservada: así nada salta al pasar el cursor)
+OWL_PX, NAME_PX = 22, 15
+BODY_PX, TIME_PX = 15, 13
 THUMB_MAX = (280, 220)  # lo más grande que se ve una foto
 THUMB_LOAD = (560, 440)  # y a qué tamaño se lee (al doble: pantallas con escala)
 THUMB_EMPTY = (220, 130)  # el hueco de una foto que aún no se ha bajado
-FILE_W, FILE_H = 270, 54
-BUBBLE_FRACTION = 0.78
+FILE_W = 340  # el ancho de la tarjeta de un documento
+CARD_HEAD = 40  # el encabezado de la tarjeta (hoja, nombre y descarga)
+EXCERPT_LINES, EXCERPT_LH = 5, 17  # líneas del extracto y lo que mide cada una
+BUBBLE_FRACTION = 0.78  # lo mío, en burbuja
+TEXT_FRACTION = 0.92  # lo de los otros dispositivos, texto sin burbuja (más ancho, como la respuesta de un agente)
 BUBBLE_MAX = 560
-COMPOSER_MIN, COMPOSER_MAX = 44, 124
+BUBBLE_R = 12
+COMPOSER_MIN, COMPOSER_MAX = 42, 130
+COMPOSER_R = 21
 STAGE_H = 34
-CONTROL_W = 86  # los botones Adjuntar y Enviar
+CONTROL_W = 30  # los botones redondos «+» (adjuntar) y la flecha (enviar)
+TREE_W, TREE_GAP = 310, 6  # el árbol de archivos que se abre a la derecha del chat: lo que mide y lo que lo separa
+SIDE_HEAD = 36  # el título del panel del árbol
 CACHE = 40  # fotos en memoria como mucho
 MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre",
           "diciembre")
@@ -68,7 +81,6 @@ STATES = {
     "offline": ("Sin conexión", "los mensajes saldrán al volver", "warn"),
     "auth_error": ("No se pudo entrar", "revisa el correo y la contraseña de supabase/.env", "warn"),
 }
-HINT = "Enter envía · Shift+Enter salto de línea · Ctrl+O adjunta · pega o suelta fotos y archivos · Esc cierra"
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/bmp", "image/webp")
 
 
@@ -151,6 +163,32 @@ class ImageLoader(QObject):
             self.ready.emit(path, image)
 
 
+class DocLoader(QObject):
+    """Saca el extracto de los documentos del chat en un hilo, de uno en uno (como `ImageLoader` con las fotos)."""
+
+    ready = Signal(str, str)  # (ruta, extracto; "" si no tiene)
+
+    def __init__(self):
+        super().__init__()
+        self._queue = queue.Queue()
+        self._asked = set()
+        self._worker = None
+
+    def request(self, path):
+        if path in self._asked:
+            return
+        self._asked.add(path)
+        self._queue.put(path)
+        if self._worker is None:
+            self._worker = threading.Thread(target=self._run, daemon=True, name="kyora-chat-docs")
+            self._worker.start()
+
+    def _run(self):
+        while True:
+            path = self._queue.get()
+            self.ready.emit(path, doc_excerpt.excerpt(path) or "")
+
+
 class Composer(QTextEdit):
     """El campo para escribir: Enter envía, Shift+Enter salta de línea. Pegar o soltar archivos y fotos los adjunta."""
 
@@ -159,6 +197,7 @@ class Composer(QTextEdit):
     escaped = Signal()
     scroll_page = Signal(int)  # -1 / 1
     files = Signal(list)  # rutas
+    at = Signal()  # se escribió «@»: abre el árbol de archivos (la arroba no llega a escribirse)
 
     def __init__(self):
         super().__init__()
@@ -182,6 +221,8 @@ class Composer(QTextEdit):
             self.attach.emit()
         elif key in (Qt.Key_PageUp, Qt.Key_PageDown):
             self.scroll_page.emit(-1 if key == Qt.Key_PageUp else 1)
+        elif event.text() == "@" and not mods & Qt.ControlModifier:
+            self.at.emit()
         else:
             super().keyPressEvent(event)
 
@@ -213,6 +254,8 @@ class ChatView(QWidget):
     fetch_attachment = Signal(str, str)  # bajar un adjunto para verlo (sin abrirlo)
     retry = Signal(str)
     delete = Signal(str)
+    copy = Signal(str)  # el botón «Copiar» de un mensaje
+    download = Signal(str)  # y «Descargar»
 
     def __init__(self, theme):
         super().__init__()
@@ -230,6 +273,9 @@ class ChatView(QWidget):
         self._stick = True
         self.loader = ImageLoader()
         self.loader.ready.connect(self._thumb_ready)
+        self.docs = DocLoader()
+        self.docs.ready.connect(self._doc_ready)
+        self._excerpts = {}  # ruta -> extracto ("" = sin extracto)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.NoFocus)
 
@@ -311,6 +357,27 @@ class ChatView(QWidget):
         self._pixmaps.move_to_end(path)
         return pixmap
 
+    def _excerpt(self, att, message):
+        """El extracto del documento listo para pintar, o None: pide leerlo (si está en el disco) o bajarlo (si es un PDF,
+        Word, TXT o MD que no pesa mucho y solo está en Supabase)."""
+        if not doc_excerpt.supported(att.get("file_name") or ""):
+            return None
+        path = self._local(att)
+        if path is None:
+            small = int(att.get("size_bytes") or 0) <= doc_excerpt.MAX_AUTO_BYTES
+            if att.get("storage_path") and message["status"] == "sent" and small and att["id"] not in self._fetched:
+                self._fetched.add(att["id"])
+                self.fetch_attachment.emit(message["id"], att["id"])
+            return None
+        if path not in self._excerpts:
+            self.docs.request(path)
+            return None
+        return self._excerpts[path] or None
+
+    def _doc_ready(self, path, text):
+        self._excerpts[path] = text
+        self._relayout()
+
     def _thumb_ready(self, path, image):
         if image.isNull():
             return
@@ -343,8 +410,8 @@ class ChatView(QWidget):
         width = self.width()
         items, y = [], float(MARGIN)
         last_day, last_device = None, None
-        max_bubble = min(int((width - 2 * MARGIN) * BUBBLE_FRACTION), BUBBLE_MAX)
-        inner_max = max(max_bubble - 2 * PAD_X, 80)
+        mine_max = max(min(int((width - 2 * MARGIN) * BUBBLE_FRACTION), BUBBLE_MAX) - 2 * PAD_X, 80)
+        theirs_max = max(int((width - 2 * MARGIN) * TEXT_FRACTION) - 2 * PAD_X, 80)
         body, small = QFontMetrics(self._body_font()), QFontMetrics(self._time_font())
         for message in self.messages:
             day = day_text(message["sent_at"])
@@ -353,6 +420,7 @@ class ChatView(QWidget):
                 y += 26 + GAP
                 last_day, last_device = day, None
             mine = message["device"] == self.device
+            inner_max = mine_max if mine else theirs_max
             parts, cy, content_w = [], float(PAD_Y), 0
             for att in message["attachments"]:
                 if is_image(att):
@@ -365,23 +433,22 @@ class ChatView(QWidget):
                         w, h = min(THUMB_EMPTY[0], inner_max), THUMB_EMPTY[1]
                     parts.append({"kind": "image", "rect": (0, cy, w, h), "att": att, "pixmap": pixmap})
                 else:
-                    w, h = min(FILE_W, inner_max), FILE_H
-                    parts.append({"kind": "file", "rect": (0, cy, w, h), "att": att})
+                    w = min(FILE_W, inner_max)
+                    text = self._excerpt(att, message)
+                    lines = 0
+                    if text:
+                        wrapped = body.boundingRect(0, 0, w - 28, 100000, Qt.TextWordWrap | Qt.AlignLeft, text).height()
+                        lines = min(EXCERPT_LINES, max(round(wrapped / EXCERPT_LH), 1))
+                    h = CARD_HEAD + 10 + 24 + (lines * EXCERPT_LH + 6 if lines else 0) + 18 + 10  # cabecera, título, extracto, pie
+                    parts.append({"kind": "file", "rect": (0, cy, w, h), "att": att, "excerpt": text, "lines": lines})
                 cy += h + 6
                 content_w = max(content_w, w)
             text = message.get("body") or ""
             if text:
                 box = body.boundingRect(0, 0, inner_max, 100000, Qt.TextWordWrap | Qt.AlignLeft, text)
                 parts.append({"kind": "text", "rect": (0, cy, box.width() + 2, box.height() + 2), "text": text})
-                cy += box.height() + 2 + 4
+                cy += box.height() + 2
                 content_w = max(content_w, box.width() + 2)
-            meta = clock_text(message["sent_at"])
-            if message["status"] == "pending" and not message.get("error"):
-                meta += "  ·  En espera"
-            meta_w = small.horizontalAdvance(meta) + (22 if mine else 0)
-            parts.append({"kind": "meta", "rect": (0, cy, max(content_w, meta_w), 16), "text": meta, "mine": mine})
-            cy += 16
-            content_w = max(content_w, meta_w)
             error = message.get("error")
             if error:
                 line = f"No se envió: {error} · clic para reintentar"
@@ -389,16 +456,17 @@ class ChatView(QWidget):
                 parts.append({"kind": "error", "rect": (0, cy + 2, box.width() + 2, box.height() + 2), "text": line})
                 cy += box.height() + 6
                 content_w = max(content_w, box.width() + 2)
-            bubble_w, bubble_h = content_w + 2 * PAD_X, cy + PAD_Y
+            bubble_w, bubble_h = max(content_w, 24) + 2 * PAD_X, max(cy, 6) + PAD_Y
             label = ""
             if not mine and message["device"] != last_device:
                 label = message["device"] or "otro dispositivo"
-            label_h = 18.0 if label else 0.0
+            label_h = float(HEAD_LABEL_H) if label else 0.0
+            head_h = label_h or float(HEAD_TIME_H)  # arriba siempre hay una línea: firma, o solo la hora
             x = width - MARGIN - bubble_w if mine else MARGIN
-            items.append({"kind": "message", "y": y, "h": label_h + bubble_h, "message": message, "mine": mine,
-                          "label": label, "label_h": label_h, "bubble": (x, y + label_h, bubble_w, bubble_h),
-                          "parts": parts})
-            y += label_h + bubble_h + GAP
+            items.append({"kind": "message", "y": y, "h": head_h + bubble_h + ACT_H, "message": message, "mine": mine,
+                          "label": label, "label_h": label_h, "head_h": head_h,
+                          "bubble": (x, y + head_h, bubble_w, bubble_h), "parts": parts})
+            y += head_h + bubble_h + ACT_H + GAP
             last_device = message["device"]
         self._items, self._content = items, y
         if self._stick:
@@ -425,30 +493,44 @@ class ChatView(QWidget):
     def scroll_page(self, direction):
         self.scroll_by(direction * self.height() * 0.85)
 
-    def _pill_rect(self, item):
-        """El botón «Borrar» que sale junto a la burbuja bajo el cursor (al lado de fuera, hacia el centro)."""
-        x, y, w, _ = item["bubble"]
-        pill_w = 64
-        left = x - pill_w - 8 if item["mine"] else x + w + 8
-        return QRectF(left, y - self.scroll + 2, pill_w, 22)
+    def _actions(self, item):
+        """[(nombre, zona en pantalla)] de las acciones que salen bajo un mensaje al pasar el cursor."""
+        message = item["message"]
+        names = ["copy"] + (["download"] if message["attachments"] else []) + ["delete"]
+        widths = [72 if name == "delete" and self._armed == message["id"] else 28 for name in names]
+        x, y, w, h = item["bubble"]
+        left = x + w - (sum(widths) + 4 * (len(names) - 1)) if item["mine"] else x
+        out, top = [], y - self.scroll + h + 2
+        for name, width in zip(names, widths):
+            out.append((name, QRectF(left, top, width, 24)))
+            left += width + 4
+        return out
+
+    def _action_rect(self, item, name):
+        return next(rect for n, rect in self._actions(item) if n == name)
 
     def _hit(self, pos):
-        """('att', mensaje, adjunto) | ('retry', mensaje) | ('delete', mensaje) | ('bubble', mensaje) | None."""
+        """('att', mensaje, adjunto) | ('retry' | 'copy' | 'download' | 'delete' | 'bubble', mensaje) | None.
+        Todo el renglón del mensaje (la línea de arriba, la burbuja y la fila de acciones) cuenta como «encima»."""
         for item in self._items:
             if item["kind"] != "message":
                 continue
             top = item["y"] - self.scroll
-            if top + item["h"] < 0 or top > self.height():
+            if top + item["h"] < 0 or top > self.height() or not QRectF(0, top, self.width(), item["h"]).contains(pos):
                 continue
             message = item["message"]
-            if self._pill_rect(item).contains(pos) and self._hover == message["id"]:
-                return ("delete", message)
+            if self._hover == message["id"]:  # los botones solo existen mientras se ven
+                for name, rect in self._actions(item):
+                    if rect.contains(pos):
+                        return (name, message)
             bx, by, bw, bh = item["bubble"]
             if not QRectF(bx, by - self.scroll, bw, bh).contains(pos):
-                continue
+                return ("bubble", message)
             for part in item["parts"]:
                 px, py, pw, ph = part["rect"]
                 rect = QRectF(bx + PAD_X + px, by - self.scroll + py, pw, ph)
+                if part["kind"] == "file" and self._card_download(rect).contains(pos):
+                    return ("download", message)
                 if part["kind"] in ("image", "file") and rect.contains(pos):
                     return ("att", message, part["att"])
                 if part["kind"] == "error" and rect.contains(pos):
@@ -456,13 +538,19 @@ class ChatView(QWidget):
             return ("bubble", message)
         return None
 
+    @staticmethod
+    def _card_download(rect):
+        """El icono de descarga del encabezado de una tarjeta de documento."""
+        return QRectF(rect.right() - 38, rect.top() + 6, 30, 28)
+
     def mouseMoveEvent(self, event):
         hit = self._hit(event.position())
         hover = hit[1]["id"] if hit else None
         if hover != self._hover:
             self._hover = hover
             self.update()
-        self.setCursor(Qt.PointingHandCursor if hit and hit[0] in ("att", "retry", "delete") else Qt.ArrowCursor)
+        self.setCursor(Qt.PointingHandCursor if hit and hit[0] in ("att", "retry", "copy", "download", "delete")
+                       else Qt.ArrowCursor)
 
     def leaveEvent(self, _):
         self._hover = None
@@ -487,6 +575,10 @@ class ChatView(QWidget):
             self.open_attachment.emit(hit[1]["id"], hit[2]["id"])
         elif hit and hit[0] == "retry":
             self.retry.emit(hit[1]["id"])
+        elif hit and hit[0] == "copy":
+            self.copy.emit(hit[1]["id"])
+        elif hit and hit[0] == "download":
+            self.download.emit(hit[1]["id"])
 
     # ---------- pintura ----------
 
@@ -512,33 +604,27 @@ class ChatView(QWidget):
 
     def _paint_day(self, p, item, top):
         t = self.theme
-        p.setFont(font(t, TIME_PX, bold=True))
+        p.setFont(font(t, TIME_PX, bold=True))  # el día, solo el texto atenuado en el centro (sin cápsula)
         label = item["text"]
-        w = QFontMetrics(p.font()).horizontalAdvance(label) + 24
-        rect = QRectF((self.width() - w) / 2, top + 2, w, 22)
-        p.setPen(QPen(FLAT_EDGE, 1))
-        p.drawLine(QPointF(MARGIN, rect.center().y()), QPointF(rect.left() - 8, rect.center().y()))
-        p.drawLine(QPointF(rect.right() + 8, rect.center().y()), QPointF(self.width() - MARGIN, rect.center().y()))
-        paint_flat(p, t, rect, 11)
         p.setPen(QColor(t.dim))
-        p.drawText(rect, Qt.AlignCenter, label)
+        p.drawText(QRectF(0, top + 2, self.width(), 22), Qt.AlignCenter, label)
 
     def _paint_message(self, p, item):
         t = self.theme
         message = item["message"]
         x, y, w, h = item["bubble"]
         y -= self.scroll
-        if item["label"]:
-            p.setFont(font(t, TIME_PX, bold=True))
-            p.setPen(QColor(t.dim))
-            p.drawText(QRectF(x + 4, y - item["label_h"], 300, item["label_h"]), Qt.AlignVCenter, item["label"])
+        hover = self._hover == message["id"]
+        self._paint_line(p, item, y - item["head_h"], hover)
         bubble = QRectF(x, y, w, h)
-        paint_flat(p, t, bubble, 14, fill=self._mine_fill() if item["mine"] else None)
-        failed = bool(message.get("error"))
-        if failed:
+        if item["mine"] and message.get("body"):  # lo mío con texto, en un cuadro redondeado; lo demás, suelto
+            p.setPen(QPen(FLAT_EDGE, 1))
+            p.setBrush(self._mine_fill())
+            p.drawRoundedRect(bubble.adjusted(0.5, 0.5, -0.5, -0.5), BUBBLE_R, BUBBLE_R)
+        if message.get("error"):
             p.setPen(QPen(QColor(t.warn), 1))
             p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(bubble.adjusted(0.5, 0.5, -0.5, -0.5), 14, 14)
+            p.drawRoundedRect(bubble.adjusted(0.5, 0.5, -0.5, -0.5), BUBBLE_R, BUBBLE_R)
         for part in item["parts"]:
             px, py, pw, ph = part["rect"]
             rect = QRectF(x + PAD_X + px, y + py, pw, ph)
@@ -550,29 +636,73 @@ class ChatView(QWidget):
             elif kind == "image":
                 self._paint_image(p, rect, part)
             elif kind == "file":
-                self._paint_file(p, rect, part["att"])
-            elif kind == "meta":
-                self._paint_meta(p, rect, part, message)
+                self._paint_file(p, rect, part)
             elif kind == "error":
                 p.setFont(self._time_font())
                 p.setPen(QColor(t.warn))
                 p.drawText(rect, Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop, part["text"])
-        if self._hover == message["id"]:
-            pill = self._pill_rect(item)
-            armed = self._armed == message["id"]
+        if hover:
+            self._paint_actions(p, item)
+
+    def _paint_line(self, p, item, top, hover):
+        """La línea de arriba de cada mensaje: la lechuza y el nombre (en lo ajeno, al empezar una tanda) y la hora, que solo
+        se ve con el cursor encima. El reloj de «En espera» se ve siempre: avisa de algo."""
+        t = self.theme
+        message, mine = item["message"], item["mine"]
+        x, _, w, _ = item["bubble"]
+        pending = message["status"] == "pending" and not message.get("error")
+        failed = bool(message.get("error"))
+        text = clock_text(message["sent_at"]) if hover else ""
+        if pending:
+            text = f"{text}  ·  En espera" if text else "En espera"
+        show_mark = mine and (pending or failed or (hover and message["status"] == "sent"))
+        row_h = item["head_h"]
+        p.setFont(self._time_font())
+        fm = QFontMetrics(p.font())
+        if mine:
+            right = x + w - PAD_X - (20 if show_mark else 0)
+            p.setPen(QColor(t.dim))
+            p.drawText(QRectF(right - fm.horizontalAdvance(text) - 2, top, fm.horizontalAdvance(text) + 2, row_h),
+                       Qt.AlignVCenter | Qt.AlignRight, text)
+            if show_mark:
+                self._paint_mark(p, QRectF(x + w - PAD_X - 14, top + row_h / 2 - 7, 14, 14), message)
+            return
+        left = x + PAD_X
+        if item["label"]:
+            p.setPen(glyphs.pen(accent(t, True), 1.7))
+            p.setBrush(Qt.NoBrush)
+            glyphs.owl(p, QRectF(left, top + (row_h - OWL_PX) / 2, OWL_PX, OWL_PX))
+            p.setFont(font(t, NAME_PX, bold=True))
+            p.setPen(QColor(t.ink))
+            name_w = QFontMetrics(p.font()).horizontalAdvance(item["label"])
+            p.drawText(QRectF(left + OWL_PX + 8, top, name_w + 4, row_h), Qt.AlignVCenter, item["label"])
+            left += OWL_PX + 8 + name_w + 14
+            p.setFont(self._time_font())
+        p.setPen(QColor(t.dim))
+        p.drawText(QRectF(left, top, fm.horizontalAdvance(text) + 4, row_h), Qt.AlignVCenter, text)
+
+    def _paint_actions(self, p, item):
+        """Copiar, descargar y borrar, bajo el mensaje: iconos pequeños con el borde fino de lo plano."""
+        t = self.theme
+        message = item["message"]
+        for name, rect in self._actions(item):
+            armed = name == "delete" and self._armed == message["id"]
             p.setPen(QPen(QColor(t.warn) if armed else FLAT_EDGE, 1))
             p.setBrush(QColor(t.warn) if armed else QColor(255, 255, 255, 14))
-            p.drawRoundedRect(pill, 11, 11)
-            p.setFont(font(t, TIME_PX, bold=True))
-            p.setPen(QColor(t.pick_ink) if armed else QColor(t.dim))
-            p.drawText(pill, Qt.AlignCenter, "¿Seguro?" if armed else "Borrar")
+            p.drawRoundedRect(rect, 8, 8)
+            if armed:
+                p.setFont(font(t, TIME_PX, bold=True))
+                p.setPen(QColor(t.pick_ink))
+                p.drawText(rect, Qt.AlignCenter, "¿Seguro?")
+                continue
+            p.setPen(glyphs.pen(QColor(t.dim), 1.5))
+            p.setBrush(Qt.NoBrush)
+            icon = QRectF(rect.center().x() - 7, rect.center().y() - 7, 14, 14)
+            {"copy": glyphs.copy, "download": glyphs.download, "delete": glyphs.trash}[name](p, icon)
 
     def _mine_fill(self):
-        """El relleno de mis burbujas: un toque del acento sobre el fondo oscuro (liso, como el resto de lo plano)."""
-        base, tint = QColor(self.theme.plate_top), QColor(self.theme.gold)
-        mix = 0.16
-        return QColor(round(base.red() * (1 - mix) + tint.red() * mix), round(base.green() * (1 - mix) + tint.green() * mix),
-                      round(base.blue() * (1 - mix) + tint.blue() * mix))
+        """El relleno de mis burbujas: el gris algo más claro de lo elegido, liso (como el mensaje del usuario en Claude)."""
+        return QColor(self.theme.plate_pick)
 
     def _paint_image(self, p, rect, part):
         t = self.theme
@@ -591,31 +721,46 @@ class ChatView(QWidget):
         p.setPen(QPen(FLAT_EDGE, 1))
         p.drawRoundedRect(rect, 10, 10)
 
-    def _paint_file(self, p, rect, att):
+    def _paint_file(self, p, rect, part):
+        """Un documento como la tarjeta de un plan en Claude: arriba su encabezado (hoja, nombre y el icono de descarga),
+        debajo el título, un extracto del contenido (si se pudo leer) y el tipo con el tamaño."""
         t = self.theme
-        paint_flat_well(p, t, rect, 10)
-        icon = QRectF(rect.left() + 10, rect.center().y() - 15, 30, 30)
+        att = part["att"]
+        name = att.get("file_name") or "archivo"
+        paint_flat(p, t, rect, 14)
+        icon = QRectF(rect.left() + 12, rect.top() + (CARD_HEAD - 22) / 2, 22, 22)
         file_icons.shared().file().paint(p, icon.toRect())
-        text_x = icon.right() + 10
-        width = rect.right() - text_x - 10
-        p.setFont(font(t, BODY_PX, bold=True))
+        dl = self._card_download(rect)
+        p.setFont(font(t, TIME_PX + 1))
+        p.setPen(QColor(t.dim))
+        head_w = rect.width() - 42 - 44
+        p.drawText(QRectF(rect.left() + 42, rect.top(), head_w, CARD_HEAD), Qt.AlignVCenter,
+                   QFontMetrics(p.font()).elidedText(name, Qt.ElideMiddle, int(head_w)))
+        p.setPen(glyphs.pen(QColor(t.dim), 1.6))
+        p.setBrush(Qt.NoBrush)
+        glyphs.download(p, QRectF(dl.center().x() - 9, dl.center().y() - 9, 18, 18))
+        p.setPen(QPen(FLAT_EDGE, 1))
+        p.drawLine(QPointF(rect.left() + 1, rect.top() + CARD_HEAD), QPointF(rect.right() - 1, rect.top() + CARD_HEAD))
+        x, width, y = rect.left() + 14, rect.width() - 28, rect.top() + CARD_HEAD + 10
+        p.setFont(font(t, BODY_PX + 1, bold=True))
         p.setPen(QColor(t.ink))
-        name = QFontMetrics(p.font()).elidedText(att.get("file_name") or "archivo", Qt.ElideMiddle, int(width))
-        p.drawText(QRectF(text_x, rect.top() + 7, width, 20), Qt.AlignVCenter, name)
+        stem = Path(name).stem or name
+        p.drawText(QRectF(x, y, width, 22), Qt.AlignVCenter, QFontMetrics(p.font()).elidedText(stem, Qt.ElideRight, int(width)))
+        y += 24
+        if part["lines"]:
+            p.setFont(font(t, TIME_PX + 1))
+            p.setPen(QColor(t.dim))
+            p.drawText(QRectF(x, y, width, part["lines"] * EXCERPT_LH), Qt.TextWordWrap | Qt.AlignLeft | Qt.AlignTop,
+                       part["excerpt"])
+            y += part["lines"] * EXCERPT_LH + 6
         p.setFont(self._time_font())
         p.setPen(QColor(t.dim))
-        p.drawText(QRectF(text_x, rect.top() + 28, width, 18), Qt.AlignVCenter, human_size(int(att.get("size_bytes") or 0)))
+        kind = (Path(name).suffix.lstrip(".") or "archivo").upper()
+        p.drawText(QRectF(x, y, width, 18), Qt.AlignVCenter, f"{kind} · {human_size(int(att.get('size_bytes') or 0))}")
 
-    def _paint_meta(self, p, rect, part, message):
-        """La hora y, en los míos, el estado: reloj mientras está en espera, ✓ cuando ya se envió."""
+    def _paint_mark(self, p, mark, message):
+        """El estado de lo mío: reloj mientras está en espera, ✓ cuando ya se envió."""
         t = self.theme
-        p.setFont(self._time_font())
-        p.setPen(QColor(t.dim))
-        text_rect = QRectF(rect.left(), rect.top(), rect.width() - (20 if part["mine"] else 0), rect.height())
-        p.drawText(text_rect, Qt.AlignVCenter | (Qt.AlignRight if part["mine"] else Qt.AlignLeft), part["text"])
-        if not part["mine"]:
-            return
-        mark = QRectF(rect.right() - 14, rect.center().y() - 7, 14, 14)
         failed = bool(message.get("error"))
         if message["status"] == "sent":
             p.setPen(QPen(accent(t, True), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -639,16 +784,24 @@ def _rounded(rect, radius):
 
 class ChatBoard(QWidget):
     notify = Signal(str)  # un aviso corto (mensaje nuevo con el chat cerrado, errores): sale como el resto de avisos
+    side_changed = Signal()  # el árbol de archivos se abrió o se cerró: el buscador cambia de ancho
 
-    def __init__(self, theme, call, escape=lambda: None):
-        """`call(acción, **datos)`: el núcleo, devuelve {ok, data|error}; `escape()`: Esc (el buscador se cierra)."""
+    def __init__(self, theme, call, escape=lambda: None, children=lambda path: [], roots=lambda: ([], ())):
+        """`call(acción, **datos)`: el núcleo, devuelve {ok, data|error}; `escape()`: Esc (el buscador se cierra);
+        `children(ruta)` y `roots()` -> (filas, desplegadas): las carpetas del árbol de archivos que se abre a la derecha."""
         super().__init__()
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAcceptDrops(True)
         self.theme, self._call, self._escape = theme, call, escape
+        self._roots = roots
+        self.tree_open = False
+        self.tree = TreeList(theme, children, self._tree_open_row, on_pick=self._tree_pick)
+        self.tree.setParent(self)
+        self.tree.hide()
         self.device, self.state, self.detail = "pc", "connecting", ""
         self.staged = []  # archivos listos para salir con el próximo mensaje
-        self._note = ""  # un aviso en la barra de abajo (por ejemplo, un archivo demasiado grande)
+        self._note = ""  # un aviso corto sobre el compositor (por ejemplo, un archivo demasiado grande)
+        self._error_note = False  # ¿el aviso es un error? (sale en rojo)
         self._chips = []
         self.view = ChatView(theme)
         self.view.setParent(self)
@@ -657,6 +810,7 @@ class ChatBoard(QWidget):
         self.composer.document().contentsChanged.connect(self._arrange)
         self.composer.submit.connect(self.send)
         self.composer.attach.connect(self.pick_files)
+        self.composer.at.connect(self.pick_files)
         self.composer.escaped.connect(self.escape)
         self.composer.scroll_page.connect(self.view.scroll_page)
         self.composer.files.connect(self.stage)
@@ -665,6 +819,9 @@ class ChatBoard(QWidget):
         self.view.fetch_attachment.connect(lambda m, a: self._call("chat.fetch_attachment", message_id=m, attachment_id=a))
         self.view.retry.connect(lambda mid: self._call("chat.retry", id=mid))
         self.view.delete.connect(lambda mid: self._call("chat.delete", id=mid))
+        self.view.copy.connect(self._copy)
+        self.view.download.connect(self._download)
+        self._copy_after = set()  # adjuntos que se están bajando para copiarlos al portapapeles
         self._note_timer = QTimer(self)
         self._note_timer.setSingleShot(True)
         self._note_timer.setInterval(4000)
@@ -689,7 +846,11 @@ class ChatBoard(QWidget):
         """Al salir: el borrador y los archivos preparados se quedan donde están."""
 
     def escape(self):
-        self._escape()
+        """Esc: si el árbol de archivos está abierto, lo cierra; si no, se cierra el buscador."""
+        if self.tree_open:
+            self.toggle_tree(False)
+        else:
+            self._escape()
 
     def retheme(self, theme):
         self.theme = theme
@@ -725,6 +886,11 @@ class ChatBoard(QWidget):
             self.view.prepend(event["messages"])
         elif kind == "attachment":
             self.view.set_attachment_path(event["attachment_id"], event["path"])
+            if event["attachment_id"] in self._copy_after:
+                self._copy_after.discard(event["attachment_id"])
+                self._copy_file(event["path"])
+        elif kind == "saved":
+            self._say(f"Guardado en Descargas: {event['name']}")
         elif kind == "error":
             self.notify.emit(event["error"])
 
@@ -736,7 +902,7 @@ class ChatBoard(QWidget):
             return
         result = self._call("chat.send", text=text, paths=list(self.staged))
         if not result.get("ok"):
-            self._say(result["error"]["message"])
+            self._say(result["error"]["message"], warn=True)
             return
         self.composer.clear()
         self.staged = []
@@ -753,9 +919,71 @@ class ChatBoard(QWidget):
         self.update()
 
     def pick_files(self):
-        paths, _ = QFileDialog.getOpenFileNames(self.window(), "Adjuntar al chat")
-        if paths:
-            self.stage(paths)
+        """«+», «@» o Ctrl+O: abre (o cierra) a la derecha el árbol de carpetas para elegir qué mandar."""
+        self.toggle_tree()
+
+    def toggle_tree(self, show=None):
+        show = (not self.tree_open) if show is None else bool(show)
+        if show == self.tree_open:
+            return
+        self.tree_open = show
+        if show:
+            rows, expanded = self._roots()
+            self.tree.set_roots(rows, expanded=expanded)
+        self._arrange()
+        self.composer.setFocus()
+        self.side_changed.emit()
+
+    def _tree_pick(self, row):
+        """Un clic en un archivo del árbol lo manda (las carpetas se despliegan solas)."""
+        self._send_path(row["id"], row.get("name") or Path(row["id"]).name)
+
+    def _tree_open_row(self, row, ctrl):
+        if not row.get("is_dir"):
+            self._tree_pick(row)
+
+    def _send_path(self, path, name):
+        result = self._call("chat.send", text="", paths=[path])
+        if result.get("ok"):
+            self._say(f"Enviado: {name}")
+        else:
+            self._say(result["error"]["message"], warn=True)
+
+    def _message(self, message_id):
+        return next((m for m in self.view.messages if m["id"] == message_id), None)
+
+    def _copy(self, message_id):
+        """«Copiar»: el texto del mensaje; si es solo un archivo, el archivo (se baja antes si hace falta)."""
+        message = self._message(message_id)
+        if message is None:
+            return
+        text = (message.get("body") or "").strip()
+        if text:
+            QApplication.clipboard().setText(text)
+            self._say("Texto copiado")
+            return
+        for att in message["attachments"]:
+            path = att.get("local_path")
+            if path and Path(path).is_file():
+                self._copy_file(path)
+                return
+        if message["attachments"]:
+            att = message["attachments"][0]
+            self._copy_after.add(att["id"])
+            self._call("chat.fetch_attachment", message_id=message_id, attachment_id=att["id"])
+            self._say("Bajando el archivo para copiarlo…")
+
+    def _copy_file(self, path):
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(path)])  # se pega en el Explorador como un archivo
+        QApplication.clipboard().setMimeData(mime)
+        self._say("Archivo copiado")
+
+    def _download(self, message_id):
+        """«Descargar»: una copia de cada adjunto en la carpeta Descargas."""
+        message = self._message(message_id)
+        for att in (message or {}).get("attachments", []):
+            self._call("chat.save_attachment", message_id=message_id, attachment_id=att["id"])
 
     def _open(self, message_id, attachment_id):
         self._call("chat.fetch_attachment", message_id=message_id, attachment_id=attachment_id, open=True)
@@ -770,8 +998,8 @@ class ChatBoard(QWidget):
             self.stage(paths)
             event.acceptProposedAction()
 
-    def _say(self, text):
-        self._note = text
+    def _say(self, text, warn=False):
+        self._note, self._error_note = text, warn
         self._note_timer.start()
         self.update()
 
@@ -784,27 +1012,35 @@ class ChatBoard(QWidget):
     def _composer_h(self):
         doc = self.composer.document()
         doc.setTextWidth(max(self.composer.viewport().width(), 100))
-        return int(min(max(doc.size().height() + 18, COMPOSER_MIN), COMPOSER_MAX))
+        return int(min(max(doc.size().height() + 14, COMPOSER_MIN), COMPOSER_MAX))
 
     def _rects(self):
-        """Dónde va cada zona: cabecera, mensajes, archivos preparados, compositor (con sus dos botones) y pie."""
-        w, h = self.width(), self.height()
+        """Dónde va cada zona: cabecera, mensajes, archivos preparados, compositor (con sus dos botones), pie y, a la derecha,
+        el árbol de archivos cuando está abierto (el resto se estrecha para dejarle sitio)."""
+        w, h = self.width() - (TREE_W + TREE_GAP if self.tree_open else 0), self.height()
         foot = QRectF(MARGIN, h - FOOT_H, w - 2 * MARGIN, FOOT_H)
         comp_h = self._composer_h()
         composer = QRectF(MARGIN, foot.top() - comp_h - 4, w - 2 * MARGIN, comp_h)
         stage = QRectF(MARGIN, composer.top() - STAGE_H - 4, w - 2 * MARGIN, STAGE_H) if self.staged else None
         view_bottom = (stage.top() if stage else composer.top()) - 6
         view = QRectF(0, HEAD_H, w, max(view_bottom - HEAD_H, 40))
+        # los dos botones, redondos y abajo del campo (si crece con varias líneas, se quedan junto a la última)
+        button_y = composer.bottom() - (COMPOSER_MIN + CONTROL_W) / 2
+        side = QRectF(w + TREE_GAP, HEAD_H, TREE_W - MARGIN, h - HEAD_H - 10) if self.tree_open else None
         return {"head": QRectF(MARGIN, 0, w - 2 * MARGIN, HEAD_H), "view": view, "stage": stage, "composer": composer,
-                "attach": QRectF(composer.left() + 6, composer.center().y() - 15, CONTROL_W, 30),
-                "send": QRectF(composer.right() - CONTROL_W - 6, composer.center().y() - 15, CONTROL_W, 30), "foot": foot}
+                "attach": QRectF(composer.left() + 10, button_y, CONTROL_W, CONTROL_W),
+                "send": QRectF(composer.right() - CONTROL_W - 10, button_y, CONTROL_W, CONTROL_W), "foot": foot,
+                "side": side}
 
     def _arrange(self):
         r = self._rects()
         self.view.setGeometry(r["view"].toRect())
+        if r["side"]:  # el árbol, debajo de su título
+            self.tree.setGeometry(r["side"].adjusted(4, SIDE_HEAD, -4, -4).toRect())
+        self.tree.setVisible(bool(r["side"]))
         c = r["composer"]
-        self.composer.setGeometry(round(c.left() + CONTROL_W + 14), round(c.top() + 2), round(c.width() - 2 * CONTROL_W - 28),
-                                  round(c.height() - 4))
+        self.composer.setGeometry(round(c.left() + CONTROL_W + 20), round(c.top() + 5), round(c.width() - 2 * CONTROL_W - 40),
+                                  round(c.height() - 10))
         self.update()
 
     def resizeEvent(self, event):
@@ -849,15 +1085,26 @@ class ChatBoard(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         r = self._rects()
         self._paint_head(p, r["head"])
+        if r["side"]:  # el panel del árbol de archivos
+            paint_flat(p, t, r["side"], 16)
+            p.setFont(font(t, TIME_PX + 1, bold=True))
+            p.setPen(QColor(t.dim))
+            p.drawText(QRectF(r["side"].left() + 16, r["side"].top(), r["side"].width() - 32, SIDE_HEAD), Qt.AlignVCenter,
+                       "Un clic en un archivo lo envía")
         if r["stage"]:
             self._paint_stage(p, r)
-        paint_flat_well(p, t, r["composer"], 14)
-        self._pill(p, r["attach"], "Adjuntar")
-        self._pill(p, r["send"], "Enviar", strong=bool(self.composer.toPlainText().strip() or self.staged))
-        p.setFont(font(t, TIME_PX))
-        p.setPen(QColor(t.warn) if self._note else QColor(t.dim))
-        p.drawText(r["foot"], Qt.AlignVCenter | Qt.AlignHCenter,
-                   QFontMetrics(p.font()).elidedText(self._note or HINT, Qt.ElideRight, int(r["foot"].width())))
+        paint_flat_well(p, t, r["composer"], COMPOSER_R)
+        self._round_button(p, r["attach"], "plus")
+        self._round_button(p, r["send"], "send", strong=bool(self.composer.toPlainText().strip() or self.staged))
+        if self._note:  # un aviso corto, en una pastilla justo encima del compositor
+            p.setFont(font(t, TIME_PX))
+            text = QFontMetrics(p.font()).elidedText(self._note, Qt.ElideRight, int(r["composer"].width() - 40))
+            width = QFontMetrics(p.font()).horizontalAdvance(text) + 28
+            top = (r["stage"].top() if r["stage"] else r["composer"].top()) - 30
+            pill = QRectF(r["composer"].center().x() - width / 2, top, width, 24)
+            paint_flat(p, t, pill, 12)
+            p.setPen(QColor(t.warn) if self._error_note else QColor(t.dim))
+            p.drawText(pill, Qt.AlignCenter, text)
 
     def _paint_head(self, p, rect):
         t = self.theme
@@ -879,8 +1126,6 @@ class ChatBoard(QWidget):
         p.setPen(Qt.NoPen)
         p.setBrush(color)
         p.drawEllipse(QPointF(rect.right() - width - 16, rect.center().y() - 1), 4, 4)
-        p.setPen(QPen(FLAT_EDGE, 1))
-        p.drawLine(QPointF(rect.left(), rect.bottom() - 1), QPointF(rect.right(), rect.bottom() - 1))
 
     def _paint_stage(self, p, r):
         t = self.theme
@@ -900,14 +1145,26 @@ class ChatBoard(QWidget):
             glyphs.cross(p, QRectF(chip.right() - 26, chip.center().y() - 9, 18, 18))
             x += width + 8
 
-    def _pill(self, p, rect, label, strong=False):
+    def _round_button(self, p, rect, glyph, strong=False):
+        """«+» (adjuntar) con un borde fino, o la flecha de enviar: un disco del acento si hay algo que mandar."""
         t = self.theme
-        p.setPen(QPen(QColor(t.gold) if strong else FLAT_EDGE, 1))
-        p.setBrush(QColor(t.gold_soft) if strong else QColor(255, 255, 255, 12))
-        p.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        p.setFont(font(t, TIME_PX + 1, bold=True))
-        p.setPen(accent(t, True) if strong else QColor(t.dim))
-        p.drawText(rect, Qt.AlignCenter, label)
+        if glyph == "send":
+            p.setPen(Qt.NoPen)
+            p.setBrush(accent(t, True) if strong else QColor(255, 255, 255, 22))
+        else:
+            p.setPen(QPen(FLAT_EDGE, 1))
+            p.setBrush(QColor(255, 255, 255, 10))
+        p.drawEllipse(rect)
+        c, s = rect.center(), rect.width() * 0.24
+        ink = QColor(t.pick_ink) if strong else QColor(t.dim) if glyph == "send" else QColor(t.ink)
+        p.setPen(QPen(ink, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        if glyph == "plus":
+            p.drawLine(QPointF(c.x() - s, c.y()), QPointF(c.x() + s, c.y()))
+            p.drawLine(QPointF(c.x(), c.y() - s), QPointF(c.x(), c.y() + s))
+        else:  # una flecha hacia arriba
+            p.drawLine(QPointF(c.x(), c.y() + s), QPointF(c.x(), c.y() - s))
+            p.drawLine(QPointF(c.x() - s * 0.85, c.y() - s * 0.15), QPointF(c.x(), c.y() - s))
+            p.drawLine(QPointF(c.x() + s * 0.85, c.y() - s * 0.15), QPointF(c.x(), c.y() - s))
 
     def event(self, event):
         # Ctrl+O también con el foco fuera del compositor (por ejemplo, tras pulsar un botón)

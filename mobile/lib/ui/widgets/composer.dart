@@ -98,12 +98,13 @@ class _ComposerState extends State<Composer> {
 
   @override
   Widget build(BuildContext context) {
+    // un campo grande y redondeado, como el de Claude: «+» a la izquierda, lo escrito en medio y la flecha a la derecha
     return Material(
-      color: Palette.surface,
+      color: Palette.background,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -126,39 +127,63 @@ class _ComposerState extends State<Composer> {
                     ],
                   ),
                 ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    key: const Key('attach'),
-                    tooltip: 'Adjuntar',
-                    onPressed: _attach,
-                    icon: const Icon(Icons.add_circle_outline, color: Palette.accent, size: 28),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      key: const Key('message-field'),
-                      controller: _text,
-                      minLines: 1,
-                      maxLines: 5,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(hintText: 'Escribe un mensaje…'),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Palette.field,
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: Palette.edge),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      key: const Key('attach'),
+                      tooltip: 'Adjuntar',
+                      onPressed: _attach,
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(40, 40),
+                        shape: const CircleBorder(side: BorderSide(color: Palette.edge)),
+                        backgroundColor: const Color(0x0AFFFFFF),
+                      ),
+                      icon: const Icon(Icons.add, color: Palette.ink, size: 24),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton.filled(
-                    key: const Key('send'),
-                    tooltip: 'Enviar',
-                    onPressed: _canSend ? _send : null,
-                    style: IconButton.styleFrom(
-                      backgroundColor: Palette.accent,
-                      disabledBackgroundColor: Palette.plate,
-                      foregroundColor: const Color(0xFF141414),
-                      minimumSize: const Size(48, 48),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        key: const Key('message-field'),
+                        controller: _text,
+                        minLines: 1,
+                        maxLines: 5,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: const InputDecoration(
+                          hintText: 'Escribe un mensaje…',
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                          isDense: true,
+                        ),
+                      ),
                     ),
-                    icon: const Icon(Icons.send_rounded),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    IconButton.filled(
+                      key: const Key('send'),
+                      tooltip: 'Enviar',
+                      onPressed: _canSend ? _send : null,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Palette.accent,
+                        disabledBackgroundColor: const Color(0x16FFFFFF),
+                        foregroundColor: const Color(0xFF141414),
+                        disabledForegroundColor: Palette.dim,
+                        minimumSize: const Size(40, 40),
+                      ),
+                      icon: const Icon(Icons.arrow_upward_rounded, size: 22),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QToolTip, QWidget
 
 from kyora.ui.accent import palette_from_path, wallpaper_palette
 from kyora.ui.dropzones import DropZones
+from kyora.ui.explorer import file_icons
 from kyora.ui.frame import RingOverlay
 from kyora.ui.leftdock import LeftDock
 from kyora.ui.powerscreen import PowerScreen
@@ -89,6 +90,7 @@ def apply_theme(app, roots, theme):
     """Pone colores nuevos en marcha: cada pieza que guarda `theme` recibe el nuevo, las que rehacen hojas de estilo
     lo hacen (`retheme`), y todo se repinta. Los tamaños no cambian, así que nada se recoloca."""
     app.setStyleSheet(_app_style(theme))
+    file_icons.shared().set_color(theme.second)
     for root in roots:
         objects = [root] + (root.findChildren(QObject) if isinstance(root, QObject) else [])
         objects += getattr(root, "strips", [])  # el contorno de la ventana activa son cuatro ventanas sueltas
@@ -127,6 +129,10 @@ def build_ui(kyora, app, theme=THEME):
         result = call("files.children", path=path)
         return result["data"] if result["ok"] else []
 
+    def roots():
+        result = call("files.roots")
+        return (result["data"]["roots"], result["data"]["expanded"]) if result["ok"] else ([], ())
+
     ring = RingOverlay(theme, screen_map)
     top = TopDock(theme, screen_map, kyora.invoke_async)
     guard = kyora.taskbar.keep_hidden if kyora.cfg.get("hide_taskbar") else None
@@ -138,6 +144,7 @@ def build_ui(kyora, app, theme=THEME):
         close=lambda refocus: kyora.invoke_async("search.close", refocus=refocus),
         set_wallpaper=lambda path: kyora.invoke_async("wallpaper.set", path=path),
         children=children,
+        roots=roots,
         act=lambda kind, id: call("search.launch", kind=kind, id=id),
         call=call,
     )

@@ -602,3 +602,18 @@ def test_older_messages_are_requested_with_the_cutoff_time(chat):
     service.older(cutoff)
     older = wait_for(events, "older")
     assert [m["body"] for m in older["messages"]] == ["mensaje 0", "mensaje 1"]
+
+
+def test_save_attachment_copies_it_to_downloads_without_overwriting(tmp_path, chat):
+    service, events, _ = chat()
+    src = tmp_path / "origen.pdf"
+    src.write_bytes(b"%PDF-1")
+    folder = tmp_path / "Descargas"
+    service._downloads = lambda: folder
+    saved = service.send("", [str(src)])
+    att_id = saved["attachments"][0]["id"]
+    service._save(saved["id"], att_id)
+    service._save(saved["id"], att_id)                                                 # otra vez: no pisa la primera copia
+    assert sorted(p.name for p in folder.iterdir()) == ["origen (1).pdf", "origen.pdf"]
+    assert (folder / "origen.pdf").read_bytes() == b"%PDF-1"
+    assert [e["name"] for e in events if e.get("kind") == "saved"] == ["origen.pdf", "origen (1).pdf"]

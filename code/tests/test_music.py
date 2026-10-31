@@ -46,7 +46,7 @@ class FakeYdl:
                     hook({"status": "downloading", "downloaded_bytes": 60, "total_bytes": 100})
         path = self.script["dir"] / f"{video_id}.mp3"
         path.write_bytes(b"mp3")
-        return {"requested_downloads": [{"filepath": str(path)}]}
+        return {"title": f"Titulo {video_id}", "requested_downloads": [{"filepath": str(path)}]}
 
 
 def make(tmp_path, **script):
@@ -318,3 +318,44 @@ def test_pasted_cookies_are_saved_as_a_netscape_file(tmp_path):
     assert text.startswith("# Netscape HTTP Cookie File") and ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tabc" in text
     with pytest.raises(ActionError):
         service.save_cookies("esto no son cookies")
+
+
+def test_each_finished_song_is_handed_to_the_phone_sync(tmp_path):
+    service, events = make(tmp_path)
+    handed = []
+    service.on_done = lambda *args: handed.append(args)
+    service.songs("PL1")
+    wait_for(events, "songs")
+    service.download("PL1", ids=["v1"])
+    wait_for(events, "finished")
+    assert handed == [("v1", str(tmp_path / "v1.mp3"), "Titulo v1", "PL1")]
+
+
+def test_a_failing_sync_never_spoils_a_finished_download(tmp_path):
+    service, events = make(tmp_path)
+
+    def broken(*args):
+        raise RuntimeError("sin cola")
+
+    service.on_done = broken
+    service.songs("PL1")
+    wait_for(events, "songs")
+    service.download("PL1", ids=["v0"])
+    done = wait_for(events, "finished")
+    assert (done["done"], done["failed"]) == (1, 0) and service.is_done("v0")
+
+
+def test_asking_again_for_an_already_downloaded_song_sends_it_to_the_phone_but_download_all_does_not(tmp_path):
+    service, events = make(tmp_path)
+    service.songs("PL1")
+    wait_for(events, "songs")
+    service.download("PL1", ids=["v0"])
+    wait_for(events, "finished")
+    handed = []
+    service.on_done = lambda *args: handed.append(args[0])
+    service.download("PL1", ids=["v0"])                                       # una canción concreta: se vuelve a mandar
+    assert handed == ["v0"]
+    handed.clear()
+    service.download("PL1")                                                   # «Descargar» todo: lo ya bajado no se reenvía
+    wait_for(events, "finished")
+    assert "v0" not in handed

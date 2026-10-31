@@ -4,7 +4,7 @@ El PDF se dibuja con pypdfium2 (PDFium) y el audio y el vídeo con QtMultimedia 
 """
 import os
 
-from PySide6.QtCore import QRectF, Qt, QUrl
+from PySide6.QtCore import QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -141,6 +141,14 @@ class _PdfView(QWidget):
         layout.addWidget(self.page, 1)
         layout.addLayout(bar)
         self.doc, self.index = None, 0
+        self._redraw = QTimer(self)  # al cambiar de tamaño, la página se dibuja otra vez con el ancho nuevo
+        self._redraw.setSingleShot(True)
+        self._redraw.timeout.connect(lambda: self.show_page(self.index))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.doc is not None:
+            self._redraw.start(120)
 
     def load(self, path):
         import pypdfium2 as pdfium  # se carga solo al ver un PDF
@@ -163,6 +171,7 @@ class _PdfView(QWidget):
         self.next.setEnabled(index < len(self.doc) - 1)
 
     def close_doc(self):
+        self._redraw.stop()
         if self.doc is not None:
             self.doc.close()
             self.doc = None

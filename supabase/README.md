@@ -4,7 +4,7 @@ Esta carpeta es todo el "backend" del chat. Kyora (la PC) y tu móvil hablan con
 
 | Archivo | Para qué |
 |---|---|
-| `schema.sql` | El script que crea **todo**: tipos, tablas, seguridad, bucket de archivos, Realtime y las funciones. Se puede ejecutar varias veces sin romper nada. |
+| `schema.sql` | El script que crea **todo**: tipos, tablas (también la de canciones, `music_tracks`), seguridad, bucket de archivos, Realtime y las funciones. Se puede ejecutar varias veces sin romper nada. |
 | `.env` | Tus credenciales. **Está vacío**: lo rellenas tú. No se sube a git. |
 | `endpoints.md` | Los endpoints que usa Kyora (y que puede usar tu móvil), con ejemplos. |
 

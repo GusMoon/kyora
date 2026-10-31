@@ -14,10 +14,13 @@ import 'widgets/message_bubble.dart';
 
 /// El chat: los mensajes de la PC y los de este móvil, con la conexión arriba y el campo para escribir abajo.
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.backend, this.onSignOut, this.controller, this.picker});
+  const ChatPage({super.key, required this.backend, this.onSignOut, this.controller, this.picker, this.onOpenMusic});
 
   final ChatBackend backend;
   final Future<void> Function()? onSignOut;
+
+  /// Abre la pantalla de música (las canciones que baja la PC). Sin esto no sale el botón.
+  final VoidCallback? onOpenMusic;
 
   /// Para las pruebas: un controlador ya hecho (si no, la página crea el suyo y lo cierra).
   final ChatController? controller;
@@ -130,6 +133,8 @@ class _ChatPageState extends State<ChatPage> {
               ],
             ),
             actions: [
+              if (widget.onOpenMusic != null)
+                IconButton(key: const Key('open-music'), tooltip: 'Música', onPressed: widget.onOpenMusic, icon: const Icon(Icons.music_note_outlined)),
               if (widget.onSignOut != null)
                 PopupMenuButton<String>(
                   key: const Key('account-menu'),
@@ -206,15 +211,10 @@ class _DayChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // solo el texto atenuado en el centro, sin cápsula (como en la PC)
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          decoration: BoxDecoration(color: Palette.plate, borderRadius: BorderRadius.circular(14), border: Border.all(color: Palette.edge)),
-          child: Text(label, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700)),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(child: Text(label, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700))),
     );
   }
 }

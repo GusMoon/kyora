@@ -3,9 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'config.dart';
 import 'data/chat_repository.dart';
+import 'data/music_store.dart';
+import 'state/music_controller.dart';
 import 'theme.dart';
 import 'ui/chat_page.dart';
 import 'ui/login_page.dart';
+import 'ui/music_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,13 +17,16 @@ Future<void> main() async {
     return;
   }
   await Supabase.initialize(url: AppConfig.supabaseUrl, publishableKey: AppConfig.supabaseAnonKey);
-  runApp(KyoraChatApp(repository: ChatRepository(Supabase.instance.client)));
+  final store = await PrefsMusicStore.open();
+  runApp(KyoraChatApp(repository: ChatRepository(Supabase.instance.client), musicStore: store, saver: AndroidTrackSaver()));
 }
 
 class KyoraChatApp extends StatelessWidget {
-  const KyoraChatApp({super.key, required this.repository});
+  const KyoraChatApp({super.key, required this.repository, required this.musicStore, required this.saver});
 
   final ChatRepository repository;
+  final MusicStore musicStore;
+  final TrackSaver saver;
 
   @override
   Widget build(BuildContext context) {
@@ -28,26 +34,62 @@ class KyoraChatApp extends StatelessWidget {
       title: 'Kyora Chat',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: _AuthGate(repository: repository),
+      home: _AuthGate(repository: repository, musicStore: musicStore, saver: saver),
     );
   }
 }
 
 /// Entra al chat si hay sesión guardada; si no, pide el correo y la contraseña. Al cerrar sesión vuelve al acceso.
-class _AuthGate extends StatelessWidget {
-  const _AuthGate({required this.repository});
+/// Con sesión también arranca la música: así las canciones que baje la PC se guardan solas aunque estés en el chat.
+class _AuthGate extends StatefulWidget {
+  const _AuthGate({required this.repository, required this.musicStore, required this.saver});
 
   final ChatRepository repository;
+  final MusicStore musicStore;
+  final TrackSaver saver;
+
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  MusicController? _music;
+
+  MusicController _musicController() {
+    final existing = _music;
+    if (existing != null) return existing;
+    final created = MusicController(widget.repository, widget.musicStore, widget.saver);
+    _music = created;
+    created.start();
+    return created;
+  }
+
+  void _stopMusic() {
+    _music?.dispose();
+    _music = null;
+  }
+
+  @override
+  void dispose() {
+    _stopMusic();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<AuthState>(
-      stream: repository.authChanges,
+      stream: widget.repository.authChanges,
       builder: (context, _) {
-        if (repository.signedIn) {
-          return ChatPage(backend: repository, onSignOut: repository.signOut);
+        if (widget.repository.signedIn) {
+          final music = _musicController();
+          return ChatPage(
+            backend: widget.repository,
+            onSignOut: widget.repository.signOut,
+            onOpenMusic: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => MusicPage(controller: music))),
+          );
         }
-        return LoginPage(onSignIn: repository.signIn);
+        _stopMusic();
+        return LoginPage(onSignIn: widget.repository.signIn);
       },
     );
   }

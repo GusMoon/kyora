@@ -18,11 +18,12 @@ MAX_H = 360
 
 
 class TreeList(QWidget):
-    def __init__(self, theme, children, on_open):
-        """`children(ruta)` da las filas de una carpeta; `on_open(fila, ctrl)` abre un archivo o carpeta."""
+    def __init__(self, theme, children, on_open, on_pick=None):
+        """`children(ruta)` da las filas de una carpeta; `on_open(fila, ctrl)` abre un archivo o carpeta; `on_pick(fila)`,
+        si se da, atiende el clic (sin Ctrl) en un archivo, que se previsualiza antes de abrirse. Enter abre directo."""
         super().__init__()
         self.theme = theme
-        self._children, self._on_open = children, on_open
+        self._children, self._on_open, self._on_pick = children, on_open, on_pick
         self.nodes = []  # [{row, depth, open, kids}] en el orden en que se ven
         self.selected = 0
         self._scroll = 0
@@ -31,11 +32,17 @@ class TreeList(QWidget):
 
     # ---------- datos ----------
 
-    def set_roots(self, roots, expand=False):
+    def set_roots(self, roots, expand=False, expanded=()):
+        """`expand`: despliega la primera; `expanded`: los `id` de las raíces que ya salen desplegadas."""
         self.nodes = [{"row": r, "depth": 0, "open": False} for r in roots]
         self.selected, self._scroll = 0, 0
         if expand and self.nodes:
             self._expand(0)
+        i = 0
+        while i < len(self.nodes):
+            if self.nodes[i]["depth"] == 0 and self.nodes[i]["row"]["id"] in expanded:
+                self._expand(i)
+            i += 1
         self.update()
 
     def _expand(self, i):
@@ -131,7 +138,13 @@ class TreeList(QWidget):
         i = self._row_at(event.position().y())
         if i is not None and event.button() == Qt.LeftButton:
             self.selected = i
-            self.enter(ctrl=bool(event.modifiers() & Qt.ControlModifier))
+            ctrl = bool(event.modifiers() & Qt.ControlModifier)
+            row = self.nodes[i]["row"]
+            if self._on_pick and not ctrl and not row.get("is_dir"):
+                self.update()
+                self._on_pick(row)
+            else:
+                self.enter(ctrl=ctrl)
 
     # ---------- pintura ----------
 

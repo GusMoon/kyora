@@ -31,10 +31,11 @@ def test_listing_and_tree_roots(home):
     _, known = home
     entries = folders.listing(known("documents"))
     assert [e["name"] for e in entries] == ["node_modules", "Proyecto", "notas.md"]  # sin ocultos, carpetas primero
-    roots = folders.tree_roots(known, drive_list=lambda: ["C:\\", "D:\\"])
-    names = [r["name"] for r in roots]
-    assert names[:2] == ["Carpeta personal", "Documentos"] and names[-2:] == ["C:", "D:"]
-    assert roots[-1]["drive"] and roots[0]["path"] == os.path.expanduser("~")
+    roots = folders.tree_roots(known)
+    assert [r["name"] for r in roots] == ["Documentos", "Imágenes", "Equipos"]  # solo las que existen, y Equipos al final
+    assert roots[-1]["path"] == folders.THIS_PC and roots[0]["path"] == known("documents")
+    drives = folders.pc_entries(drive_list=lambda: ["C:\\", "D:\\"])
+    assert [d["name"] for d in drives] == ["C:", "D:"] and all(d["drive"] for d in drives)
 
 
 def test_wallpapers_folder(home):
@@ -111,6 +112,22 @@ def test_search_query_folders_files_and_tasks(home, monkeypatch):
     assert k.tasks.store.get(new_id)["status"] == "pending"
     children = k.files_children(known("documents"))
     assert [c["name"] for c in children][:2] == ["node_modules", "Proyecto"]
+
+
+def test_a_lone_slash_shows_the_quick_access_tree_with_this_pc(home, monkeypatch):
+    tmp, known = home
+    monkeypatch.setattr(kyora_app.shell, "known_folder", known)
+    monkeypatch.setattr(folders, "drives", lambda: ["C:\\", "D:\\"])
+    monkeypatch.setattr(folders.pc_entries, "__defaults__", (lambda: ["C:\\", "D:\\"],))
+    k = _kyora(tmp)
+    reply = k.search_query("/")
+    assert reply["mode"] == "tree"
+    assert [r["name"] for r in reply["roots"]] == ["Documentos", "Imágenes", "Equipos"]
+    docs, pc = reply["roots"][0], reply["roots"][2]
+    assert reply["expanded"] == [docs["id"], pc["id"]]                    # Documentos y Equipos salen desplegados
+    assert [c["name"] for c in k.files_children(pc["id"])] == ["C:", "D:"]  # de Equipos cuelgan las unidades
+    assert [c["name"] for c in k.files_children(docs["id"])][-1] == "notas.md"  # y de Documentos, sus archivos
+    assert k.search_query("/proy")["results"] and "mode" not in k.search_query("/proy")  # con texto, sigue buscando
 
 
 def test_desktop_step_sends_the_numbers(monkeypatch):

@@ -1,12 +1,12 @@
-"""La tarjeta de lo que suena, en el panel de la esquina de abajo a la derecha (el diseño de la referencia de Gustavo).
+"""La tarjeta de lo que suena, en el panel de la esquina de abajo a la derecha (el diseño de la referencia de Gustavo: un
+reproductor de bolsillo, oscuro, con una pantallita y tres teclas).
 
-El contenedor es plano, con las esquinas de la tarjeta de información de arriba y un degradado con los colores del fondo de
-pantalla (oscurecidos para que el texto se lea). Dentro hay dos partes:
-- una **pantalla** hundida (`paint_well`) con las ondas, la línea de reproducción (en el acento, con un punto en cada
-  extremo), el tiempo en grande y, debajo, el nombre del audio (si no cabe, se desliza) con la carátula como un avatar
-  redondo al lado;
-- abajo, una **fila de botones** redondos con el relieve de los de wifi, Bluetooth y ajustes: anterior, detener, pausa o
-  seguir (el grande, con un puntito del acento) y siguiente.
+- El **cuerpo** es una placa oscura de esquinas muy redondas (`paint_glass`).
+- La **pantalla** es un hueco hundido (`paint_well`) con la carátula del vídeo vuelta pixeles, rayas de monitor antiguo y
+  motas, teñida con los colores del fondo de pantalla; sin carátula, solo esa luz de colores. Encima van el nombre (arriba,
+  si no cabe se desliza), el tiempo y las ondas de la canción (abajo) con la línea de reproducción en el acento.
+- Debajo, **tres teclas** en relieve con el icono dibujado a línea: pausa o seguir, anterior y siguiente.
+- Al pasar el cursor por la tarjeta sale una **✕** arriba a la derecha de la pantalla: detiene la música y cierra la tarjeta.
 
 La carátula es la miniatura de YouTube del vídeo (se baja sin bloquear nada y se guarda en memoria). Las ondas son de
 verdad: cada barra es un trozo de la canción y su alto, lo fuerte que sonó ahí (se mide con el audio que sale del
@@ -14,6 +14,7 @@ reproductor de Kyora). Lo que ya sonó son barras claras; lo que falta, puntitos
 `QuickMain` (todo el panel se pinta a mano) y le pregunta dónde están los botones con `hits()`.
 """
 import math
+import random
 from collections import OrderedDict
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QUrl, Signal
@@ -22,8 +23,10 @@ from PySide6.QtGui import (
     QFontMetrics,
     QImage,
     QLinearGradient,
+    QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
@@ -34,37 +37,41 @@ from kyora.ui.hub.cards import paint_glass, paint_well
 
 WIDTH = 380  # el ancho del contenido del panel
 PILL_H = 288
-RADIUS = 14  # el mismo de la tarjeta de información
-SIDE = 12  # el aire de la pantalla con el borde de la tarjeta
-SCREEN_H = 176
-SCREEN_R = 18
-INNER = 14  # el aire dentro de la pantalla
-WAVE_H = 64
-HEAD_OVER = 8  # lo que la línea de reproducción sobresale de las ondas, arriba y abajo
-TIME_PX = 36
+RADIUS = 30  # las esquinas del cuerpo
+SIDE = 14  # el aire de la pantalla con el borde de la tarjeta
+SCREEN_H = 186
+SCREEN_R = 20
+BEZEL = 5  # el marco hundido de la pantalla
+TEXT_PAD = 12  # el aire del texto con el borde de la pantalla
+CLOSE = 24  # la ✕
+CLOSE_ROOM = 8 + CLOSE + 8  # lo que se reserva a la derecha del nombre para la ✕
+KEY_GAP = 10
+KEY_GAP_TOP = 12  # entre la pantalla y las teclas
+KEY_R = 16
+WAVE_H = 30
+HEAD_OVER = 7  # lo que la línea de reproducción sobresale de las ondas, arriba y abajo
+TIME_PX = 24
 TITLE_PX = 15
-AVATAR = 24
-AVATAR_GAP = 8
-BTN = 52  # los botones redondos
-BIG = 76  # el de pausa
-BTN_GAP = 14
 BARS = 60  # barras de la canción entera
-BAR_GAP = 2.4
+BAR_GAP = 2.2
 DOT_H = 3.0
 MIN_BAR = 5.0
 STEP_PX = 1
 GAP = 36  # el hueco entre el final del nombre y su repetición al deslizar
 FADE_W = 18
-DARKEN = 230  # cuánto se oscurecen los colores del fondo de pantalla para el degradado (100 = nada, 200 = la mitad)
+CELL = 3  # el tamaño de los "píxeles" de la carátula
+LINE_STEP = 3  # una raya oscura de monitor cada tantos px
+DOTS = 90  # motas de ruido
 LEVEL_FLOOR = 0.08  # por debajo de esto no se estira la escala: el silencio no se ve como ruido
 COVER_URL = "https://i.ytimg.com/vi/{id}/mqdefault.jpg"
 COVER_CACHE = 12  # carátulas en memoria como mucho
 COVER_PX = 160  # se guardan al doble de lo que se ven (pantallas con escala)
+KEYS = ("toggle", "prev", "next")  # de izquierda a derecha
 
 
 def title_width():
-    """Lo que mide el hueco del nombre (el resto de la fila es el avatar)."""
-    return WIDTH - 2 * (SIDE + INNER) - AVATAR - AVATAR_GAP
+    """Lo que mide el hueco del nombre (el resto de la fila de arriba es para la ✕)."""
+    return WIDTH - 2 * (SIDE + BEZEL + TEXT_PAD) - CLOSE_ROOM + TEXT_PAD
 
 
 def clock(ms):
@@ -159,6 +166,7 @@ class MusicPill:
         self.wave = Wave()
         self.offset = 0  # lo que se ha deslizado el nombre
         self._rects = {}
+        self._baked = None  # (clave, QPixmap): la pantalla ya pintada, para no rehacerla con cada barra de las ondas
 
     # ---------- estado ----------
 
@@ -172,14 +180,14 @@ class MusicPill:
         return changed
 
     def overflows(self):
-        return QFontMetrics(self._font(TITLE_PX)).horizontalAdvance(self.title) > title_width()
+        return QFontMetrics(self._font(TITLE_PX, True)).horizontalAdvance(self.title) > title_width()
 
     def scrolling(self):
         """True si el nombre tiene que deslizarse ahora (no cabe y suena)."""
         return self.playing and self.overflows()
 
     def step(self):
-        cycle = QFontMetrics(self._font(TITLE_PX)).horizontalAdvance(self.title) + GAP
+        cycle = QFontMetrics(self._font(TITLE_PX, True)).horizontalAdvance(self.title) + GAP
         self.offset = (self.offset + STEP_PX) % cycle
 
     def _font(self, px, bold=False):
@@ -190,177 +198,168 @@ class MusicPill:
     # ---------- dónde están las cosas ----------
 
     def layout(self, box):
-        """Las zonas de la tarjeta dentro de `box`: la pantalla (ondas, tiempo, nombre y avatar) y la fila de botones."""
+        """Las zonas de la tarjeta dentro de `box`: la pantalla (con su cristal, el nombre, la ✕, el tiempo y las ondas) y
+        las tres teclas."""
         screen = QRectF(box.left() + SIDE, box.top() + SIDE, box.width() - 2 * SIDE, SCREEN_H)
-        inner = screen.adjusted(INNER, INNER, -INNER, -INNER)
-        wave = QRectF(inner.left(), inner.top() + HEAD_OVER, inner.width(), WAVE_H)
-        time = QRectF(inner.left(), wave.bottom() + HEAD_OVER + 2, inner.width(), 40)
-        text_w = min(QFontMetrics(self._font(TITLE_PX)).horizontalAdvance(self.title), title_width())
-        row_w = text_w + AVATAR_GAP + AVATAR
-        x = inner.center().x() - row_w / 2
-        top = time.bottom() + 2
-        title = QRectF(x, top, text_w, AVATAR)
-        avatar = QRectF(title.right() + AVATAR_GAP, top, AVATAR, AVATAR)
-        row_y = (screen.bottom() + box.bottom()) / 2 + 2  # el centro de la fila de botones
-        sizes = [("prev", BTN), ("stop", BTN), ("toggle", BIG), ("next", BTN)]
-        x = box.center().x() - (sum(size for _, size in sizes) + BTN_GAP * (len(sizes) - 1)) / 2
-        self._rects = {"screen": screen, "wave": wave, "time": time, "title": title, "avatar": avatar}
-        for name, size in sizes:
-            self._rects[name] = QRectF(x, row_y - size / 2, size, size)
-            x += size + BTN_GAP
+        glass = screen.adjusted(BEZEL, BEZEL, -BEZEL, -BEZEL)
+        left, right = glass.left() + TEXT_PAD, glass.right() - TEXT_PAD
+        close = QRectF(glass.right() - 8 - CLOSE, glass.top() + 8, CLOSE, CLOSE)
+        title = QRectF(left, glass.top() + 8, close.left() - 8 - left, CLOSE)
+        wave = QRectF(left, glass.bottom() - 10 - HEAD_OVER - WAVE_H, right - left, WAVE_H)
+        time = QRectF(left, wave.top() - HEAD_OVER - 4 - 30, 160, 30)
+        self._rects = {"screen": screen, "glass": glass, "close": close, "title": title, "wave": wave, "time": time}
+        key_w = (box.width() - 2 * SIDE - (len(KEYS) - 1) * KEY_GAP) / len(KEYS)
+        top = screen.bottom() + KEY_GAP_TOP
+        for i, name in enumerate(KEYS):
+            self._rects[name] = QRectF(box.left() + SIDE + i * (key_w + KEY_GAP), top, key_w, box.bottom() - SIDE - top)
         return self._rects
 
     def hits(self, box):
-        """[(nombre, rect)] de lo que se pulsa (el de siguiente no cuenta si no hay otra canción)."""
+        """[(nombre, rect)] de lo que se pulsa (el de siguiente no cuenta si no hay otra canción). La ✕ está siempre, pero
+        solo se ve con el cursor sobre la tarjeta (para llegar a ella hay que pasar por encima)."""
         rects = self.layout(box)
-        names = ["prev", "stop", "toggle"] + (["next"] if self.has_next else [])
-        return [(f"music_{name}", rects[name]) for name in names]
+        names = [n for n in KEYS if n != "next" or self.has_next] + ["close"]
+        return [("music_stop" if n == "close" else f"music_{n}", rects[n]) for n in names]
 
     # ---------- colores: todos salen del fondo de pantalla ----------
 
     def _stops(self):
-        """Los colores del degradado, de izquierda a derecha: el acento y el segundo y tercer color del fondo, oscurecidos."""
+        """Los colores de la luz de la pantalla, de arriba abajo: el segundo, el acento y el tercer color del fondo."""
         t = self.theme
-        return [QColor(c).darker(DARKEN) for c in (t.gold, t.second, t.third)]
+        return [QColor(c) for c in (t.second, t.gold, t.third)]
 
     # ---------- pintura ----------
 
-    def paint(self, p, box, hover=None):
+    def paint(self, p, box, hover=None, over=False):
+        """`hover`: el botón bajo el cursor; `over`: el cursor está sobre la tarjeta (sale la ✕)."""
         t = self.theme
         rects = self.layout(box)
-        self._paint_back(p, box)
+        paint_glass(p, t, box, RADIUS, fill=QColor(t.plate_bottom), shadow=False)
         paint_well(p, t, rects["screen"], SCREEN_R)
+        self._paint_screen(p, rects["glass"])
         self._paint_wave(p, rects["wave"])
-        p.setFont(self._font(TIME_PX, True))
-        p.setPen(QColor(t.ink))
-        p.drawText(rects["time"], Qt.AlignCenter, clock(self.wave.pos))
+        self._paint_text(p, rects["time"], clock(self.wave.pos), TIME_PX)
         self._paint_title(p, rects["title"])
-        self._paint_avatar(p, rects["avatar"])
-        shapes = {"prev": "prev", "stop": "stop", "toggle": "pause" if self.playing else "play", "next": "next"}
+        if over or hover == "music_stop":
+            self._paint_close(p, rects["close"], hover == "music_stop")
+        shapes = {"toggle": "pause" if self.playing else "play", "prev": "prev", "next": "next"}
         for name, shape in shapes.items():
-            big = name == "toggle"
-            self._paint_button(p, rects[name], shape, hover == f"music_{name}", enabled=name != "next" or self.has_next,
-                               lift=6 if big else 0)
-        self._paint_dot(p, rects["toggle"])
+            self._paint_key(p, rects[name], shape, hover == f"music_{name}", enabled=name != "next" or self.has_next,
+                            lit=name == "toggle" and self.playing)
 
-    def _paint_back(self, p, box):
-        """Plano: un degradado horizontal con los colores del fondo, sin borde, sombra ni relieve."""
-        fill = QLinearGradient(box.left(), 0, box.right(), 0)
+    # ---- la pantalla ----
+
+    def _paint_screen(self, p, glass):
+        """La carátula pixelada con sus rayas y motas, o solo la luz de colores. Se pinta una vez en un pixmap y se reusa."""
+        dpr = p.device().devicePixelRatioF()
+        t = self.theme
+        key = (round(glass.width()), round(glass.height()), dpr, self.cover.cacheKey() if self.cover else 0,
+               self.track_id, t.gold, t.second, t.third, t.ink)
+        if self._baked is None or self._baked[0] != key:
+            self._baked = (key, self._bake(glass.size(), dpr))
+        p.drawPixmap(glass.topLeft(), self._baked[1])
+
+    def _bake(self, size, dpr):
+        t = self.theme
+        w, h = size.width(), size.height()
+        pix = QPixmap(round(w * dpr), round(h * dpr))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.transparent)
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.Antialiasing)
+        shape = QPainterPath()
+        shape.addRoundedRect(QRectF(0, 0, w, h), SCREEN_R - BEZEL, SCREEN_R - BEZEL)
+        q.setClipPath(shape)
+        area = QRectF(0, 0, w, h)
+        light = QLinearGradient(0, 0, 0, h)
         stops = self._stops()
-        for i, color in enumerate(stops):
-            fill.setColorAt(i / (len(stops) - 1), color)
-        shape = QPainterPath()
-        shape.addRoundedRect(box, RADIUS, RADIUS)
-        p.fillPath(shape, fill)
-
-    def _paint_avatar(self, p, rect):
-        """La carátula como un avatar redondo con un aro fino; sin imagen, un círculo oscuro con una nota musical."""
-        t = self.theme
-        shape = QPainterPath()
-        shape.addEllipse(rect)
-        p.save()
-        p.setClipPath(shape)
-        p.setRenderHint(p.RenderHint.SmoothPixmapTransform)
         if self.cover is not None:
-            p.drawPixmap(rect, self.cover, QRectF(self.cover.rect()))
+            self._draw_pixels(q, area)
+            for i, color in enumerate(stops):  # la luz de colores sobre la imagen
+                color.setAlpha(85)
+                light.setColorAt(i / (len(stops) - 1), color)
+            q.fillRect(area, light)
         else:
-            p.fillPath(shape, QColor(t.plate_top))
-            p.setPen(glyphs.pen(accent(t, False), 1.4))
-            p.setBrush(Qt.NoBrush)
-            size = rect.width() * 0.56
-            glyphs.music(p, QRectF(rect.center().x() - size / 2, rect.center().y() - size / 2, size, size))
-        p.restore()
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 60), 1))
-        p.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+            for i, color in enumerate(stops):
+                light.setColorAt(i / (len(stops) - 1), color.darker(150))
+            q.fillRect(area, light)
+            glow = QLinearGradient(0, h * 0.35, 0, h * 0.75)  # una franja de luz, como el horizonte de la referencia
+            for pos, alpha in ((0, 0), (0.5, 70), (1, 0)):
+                c = QColor(t.ink)
+                c.setAlpha(alpha)
+                glow.setColorAt(pos, c)
+            q.fillRect(area, glow)
+            q.setPen(glyphs.pen(QColor(t.ink), 1.6))
+            q.setBrush(Qt.NoBrush)
+            side = min(w, h) * 0.34
+            glyphs.music(q, QRectF((w - side) / 2, (h - side) / 2 - 8, side, side))
+        rnd = random.Random(self.track_id or "kyora")
+        palette = [QColor(t.ink), QColor(t.gold), QColor(t.second), QColor(t.third)]
+        q.setPen(Qt.NoPen)
+        for _ in range(DOTS):  # motas de ruido
+            c = QColor(rnd.choice(palette))
+            c.setAlpha(rnd.randint(70, 150))
+            side = rnd.choice((1, 2, 2, 3))
+            q.fillRect(QRectF(int(rnd.uniform(0, w)), int(rnd.uniform(0, h)), side, side), c)
+        for y in range(0, int(h), LINE_STEP):  # las rayas del monitor
+            q.fillRect(QRectF(0, y, w, 1), QColor(0, 0, 0, 55))
+        top = QLinearGradient(0, 0, 0, h * 0.35)  # el nombre y el tiempo se leen sobre sombra
+        top.setColorAt(0, QColor(0, 0, 0, 140))
+        top.setColorAt(1, QColor(0, 0, 0, 0))
+        q.fillRect(area, top)
+        bottom = QLinearGradient(0, h * 0.4, 0, h)
+        bottom.setColorAt(0, QColor(0, 0, 0, 0))
+        bottom.setColorAt(1, QColor(0, 0, 0, 215))
+        q.fillRect(area, bottom)
+        q.end()
+        return pix
 
-    def _paint_button(self, p, rect, shape, hover, enabled=True, lift=0):
-        """Un botón redondo con el relieve de los de wifi, Bluetooth y ajustes: placa elevada y el icono grabado (una sombra
-        fina debajo), en el acento; más claro bajo el cursor. Sin acción (siguiente en la última canción): apagado."""
-        t = self.theme
-        hover = hover and enabled
-        p.save()
-        if not enabled:
-            p.setOpacity(0.4)
-        paint_glass(p, t, rect, rect.width() / 2, hi=hover)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(0, 0, 0, 150))
-        self._glyph(p, shape, rect.translated(0, 0.5 - lift))
-        p.setBrush(QColor(t.ink) if hover else accent(t, False))
-        self._glyph(p, shape, rect.translated(0, -1 - lift))
-        p.restore()
+    def _draw_pixels(self, q, area):
+        """La franja central de la carátula, hecha pixeles gordos (se reduce y se amplía sin suavizar)."""
+        image = self.cover.toImage()
+        w, h = area.width(), area.height()
+        band = min(image.height(), max(round(image.width() * h / w), 1))
+        image = image.copy(0, (image.height() - band) // 2, image.width(), band)
+        small = image.scaled(max(int(w / CELL), 1), max(int(h / CELL), 1), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        q.save()
+        q.setRenderHint(QPainter.SmoothPixmapTransform, False)
+        q.drawImage(area, small)
+        q.restore()
 
-    def _paint_dot(self, p, rect):
-        """El puntito bajo el icono de pausa: del acento si suena, apagado si está en pausa."""
-        p.save()
-        p.setPen(Qt.NoPen)
-        color = QColor(accent(self.theme, True)) if self.playing else QColor(self.theme.dim)
-        if not self.playing:
-            color.setAlpha(110)
-        p.setBrush(color)
-        c = rect.center()
-        p.drawEllipse(QPointF(c.x(), c.y() + rect.height() * 0.30), 3.2, 3.2)
-        p.restore()
+    # ---- texto ----
 
-    @staticmethod
-    def _glyph(p, shape, rect):
-        """Anterior, siguiente, pausa (dos barras), seguir (triángulo) o detener (cuadrado), rellenos, centrados en `rect`."""
-        c = rect.center()
-        p.save()
-        p.translate(c)
-        scale = min(rect.width(), 60) / 46  # los dibujos se pensaron para un botón de 46; el grande no los estira tanto
-        p.scale(scale, scale)
-        if shape == "pause":
-            for dx in (-6.5, 1.5):
-                p.drawRoundedRect(QRectF(dx, -8, 5, 16), 1.8, 1.8)
-        elif shape == "play":
-            tri = QPainterPath()
-            tri.moveTo(-5, -9)
-            tri.lineTo(8, 0)
-            tri.lineTo(-5, 9)
-            tri.closeSubpath()
-            p.drawPath(tri)
-        elif shape in ("prev", "next"):
-            sign = -1 if shape == "prev" else 1  # el triángulo mira hacia donde va y la barra queda en ese lado
-            tri = QPainterPath()
-            tri.moveTo(sign * 4, 0)
-            tri.lineTo(sign * -8, -8.5)
-            tri.lineTo(sign * -8, 8.5)
-            tri.closeSubpath()
-            p.drawPath(tri)
-            p.drawRoundedRect(QRectF(5.5 if sign > 0 else -8.5, -8.5, 3, 17), 1.2, 1.2)
-        else:
-            p.drawRoundedRect(QRectF(-5.5, -5.5, 11, 11), 2.5, 2.5)
-        p.restore()
+    def _paint_text(self, p, rect, text, px, flags=Qt.AlignVCenter | Qt.AlignLeft):
+        """Texto claro con una sombra fina debajo, para que se lea sobre la imagen."""
+        p.setFont(self._font(px, True))
+        p.setPen(QColor(0, 0, 0, 170))
+        p.drawText(rect.translated(0, 1), flags, text)
+        p.setPen(QColor(self.theme.ink))
+        p.drawText(rect, flags, text)
 
     def _paint_title(self, p, area):
-        t = self.theme
-        p.save()
-        p.setClipRect(area)
-        p.setFont(self._font(TITLE_PX))
-        p.setPen(QColor(t.dim))
-        metrics = p.fontMetrics()
-        if self.overflows():
-            cycle = metrics.horizontalAdvance(self.title) + GAP
-            for k in (0, 1):
-                p.drawText(QRectF(area.left() - self.offset + k * cycle, area.top(), cycle, area.height()),
-                           Qt.AlignVCenter | Qt.AlignLeft, self.title)
-        else:
-            p.drawText(area, Qt.AlignVCenter | Qt.AlignLeft, self.title)
-        p.restore()
-        if self.overflows():  # los extremos se funden con la pantalla para que el nombre no se corte en seco
-            for left in (True, False):
-                x = area.left() if left else area.right() - FADE_W
-                self._fade(p, x, area, left)
+        if not self.overflows():
+            self._paint_text(p, area, self.title, TITLE_PX)
+            return
+        dpr = p.device().devicePixelRatioF()  # el nombre largo se pinta aparte para fundir sus extremos sin tocar la pantalla
+        layer = QPixmap(round(area.width() * dpr), round(area.height() * dpr))
+        layer.setDevicePixelRatio(dpr)
+        layer.fill(Qt.transparent)
+        q = QPainter(layer)
+        q.setRenderHint(QPainter.TextAntialiasing)
+        cycle = QFontMetrics(self._font(TITLE_PX, True)).horizontalAdvance(self.title) + GAP
+        for k in (0, 1):
+            self._paint_text(q, QRectF(-self.offset + k * cycle, 0, cycle, area.height()), self.title, TITLE_PX)
+        q.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationOut)
+        for left in (True, False):
+            x = 0 if left else area.width() - FADE_W
+            fade = QLinearGradient(x, 0, x + FADE_W, 0)
+            fade.setColorAt(0, QColor(0, 0, 0, 255 if left else 0))
+            fade.setColorAt(1, QColor(0, 0, 0, 0 if left else 255))
+            q.fillRect(QRectF(x, 0, FADE_W, area.height()), fade)
+        q.end()
+        p.drawPixmap(area.topLeft(), layer)
 
-    def _fade(self, p, x, area, left):
-        edge = QColor(self.theme.frame)
-        clear = QColor(edge)
-        clear.setAlpha(0)
-        fade = QLinearGradient(x, 0, x + FADE_W, 0)
-        fade.setColorAt(0, edge if left else clear)
-        fade.setColorAt(1, clear if left else edge)
-        p.fillRect(QRectF(x, area.top(), FADE_W, area.height()), fade)
+    # ---- ondas ----
 
     def _paint_wave(self, p, area):
         """Las ondas de la canción: barras claras hasta la línea de reproducción (con su alto real) y puntitos después; la
@@ -372,17 +371,18 @@ class MusicPill:
         head = area.left() + progress * area.width()
         ref = wave.reference()
         mid = area.center().y()
+        p.save()
         p.setPen(Qt.NoPen)
         for i in range(BARS):
             x = area.left() + i * (bar_w + BAR_GAP)
             if x + bar_w / 2 > head or wave.dur <= 0:
                 color, height = QColor(t.ink), DOT_H
-                color.setAlpha(90)
+                color.setAlpha(110)
             else:
                 level = wave.level(i)
                 height = MIN_BAR + (area.height() - MIN_BAR) * math.sqrt(min((level or 0.0) / ref, 1.0))
                 color = QColor(t.ink)
-                color.setAlpha(235)
+                color.setAlpha(240)
             p.setBrush(color)
             p.drawRoundedRect(QRectF(x, mid - height / 2, bar_w, height), bar_w / 2, bar_w / 2)
         line = QColor(accent(t, True))
@@ -391,3 +391,75 @@ class MusicPill:
         p.drawRoundedRect(QRectF(head - 1.25, top, 2.5, bottom - top), 1.25, 1.25)
         for y in (top, bottom):
             p.drawEllipse(QPointF(head, y), 4.0, 4.0)
+        p.restore()
+
+    # ---- la ✕ y las teclas ----
+
+    def _paint_close(self, p, rect, hover):
+        """Un círculo oscuro con una ✕ clara (en el acento si está bajo el cursor), arriba a la derecha de la pantalla."""
+        p.save()
+        p.setPen(QPen(QColor(255, 255, 255, 40), 1))
+        p.setBrush(QColor(0, 0, 0, 215 if hover else 150))
+        p.drawEllipse(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+        pen = QPen(accent(self.theme, True) if hover else QColor(self.theme.ink), 2)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        c, d = rect.center(), rect.width() * 0.2
+        p.drawLine(QPointF(c.x() - d, c.y() - d), QPointF(c.x() + d, c.y() + d))
+        p.drawLine(QPointF(c.x() - d, c.y() + d), QPointF(c.x() + d, c.y() - d))
+        p.restore()
+
+    def _paint_key(self, p, rect, shape, hover, enabled=True, lit=False):
+        """Una tecla en relieve con el icono a línea y una sombra fina debajo (grabado). El icono es claro; el acento si es
+        el de pausa y suena; más claro bajo el cursor. Sin acción (siguiente en la última canción): apagada."""
+        t = self.theme
+        hover = hover and enabled
+        p.save()
+        if not enabled:
+            p.setOpacity(0.4)
+        paint_glass(p, t, rect, KEY_R, hi=hover)
+        c = rect.center()
+        spot = QRectF(c.x() - 15, c.y() - 15 - 1, 30, 30)
+        p.setBrush(Qt.NoBrush)
+        for dy, color in ((1.6, QColor(0, 0, 0, 150)),
+                          (0, QColor(t.ink) if hover else accent(t, False) if lit else self._soft_ink())):
+            pen = QPen(color, 2.2)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            self._glyph(p, shape, spot.translated(0, dy))
+        p.restore()
+
+    def _soft_ink(self):
+        color = QColor(self.theme.ink)
+        color.setAlpha(205)
+        return color
+
+    @staticmethod
+    def _glyph(p, shape, rect):
+        """Seguir (triángulo), pausa (dos barras), anterior o siguiente (triángulo y barra), solo el contorno, centrados."""
+        p.save()
+        p.translate(rect.center())
+        scale = rect.width() / 30
+        p.scale(scale, scale)
+        if shape == "pause":
+            for dx in (-9, 3):
+                p.drawRoundedRect(QRectF(dx, -9, 6, 18), 2, 2)
+        elif shape == "play":
+            tri = QPainterPath()
+            tri.moveTo(-6, -10)
+            tri.lineTo(10, 0)
+            tri.lineTo(-6, 10)
+            tri.closeSubpath()
+            p.drawPath(tri)
+        else:
+            if shape == "prev":
+                p.scale(-1, 1)  # el de anterior es el de siguiente al revés
+            tri = QPainterPath()
+            tri.moveTo(-9, -9)
+            tri.lineTo(5, 0)
+            tri.lineTo(-9, 9)
+            tri.closeSubpath()
+            p.drawPath(tri)
+            p.drawLine(QPointF(10, -9), QPointF(10, 9))
+        p.restore()

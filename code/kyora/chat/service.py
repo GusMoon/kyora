@@ -5,7 +5,8 @@ Todo corre en hilos y las novedades salen por `emit` (la señal chat_event de la
 - `message`: {message, incoming}: un mensaje nuevo (propio al escribirlo, o de otro dispositivo al llegar).
 - `status`: {id, status, message?, error?}: pasó de «en espera» (pending) a «enviado» (sent), o falló sin remedio.
 - `history` / `older`: {messages}: lo guardado, del más antiguo al más nuevo.
-- `deleted`: {id}. `attachment`: {message_id, attachment_id, path, open}. `error`: {error}.
+- `deleted`: {id}. `attachment`: {message_id, attachment_id, path, open}. `saved`: {message_id, attachment_id, path, name}
+  (la copia que dejó «Descargar» en Descargas). `error`: {error}.
 
 Un mensaje se guarda al instante en `chat.sqlite` como **en espera** y el hilo de envío lo sube cuando hay conexión (los
 archivos primero, a Storage; luego la función `send_message`). Sin internet queda en espera y se reintenta solo; como su
@@ -44,12 +45,34 @@ def safe_name(name):
     return cleaned[-120:]
 
 
+def downloads_folder():
+    """La carpeta Descargas de Windows (o `~/Downloads` si no se puede saber)."""
+    try:
+        from kyora.system import shell
+
+        found = shell.known_folder("downloads")
+    except Exception:  # noqa: BLE001 - sin Windows (las pruebas)
+        found = None
+    return Path(found) if found else Path.home() / "Downloads"
+
+
+def unique_path(folder, name):
+    """`folder/name`, o `folder/name (1).ext`, `(2)`… si ya existe: bajar un archivo nunca pisa otro."""
+    target = Path(folder) / name
+    stem, suffix, n = target.stem, target.suffix, 1
+    while target.exists():
+        target = Path(folder) / f"{stem} ({n}){suffix}"
+        n += 1
+    return target
+
+
 class ChatService:
     def __init__(self, data_dir, emit, config=dict, env_loader=None, client_factory=SupabaseClient,
-                 realtime_factory=RealtimeClient, opener=None, store=None):
+                 realtime_factory=RealtimeClient, opener=None, store=None, downloads=None):
         """`config()`: la sección "chat" de config.json. `env_loader()`: devuelve un `ChatEnv` (los tests ponen el suyo).
-        `opener(ruta)`: abre un archivo con su programa (os.startfile)."""
+        `opener(ruta)`: abre un archivo con su programa (os.startfile). `downloads()`: la carpeta Descargas."""
         self._dir = Path(data_dir)
+        self._downloads = downloads or downloads_folder
         self._emit = emit
         self._config = config
         self._env_loader = env_loader or (lambda: chat_env.load(self._dir))
@@ -77,7 +100,21 @@ class ChatService:
         r.register("chat.retry", self.retry)
         r.register("chat.delete", self.delete)
         r.register("chat.fetch_attachment", self.fetch_attachment)
+        r.register("chat.save_attachment", self.save_attachment)
         r.register("chat.reload", self.reload)
+
+    # ---------- para otros servicios (la música sube sus canciones con esta misma sesión) ----------
+
+    def client_ready(self):
+        """El cliente de Supabase si ya hay sesión y conversación; si no, None."""
+        return self.client if self._ready.is_set() and self.client is not None else None
+
+    def configured(self):
+        """¿Hay credenciales en supabase/.env? Sin ellas el chat (y lo que cuelga de él) no funciona nunca."""
+        return self.state != "unconfigured"
+
+    def max_bytes(self):
+        return self._max_bytes()
 
     # ---------- ajustes ----------
 
@@ -361,10 +398,30 @@ class ChatService:
         """Deja un adjunto en el disco (lo baja si hace falta) y avisa de dónde está; con `open`, lo abre además."""
         self._spawn(self._fetch, message_id, attachment_id, bool(open))
 
+    def save_attachment(self, message_id, attachment_id):
+        """El botón «Descargar»: deja una copia del adjunto en Descargas (lo baja antes si hace falta) y avisa con `saved`."""
+        self._spawn(self._save, message_id, attachment_id)
+
+    def _save(self, message_id, attachment_id):
+        if not self._fetch(message_id, attachment_id, False):
+            return
+        att = self.store.attachment(attachment_id)
+        try:
+            folder = Path(self._downloads())
+            folder.mkdir(parents=True, exist_ok=True)
+            target = unique_path(folder, att["file_name"] or Path(att["local_path"]).name)
+            target.write_bytes(Path(att["local_path"]).read_bytes())
+        except OSError:
+            self._fail_event("No se pudo guardar en Descargas")
+            return
+        self._emit({"kind": "saved", "message_id": message_id, "attachment_id": attachment_id, "path": str(target),
+                    "name": target.name})
+
     def _fetch(self, message_id, attachment_id, open_it):
+        """Deja el adjunto en el disco y avisa. True si quedó (con su ruta en el almacén), False si no se pudo."""
         att = self.store.attachment(attachment_id)
         if att is None:
-            return
+            return False
         path = att.get("local_path")
         try:
             if not path or not Path(path).is_file():
@@ -377,10 +434,10 @@ class ChatService:
                 self.store.set_attachment(attachment_id, local_path=path)
         except ChatError as err:
             self._fail_event(err.message)
-            return
+            return False
         except OSError:
             self._fail_event("No se pudo guardar el archivo")
-            return
+            return False
         self._emit({"kind": "attachment", "message_id": message_id, "attachment_id": attachment_id, "path": path,
                     "open": open_it})
         if open_it:
@@ -388,6 +445,7 @@ class ChatService:
                 self._opener(path)
             except OSError:
                 self._fail_event("No se pudo abrir el archivo")
+        return True
 
     def _spawn(self, target, *args):
         threading.Thread(target=target, args=args, daemon=True, name="kyora-chat").start()

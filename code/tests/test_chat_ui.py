@@ -1,5 +1,6 @@
 """La interfaz del chat: burbujas, compositor, adjuntos y su sitio en el buscador (Qt fuera de pantalla)."""
 from datetime import date
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent
@@ -63,8 +64,8 @@ def move(widget, point):
     widget.mouseMoveEvent(event)
 
 
-def key(widget, k, mods=Qt.NoModifier):
-    widget.keyPressEvent(QKeyEvent(QEvent.KeyPress, k, mods))
+def key(widget, k, mods=Qt.NoModifier, text=""):
+    widget.keyPressEvent(QKeyEvent(QEvent.KeyPress, k, mods, text))
 
 
 # ---------- utilidades ----------
@@ -162,19 +163,19 @@ def test_staged_files_can_be_removed_with_their_cross():
     assert widget.staged == ["C:/x/dos.txt"]
 
 
-def test_composer_keys_attach_scroll_and_escape(monkeypatch):
-    opened = []
-    monkeypatch.setattr(chat.QFileDialog, "getOpenFileNames", lambda *a, **k: (opened.append(a) or ["C:/x/elegido.txt"], ""))
+def test_composer_keys_attach_scroll_and_escape():
     widget, core = board()
     seen = []
     widget.composer.attach.connect(lambda: seen.append("attach"))
     widget.composer.scroll_page.connect(seen.append)
     key(widget.composer, Qt.Key_O, Qt.ControlModifier)
+    assert widget.tree_open                                                            # Ctrl+O abre el árbol de archivos
     key(widget.composer, Qt.Key_PageUp)
     key(widget.composer, Qt.Key_PageDown)
     key(widget.composer, Qt.Key_Escape)
-    assert seen == ["attach", -1, 1] and ("escape", {}) in core.calls
-    assert len(opened) == 1 and widget.staged == ["C:/x/elegido.txt"]                  # Ctrl+O abre el selector de archivos
+    assert seen == ["attach", -1, 1] and not widget.tree_open and ("escape", {}) not in core.calls   # Esc cierra el árbol
+    key(widget.composer, Qt.Key_Escape)
+    assert ("escape", {}) in core.calls                                                # y con el árbol cerrado, el buscador
 
 
 def test_pasting_files_and_images_attaches_them(tmp_path):
@@ -294,9 +295,10 @@ def test_delete_needs_a_second_press_on_the_hover_button():
     move(widget.view, point)
     assert widget.view._hover == "m1"
     item = next(i for i in widget.view._items if i["kind"] == "message")
-    pill = widget.view._pill_rect(item).center()
+    pill = widget.view._action_rect(item, "delete").center()
     click(widget.view, pill)
     assert widget.view._armed == "m1" and core.sent("chat.delete") == []
+    pill = widget.view._action_rect(item, "delete").center()                    # armado, el botón se ensancha («¿Seguro?»)
     click(widget.view, pill)
     assert core.sent("chat.delete") == [{"id": "m1"}] and widget.view._armed is None
     move(widget.view, point)
@@ -342,3 +344,146 @@ def test_the_search_popout_opens_the_chat_without_the_text_field():
     popout._section("chat")                                                     # la sección abierta no hace nada
     popout.chat.escape()
     assert picked == [True]
+
+
+# ---------- la línea de arriba, la hora al pasar el cursor y las acciones ----------
+
+def test_every_message_has_a_head_line_and_the_actions_row_reserved():
+    widget, _ = board(Core([msg(1, "de otro", device="phone"), msg(2, "mío"), msg(3, "otro más", device="phone")]))
+    items = {i["message"]["id"]: i for i in widget.view._items if i["kind"] == "message"}
+    assert items["m1"]["head_h"] == chat.HEAD_LABEL_H and items["m2"]["head_h"] == chat.HEAD_TIME_H
+    assert items["m3"]["head_h"] == chat.HEAD_LABEL_H                                  # cambia de dispositivo: vuelve a firmar
+    for item in items.values():
+        x, y, w, h = item["bubble"]
+        assert item["h"] == item["head_h"] + h + chat.ACT_H and y == item["y"] + item["head_h"]
+        assert not any(part["kind"] == "meta" for part in item["parts"])             # la hora ya no va dentro de la burbuja
+
+
+def test_the_time_is_only_painted_with_the_cursor_over_the_message():
+    from PySide6.QtGui import QPixmap
+
+    widget, _ = board(Core([msg(1, "hola", device="phone")]))
+    view = widget.view
+    item = next(i for i in view._items if i["kind"] == "message")
+
+    def head_pixels(hover):
+        view._hover = "m1" if hover else None
+        shot = view.grab().toImage()
+        x, y, w, _ = item["bubble"]
+        row = shot.copy(int(x + chat.PAD_X + chat.OWL_PX + 80), int(y - item["head_h"] - view.scroll), 120, int(item["head_h"]))
+        return {row.pixel(i, j) for i in range(row.width()) for j in range(row.height())}
+
+    assert len(head_pixels(True)) > len(head_pixels(False))                            # con el cursor encima hay texto de la hora
+
+
+def test_pending_messages_always_show_the_waiting_clock():
+    widget, _ = board(Core([msg(1, "sin red", status="pending")]))
+    assert widget.view._hover is None and not widget.grab().isNull()
+    item = next(i for i in widget.view._items if i["kind"] == "message")
+    assert item["message"]["status"] == "pending"
+
+
+def test_copy_puts_the_text_on_the_clipboard_and_download_asks_the_service_for_each_attachment():
+    widget, core = board(Core([msg(1, "texto a copiar"), msg(2, "", attachments=[att(1, "a.pdf", "application/pdf"), att(2, "b.txt", "text/plain")])]))
+    widget.view.copy.emit("m1")
+    assert QApplication.clipboard().text() == "texto a copiar" and "copiado" in widget._note
+    widget.view.download.emit("m2")
+    assert [c["attachment_id"] for c in core.sent("chat.save_attachment")] == ["a1", "a2"]
+    widget.on_event({"kind": "saved", "name": "a.pdf", "path": "C:/Descargas/a.pdf", "message_id": "m2", "attachment_id": "a1"})
+    assert "a.pdf" in widget._note
+
+
+def test_copying_a_file_only_message_copies_the_file_once_it_is_on_disk(tmp_path):
+    local = tmp_path / "doc.pdf"
+    local.write_bytes(b"%PDF")
+    widget, core = board(Core([msg(1, "", attachments=[att(1, "doc.pdf", "application/pdf")])]))
+    widget.view.copy.emit("m1")                                                        # aún no está en el disco: lo pide
+    assert core.sent("chat.fetch_attachment")[-1]["attachment_id"] == "a1" and "a1" in widget._copy_after
+    widget.on_event({"kind": "attachment", "message_id": "m1", "attachment_id": "a1", "path": str(local), "open": False})
+    urls = QApplication.clipboard().mimeData().urls()
+    assert [Path(u.toLocalFile()) for u in urls] == [local] and "a1" not in widget._copy_after
+
+
+def test_the_action_buttons_only_answer_while_the_cursor_is_over_the_message():
+    widget, core = board(Core([msg(1, "texto"), msg(2, "", attachments=[att(1)])]))
+    view = widget.view
+    item = next(i for i in view._items if i["kind"] == "message")
+    copy_at = view._action_rect(item, "copy").center()
+    click(view, copy_at)                                                               # sin cursor encima: no hay botón
+    assert QApplication.clipboard().text() != "texto"
+    move(view, hit_point(widget, "m1"))
+    click(view, copy_at)
+    assert QApplication.clipboard().text() == "texto"
+    names = [n for n, _ in view._actions(next(i for i in view._items if i["kind"] == "message" and i["message"]["id"] == "m2"))]
+    assert names == ["copy", "download", "delete"]                                     # «Descargar» solo con adjuntos
+
+
+# ---------- el árbol de archivos a la derecha ----------
+
+def tree_board(tmp_path):
+    folder, note = tmp_path / "Documentos", tmp_path / "Documentos" / "informe.pdf"
+    folder.mkdir()
+    note.write_bytes(b"%PDF")
+    rows = [{"kind": "path", "id": str(folder), "name": "Documentos", "detail": "", "is_dir": True}]
+    kids = {str(folder): [{"kind": "path", "id": str(note), "name": "informe.pdf", "detail": "4 B", "is_dir": False}]}
+    core = Core()
+    widget = chat.ChatBoard(THEME, core, escape=lambda: core.calls.append(("escape", {})), children=lambda path: kids[path],
+                            roots=lambda: (rows, [str(folder)]))
+    widget.resize(1000, 540)
+    widget.show()
+    widget.open()
+    app.processEvents()
+    return widget, core, note
+
+
+def test_typing_an_at_sign_or_pressing_plus_opens_the_file_tree_on_the_right(tmp_path):
+    widget, core, _ = tree_board(tmp_path)
+    changed = []
+    widget.side_changed.connect(lambda: changed.append(widget.tree_open))
+    assert not widget.tree.isVisible()
+    key(widget.composer, Qt.Key_At, text="@")
+    assert widget.tree_open and widget.tree.isVisible() and widget.composer.toPlainText() == ""   # la arroba no se escribe
+    r = widget._rects()
+    assert r["side"].left() >= r["composer"].right() and widget.tree.geometry().left() >= r["composer"].right()
+    assert [n["row"]["name"] for n in widget.tree.nodes] == ["Documentos", "informe.pdf"]          # Documentos sale abierto
+    click(widget, r["attach"].center())                                                           # «+» otra vez: lo cierra
+    assert not widget.tree_open and not widget.tree.isVisible() and changed == [True, False]
+
+
+def test_a_click_on_a_file_in_the_tree_sends_it_and_a_folder_only_opens(tmp_path):
+    widget, core, note = tree_board(tmp_path)
+    widget.toggle_tree(True)
+    tree = widget.tree
+    from kyora.ui.search_tree import PAD, ROW
+    point = lambda index: QPointF(60, PAD + index * ROW + ROW // 2)
+    click(tree, point(0))                                                                          # la carpeta: se pliega
+    assert core.sent("chat.send") == [] and [n["row"]["name"] for n in tree.nodes] == ["Documentos"]
+    click(tree, point(0))                                                                          # y se vuelve a desplegar
+    click(tree, point(1))                                                                          # el archivo: se envía
+    assert core.sent("chat.send") == [{"text": "", "paths": [str(note)]}] and "informe.pdf" in widget._note
+
+
+def test_a_refused_file_from_the_tree_says_why(tmp_path):
+    widget, core, _ = tree_board(tmp_path)
+    core.fail = "«informe.pdf» pesa 80 MB; el máximo es 50 MB"
+    widget.toggle_tree(True)
+    widget._tree_pick({"id": "C:/x/informe.pdf", "name": "informe.pdf"})
+    assert "80 MB" in widget._note
+
+
+def test_the_search_popout_gets_wider_while_the_chat_tree_is_open(tmp_path):
+    folder = tmp_path / "Documentos"
+    folder.mkdir()
+    rows = [{"kind": "path", "id": str(folder), "name": "Documentos", "detail": "", "is_dir": True}]
+    popout = search.SearchPopout(THEME, ScreenMap(app.primaryScreen()),
+                                 query=lambda text, mode="": {"mode": "chat", "results": [], "indexing": False}
+                                 if mode == "chat" else {"results": [], "indexing": False},
+                                 launch=lambda *a, **k: None, close=lambda refocus: None, call=Core(),
+                                 roots=lambda: (rows, ()))
+    popout.open("chat")
+    app.processEvents()
+    narrow = popout._width_to
+    popout.chat.toggle_tree(True)
+    assert popout._width_to > narrow
+    popout.chat.toggle_tree(False)
+    assert popout._width_to == narrow

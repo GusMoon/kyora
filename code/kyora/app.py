@@ -27,6 +27,7 @@ import winerror
 from kyora import config as config_module
 from kyora.brain.service import BrainService
 from kyora.chat.service import ChatService
+from kyora.music.sync import MusicSync
 from kyora.core.actions import ActionError, ActionRegistry
 from kyora.core.commands import (
     KYORA_OPTIONS,
@@ -154,6 +155,10 @@ class Kyora:
         )
         self.chat = ChatService(config_module.data_dir(), lambda event: self._emit("chat_event", event),
                                 lambda: self.cfg.get("chat"))
+        # lo que se baja en Música sube solo a tu cuenta de Supabase, y la app del móvil lo ve (con la sesión del chat)
+        self.music_sync = MusicSync(config_module.data_dir(), self.chat, lambda result: self._emit("music_result", result),
+                                    lambda: self.cfg.get("music"))
+        self.music.on_done = self.music_sync.enqueue
         self._register_actions()
 
     # ---------- acciones ----------
@@ -227,6 +232,7 @@ class Kyora:
         r.register("wallpaper.set", self.set_wallpaper)
         r.register("wallpaper.mode", self.wallpaper_mode)  # Win+W
         r.register("files.children", self.files_children)
+        r.register("files.roots", self.files_roots)
         r.register("app.focus_follows_mouse", self.focus_follows_mouse)
         r.register("app.release", self.release, destructive=True)
         r.register("app.quit", self.quit)
@@ -543,6 +549,8 @@ class Kyora:
             rest = text[1:].strip()
             return {"results": self._app_rows(rest, SEARCH_RESULTS * 2) if rest else [],
                     "indexing": not self.index.ready.is_set()}
+        if text == "/":  # la barra sola: el árbol con el acceso rápido y Equipos
+            return {"mode": "tree", "results": [], "indexing": False, **self.files_roots()}
         if text.startswith(("/", "@")):
             only = "dir" if text[0] == "/" else "file"
             rows = [self._path_row(e) for e in self.files.search(text[1:], only=only)]
@@ -609,7 +617,9 @@ class Kyora:
 
     @staticmethod
     def _path_row(entry):
-        if entry.get("drive"):
+        if entry.get("computer"):
+            detail = ""
+        elif entry.get("drive"):
             detail = "Unidad"
             try:
                 detail = f"Unidad · {folders.human_size(shutil.disk_usage(entry['path']).free)} libres"
@@ -628,8 +638,15 @@ class Kyora:
         return {"kind": "path", "id": entry["path"], "name": entry["name"], "detail": detail, "hwnd": 0, "exe": "",
                 "is_dir": entry["is_dir"], "drive": bool(entry.get("drive"))}
 
+    def files_roots(self):
+        """Las raíces del árbol de archivos (el de "/" y el del chat): {roots, expanded}. Documentos y Equipos salen abiertos."""
+        rows = [self._path_row(e) for e in folders.tree_roots(shell.known_folder)]
+        return {"roots": rows, "expanded": [r["id"] for r in rows if r["name"] in ("Documentos", "Equipos")]}
+
     def files_children(self, path):
-        """Los hijos de una carpeta para el árbol de ">tree" (carpetas primero)."""
+        """Los hijos de una carpeta para el árbol de "/" (carpetas primero); de Equipos, las unidades."""
+        if path == folders.THIS_PC:
+            return [self._path_row(e) for e in folders.pc_entries()]
         if not os.path.isdir(path):
             raise ActionError("missing", "Esa carpeta ya no existe")
         return [self._path_row(e) for e in folders.listing(path)]
@@ -879,6 +896,7 @@ class Kyora:
         threading.Thread(target=self._devices_loop, daemon=True, name="kyora-devices").start()
         threading.Thread(target=self._weather_loop, daemon=True, name="kyora-weather").start()
         self.chat.start()  # sin credenciales en supabase/.env, solo avisa de que faltan
+        self.music_sync.start()  # retoma las canciones que quedaron sin mandar al móvil
         self.files.start(self._stop)
         if self.cfg["hide_taskbar"]:
             threading.Thread(target=self._taskbar_loop, daemon=True, name="kyora-taskbar").start()
@@ -968,6 +986,7 @@ class Kyora:
             self._down = True
         self._stop.set()
         self.chat.stop()
+        self.music_sync.stop()
         self._ring_wake.set()
         self._sync_needed.set()
         self._push_needed.set()

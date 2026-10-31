@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- El chat habla con Supabase por internet (la version release no lo trae por defecto). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Solo Android 9 y anteriores escriben directo en Musica/Descargas; de Android 10 en adelante se usa MediaStore (sin permiso). -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
     <application
         android:label="Kyora Chat"
         android:name="${applicationName}"

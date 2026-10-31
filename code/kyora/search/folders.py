@@ -1,4 +1,4 @@
-"""Carpetas para el buscador (sin Qt: se puede probar): las raíces y los hijos del árbol de `>tree`, las unidades y
+"""Carpetas para el buscador (sin Qt: se puede probar): las raíces y los hijos del árbol de "/", las unidades y
 la carpeta de fondos de `>wallpaper`.
 """
 import os
@@ -8,12 +8,12 @@ from kyora.brain.links import normalize
 
 IMAGE_TYPES = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 LIMIT = 200  # hijos que enseña una carpeta del árbol
-# raíces del árbol: (nombre que se ve, clave de la carpeta de Windows; "home" = la carpeta personal)
+THIS_PC = "equipos:"  # la "ruta" de Equipos, el nodo del que cuelgan las unidades
+# raíces del árbol, como el acceso rápido del Explorador: (nombre que se ve, clave de la carpeta de Windows)
 TREE_ROOTS = (
-    ("Carpeta personal", "home"),
     ("Escritorio", "desktop"),
-    ("Documentos", "documents"),
     ("Descargas", "downloads"),
+    ("Documentos", "documents"),
     ("Imágenes", "pictures"),
     ("Música", "music"),
     ("Vídeos", "videos"),
@@ -27,15 +27,20 @@ def drives():
     return [f"{letter}:\\" for letter in string.ascii_uppercase if os.path.exists(f"{letter}:\\")]
 
 
-def tree_roots(known_folder, drive_list=drives):
-    """[{name, path, is_dir, size, drive}] de lo que se ve al abrir `>tree`: las carpetas de siempre y las unidades."""
+def tree_roots(known_folder):
+    """[{name, path, is_dir, size, drive}] de lo que se ve al escribir "/": las carpetas del acceso rápido y Equipos."""
     roots = []
     for name, key in TREE_ROOTS:
-        path = os.path.expanduser("~") if key == "home" else known_folder(key)
+        path = known_folder(key)
         if path and os.path.isdir(path):
             roots.append({"name": name, "path": path, "is_dir": True, "size": 0, "drive": False})
-    roots += [{"name": d.rstrip("\\"), "path": d, "is_dir": True, "size": 0, "drive": True} for d in drive_list()]
+    roots.append({"name": "Equipos", "path": THIS_PC, "is_dir": True, "size": 0, "drive": False, "computer": True})
     return roots
+
+
+def pc_entries(drive_list=drives):
+    """Lo que cuelga de Equipos: las unidades."""
+    return [{"name": d.rstrip("\\"), "path": d, "is_dir": True, "size": 0, "drive": True} for d in drive_list()]
 
 
 def _hidden(entry):

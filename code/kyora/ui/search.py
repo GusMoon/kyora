@@ -18,17 +18,21 @@ Sin prefijo busca ventanas, apps, carpetas y archivos. Prefijos que acotan la b�
 """
 import logging
 import math
+import os
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLayout, QLineEdit, QWidget
 
 from kyora.core.animation import lerp
 from kyora.system.win32 import force_foreground
 from kyora.ui.anim import Tween
 from kyora.ui.bar import font
+from kyora.search.folders import human_size
 from kyora.ui.chat import ChatBoard, modal_open
+from kyora.ui.explorer.preview import PreviewPane, kind_of
+from kyora.ui.explorer.style import stylesheet
 from kyora.ui.kanban import KanbanBoard
 from kyora.ui.notes import NotesBoard
 from kyora.ui.relief import frame_gradient, paint_soft_shadow
@@ -63,11 +67,17 @@ TASK_H = 470  # alto del detalle de una tarea
 TASK_W = 940  # y su ancho: subtareas a la izquierda, descripción a la derecha
 WIDE_MODES = ("kanban", "notes")
 CHAT_W = 700  # el chat es más estrecho que el Kanban: una columna de burbujas
+CHAT_SIDE_W = 316  # lo que se suma al ancho cuando el chat abre a la derecha su árbol de archivos
+PV_SHARE = 0.42  # con la vista previa abierta, la lista ocupa esta parte del ancho y la vista previa el resto
+PV_GAP = 10
+PV_H = 340  # alto mínimo de la vista previa (un PDF o una imagen necesitan sitio)
+PV_OPEN_DELAY = 0.7  # segundos tras previsualizar en los que otro clic en el mismo archivo aún no lo abre
+PV_FOCUS_GRACE = 1.5  # segundos tras previsualizar en los que perder el foco no cierra el buscador (lo recupera)
 
 
 class SearchPopout(QWidget):
     def __init__(self, theme, screen_map, query, launch, close, set_wallpaper=lambda path: None,
-                 children=lambda path: [], act=lambda kind, id: None, call=None):
+                 children=lambda path: [], act=lambda kind, id: None, call=None, roots=lambda: ([], ())):
         """`query(texto)` devuelve {results, indexing} (o un modo: "tree", "tasks", "notes", "wallpapers");
         `launch(resultado, ctrl)` lo abre; `close(refocus)` pide cerrar; `set_wallpaper(ruta)` pone un fondo (el
         carrusel); `children(ruta)` da lo que hay en una carpeta (el árbol); `act(tipo, id)` hace algo al momento sin
@@ -88,6 +98,8 @@ class SearchPopout(QWidget):
         self.opened = False
         self._progress = 0.0  # 0 = escondido en el marco, 1 = abierto
         self._list_h = 0.0  # alto actual de la lista de opciones (crece y encoge)
+        self._pv_path = None  # el archivo que se está previsualizando a la derecha (clic otra vez = abrirlo)
+        self._pv_at = 0.0  # cuándo se empezó a previsualizar
 
         t = theme
         shadow = math.ceil(t.dock_shadow_size) + 4
@@ -114,16 +126,22 @@ class SearchPopout(QWidget):
         self.edit.setFont(font(t, 13))
         self.retheme(t)
         self.edit.installEventFilter(self)
-        self.list = ResultList(t, self._launch_result)
+        self.list = ResultList(t, self._launch_result, on_pick=self._pick)
         self.list.setParent(self)
         self.carousel = WallpaperCarousel(t)
         self.carousel.setParent(self)
         self.carousel.picked.connect(self._try_wallpaper)
         self.carousel.hide()
-        self.tree = TreeList(t, children, lambda row, ctrl: self._launch(row, ctrl))
+        self.tree = TreeList(t, children, lambda row, ctrl: self._launch(row, ctrl), on_pick=self._pick)
         self.tree.setParent(self)
         self.tree.hide()
+        self.preview = PreviewPane(t)  # la vista previa del archivo elegido, a la derecha de la lista o del árbol
+        self.preview.setParent(self)
+        self.preview.layout().setSizeConstraint(QLayout.SetNoConstraint)  # el tamaño lo manda el buscador, no el visor
+        self.preview.setStyleSheet(stylesheet(t, flat_style=True))
+        self.preview.hide()
         call = call or (lambda action, **payload: {"ok": False, "error": {"message": "Sin núcleo"}})
+        self._core = call
         self.detail = TaskDetail(t, call)  # el detalle de una tarea, aquí mismo
         self.detail.setParent(self)
         self.detail.hide()
@@ -137,9 +155,10 @@ class SearchPopout(QWidget):
         self.notes = NotesBoard(t, call, escape=lambda: self._close(True))
         self.notes.setParent(self)
         self.notes.hide()
-        self.chat = ChatBoard(t, call, escape=lambda: self._close(True))
+        self.chat = ChatBoard(t, call, escape=lambda: self._close(True), children=children, roots=roots)
         self.chat.setParent(self)
         self.chat.hide()
+        self.chat.side_changed.connect(lambda: self.mode == "chat" and self._show("chat", BOARD_H))  # el árbol cambia el ancho
         self._fade = QGraphicsOpacityEffect(self.edit)
         self.edit.setGraphicsEffect(self._fade)
         self._fade.setOpacity(0.0)
@@ -155,7 +174,7 @@ class SearchPopout(QWidget):
         self._query_timer = QTimer(self)
         self._query_timer.setSingleShot(True)
         self._query_timer.timeout.connect(self._run_query)
-        self.edit.textChanged.connect(lambda _: self._query_timer.start(QUERY_DELAY_MS))
+        self.edit.textChanged.connect(lambda _: (self._hide_preview(), self._query_timer.start(QUERY_DELAY_MS)))
 
     # ---------- colocación: el campo arriba y la lista bajando debajo ----------
 
@@ -181,10 +200,14 @@ class SearchPopout(QWidget):
         self.edit.setGeometry(inner_x, input_y, inner_w, INPUT_H)
         h = round(self._list_h)
         area = (inner_x, input_y + round((INPUT_H + GAP) * self._bandf), inner_w, h)
+        pv = self._previewing()
+        left_w = round(inner_w * PV_SHARE) if pv else inner_w
         # sigue visible mientras se encoge: si no, las opciones desaparecerían de golpe al cerrar
         for mode, widget in self._areas().items():
-            widget.setGeometry(*area)
+            widget.setGeometry(area[0], area[1], left_w if mode == self.mode else inner_w, h)
             widget.setVisible(h > 0 and mode == self.mode)
+        self.preview.setGeometry(inner_x + left_w + PV_GAP, area[1], max(inner_w - left_w - PV_GAP, 1), h)
+        self.preview.setVisible(h > 0 and pv)
 
     def _set_band(self, value):
         """El campo se va (al abrir una tarea) o vuelve (al salir de ella): el contenido sube o baja con él."""
@@ -213,18 +236,84 @@ class SearchPopout(QWidget):
         if self.mode == "task" and mode != "task":
             self.detail.flush()
         self.mode = mode
+        if mode not in ("list", "tree"):
+            self._hide_preview()
         self.pill.set_active(SECTION_OF.get(mode, "search"))
         target = 0.0 if mode in ("task", "chat") else 1.0  # el detalle de una tarea y el chat no llevan campo encima
         if target != self._bandf:
             self._band_anim.start(self._bandf, target, LIST_MS, QEasingCurve.OutQuint)
         self._layout()
-        self._rows.start(self._list_h, height, LIST_MS, QEasingCurve.OutQuint)
-        width = {"task": min(TASK_W, self._wide), "chat": min(CHAT_W, self._wide)}.get(mode, self.theme.search_width)
-        if mode in WIDE_MODES:
+        self._rows.start(self._list_h, self._fit_h(height), LIST_MS, QEasingCurve.OutQuint)
+        chat_w = CHAT_W + (CHAT_SIDE_W if self.chat.tree_open else 0)  # con el árbol de archivos abierto, más ancho
+        width = {"task": min(TASK_W, self._wide), "chat": min(chat_w, self._wide)}.get(mode, self.theme.search_width)
+        if mode in WIDE_MODES or self._previewing():
             width = self._wide
         if width != self._width_to:
             self._width_to = width
             self._widen.start(self._width, width, WIDE_MS, QEasingCurve.OutQuint)
+
+    # ---------- vista previa de un archivo ----------
+
+    def _previewing(self):
+        return bool(self._pv_path) and self.mode in ("list", "tree")
+
+    def _fit_h(self, height):
+        """Con la vista previa abierta el área no baja de lo que ella necesita."""
+        return max(height, PV_H) if self._previewing() else height
+
+    def _hide_preview(self):
+        if self._pv_path:
+            self._pv_path = None
+            self.preview.stop()
+            self.preview.hide()
+
+    def _pick(self, result):
+        """Clic en un archivo: se previsualiza a la derecha; otro clic sobre el mismo lo abre."""
+        path = result.get("id")
+        if not path:
+            return
+        if path == self._pv_path:
+            if time.monotonic() - self._pv_at >= PV_OPEN_DELAY:  # un doble clic de costumbre no se salta la vista previa
+                self._launch(result, False)
+            return
+        self._preview(result)
+
+    def _send_to_chat(self, row):
+        """Ctrl+Enter en el árbol: manda el archivo elegido al chat sin abrirlo ni cerrar el buscador. True si era un archivo."""
+        if not row or row.get("kind") != "path" or row.get("is_dir"):
+            return False
+        reply = self._core("chat.send", text="", paths=[row["id"]])
+        name = row.get("name") or os.path.basename(row["id"])
+        self.chat.notify.emit(f"Enviado al chat · {name}" if reply.get("ok") else reply["error"]["message"])
+        return True
+
+    def _preview_key(self, result):
+        """→ sobre un archivo: lo previsualiza (nunca lo abre; para eso está Enter). True si era un archivo."""
+        if not result or result.get("kind") != "path" or result.get("is_dir"):
+            return False
+        if result["id"] != self._pv_path:
+            self._preview(result)
+        return True
+
+    def _preview(self, result):
+        path = result["id"]
+        self._pv_at = time.monotonic()
+        self._pv_path = path
+        started = time.perf_counter()
+        try:
+            info = human_size(os.path.getsize(path))
+        except OSError:
+            info = ""
+        if self.mode == "tree":  # el atajo se enseña ahí mismo (la rúbrica lo pide)
+            info = f"{info} · Enter abre · Ctrl+Enter lo envía al chat" if info else "Enter abre · Ctrl+Enter lo envía al chat"
+        try:
+            self.preview.show_path(path, info)
+        except Exception:  # noqa: BLE001 - la vista previa no debe dejar el buscador a medias
+            log.exception("La vista previa de %s falló", path)
+        self._show(self.mode, self.tree.wanted_height() if self.mode == "tree"
+                   else min(self.list.wanted_height(), self._max_list))
+        log.info("Vista previa de %s (%s) en %.0f ms", os.path.basename(path), kind_of(path) or "sin visor",
+                 (time.perf_counter() - started) * 1000)
 
     def _set_width(self, value):
         if abs(float(value) - self._width) < 0.5 and float(value) != self._width_to:
@@ -243,6 +332,7 @@ class SearchPopout(QWidget):
     def open(self, mode=""):
         """`mode`: "" (el buscador), "task" (Ctrl+Shift+T: abre directo el Kanban) o "notes" (Ctrl+Shift+N)."""
         self._mode_word = mode
+        self._hide_preview()
         self.edit.setPlaceholderText(PLACEHOLDERS.get(mode, PLACEHOLDERS[""]))
         if self.opened:  # ya abierto: cambia de modo sin cerrarse
             self.edit.clear()
@@ -277,6 +367,7 @@ class SearchPopout(QWidget):
         if not self.opened:
             return
         self.opened = False
+        self._hide_preview()
         self._query_timer.stop()
         self._band_anim.stop()
         self.carousel.stop()
@@ -326,7 +417,7 @@ class SearchPopout(QWidget):
             return
         if mode == "tree":
             if self.mode != "tree":  # al seguir escribiendo no se pliega lo desplegado
-                self.tree.set_roots(reply["roots"])
+                self.tree.set_roots(reply["roots"], expanded=reply.get("expanded", ()))
             self._show("tree", self.tree.wanted_height())
             return
         if mode == "tasks":  # las tareas: directo el tablero Kanban (el campo solo sirve para crear una nueva)
@@ -438,13 +529,17 @@ class SearchPopout(QWidget):
             if key in (Qt.Key_Up, Qt.Key_Down):  # de arriba abajo, como se lee
                 self.tree.move(-1 if key == Qt.Key_Up else 1)
                 return True
+            if key == Qt.Key_Right and self._preview_key(self.tree.current()):  # → en un archivo: vista previa
+                return True
             if key in (Qt.Key_Left, Qt.Key_Right):
                 (self.tree.left if key == Qt.Key_Left else self.tree.right)()
-                self._rows.start(self._list_h, self.tree.wanted_height(), LIST_MS, QEasingCurve.OutCubic)
+                self._rows.start(self._list_h, self._fit_h(self.tree.wanted_height()), LIST_MS, QEasingCurve.OutCubic)
                 return True
             if key in (Qt.Key_Return, Qt.Key_Enter):
+                if ctrl and self._send_to_chat(self.tree.current()):  # Ctrl+Enter sobre un archivo: al chat
+                    return True
                 self.tree.enter(ctrl)
-                self._rows.start(self._list_h, self.tree.wanted_height(), LIST_MS, QEasingCurve.OutCubic)
+                self._rows.start(self._list_h, self._fit_h(self.tree.wanted_height()), LIST_MS, QEasingCurve.OutCubic)
                 return True
             if key == Qt.Key_Escape:
                 self._close(True)
@@ -468,6 +563,10 @@ class SearchPopout(QWidget):
                 return True
             if key == Qt.Key_Down:
                 self.list.move(1)
+                return True
+            # → con el cursor al final de lo escrito, sobre un archivo: vista previa (si no, mueve el cursor como siempre)
+            if (key == Qt.Key_Right and self.edit.cursorPosition() == len(self.edit.text())
+                    and self._preview_key(self.list.current())):
                 return True
             if key in (Qt.Key_Return, Qt.Key_Enter):
                 self._launch_result(self.list.current(), files=bool(event.modifiers() & Qt.ControlModifier))
@@ -509,6 +608,19 @@ class SearchPopout(QWidget):
         if QApplication.activePopupWidget() is not None or modal_open():  # el menú de la fecha; el diálogo de archivos
             return
         if self.opened and not self.isActiveWindow():
+            owner, who, hidden_own = foreground_owner()
+            # la vista previa puede llevarse el foco sin querer: PDFium crea ventanas ocultas ("GDI+ Hook Window", "IME")
+            # al abrir un PDF. Eso no es irse a otra ventana: el buscador lo recupera y sigue abierto.
+            just_picked = time.monotonic() - self._pv_at < PV_FOCUS_GRACE
+            if owner == hwnd_of(self) or hidden_own or just_picked:
+                log.info("El buscador recupera el foco (lo tenía %s)", who)
+                self.activateWindow()
+                try:
+                    force_foreground(hwnd_of(self))
+                except Exception:  # noqa: BLE001
+                    log.exception("No se pudo devolver el foco al buscador")
+                return
+            log.info("El buscador se cierra: el foco pasó a %s", who)
             self._close(False)
 
     def closeEvent(self, event):
@@ -526,6 +638,8 @@ class SearchPopout(QWidget):
             f" border-radius: 8px; padding: 0 10px; selection-background-color: {_css(t.gold_soft)}; }}"
             f"QLineEdit:focus {{ border-color: {_css(t.gold_line)}; }}"
         )
+        if hasattr(self, "preview"):
+            self.preview.setStyleSheet(stylesheet(t, flat_style=True))
 
     def paintEvent(self, _):
         t = self.theme
@@ -542,6 +656,29 @@ class SearchPopout(QWidget):
         p.fillPath(fill, frame_gradient(t, self._screen_height, self.y(), self.x()))
         paint_soft_shadow(p, fill, QRectF(self.rect()), t, contour=outline)
 
+
+
+def foreground_owner():
+    """(ventana raíz dueña de la que tiene el foco, "clase «título»", ¿es una ventana oculta de este proceso?) para
+    saber a quién se fue el foco."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return 0, "nadie", False
+        owner = user32.GetAncestor(hwnd, 3)  # GA_ROOTOWNER
+        name, title = ctypes.create_unicode_buffer(128), ctypes.create_unicode_buffer(128)
+        user32.GetClassNameW(hwnd, name, 128)
+        user32.GetWindowTextW(hwnd, title, 128)
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        hidden_own = pid.value == os.getpid() and not user32.IsWindowVisible(hwnd)
+        return owner or hwnd, f"{name.value} «{title.value}»", hidden_own
+    except Exception:  # noqa: BLE001 - fuera de Windows (las pruebas)
+        return 0, "desconocido", False
 
 
 def _css(color):
