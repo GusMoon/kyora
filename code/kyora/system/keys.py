@@ -1,22 +1,26 @@
-"""Gancho global del teclado (WH_KEYBOARD_LL): la tecla Windows suelta y las combinaciones de dos teclas con Alt.
+"""Gancho global del teclado (WH_KEYBOARD_LL): bloquea la tecla Windows y resuelve las combinaciones de dos teclas con Alt.
 
-- Cuando se suelta Windows sin combinación, inyecta una tecla sin asignar justo antes y Windows entiende que se usó
-  en una combinación: el menú de inicio no se abre.
+- La tecla Windows (y Ctrl+Esc) se traga entera: no abre el menú de inicio ni dispara ningún atajo de Windows (ver
+  kyora/core/winkey.py). Los atajos de Kyora usan Ctrl+Shift+tecla (RegisterHotKey, ver hotkeys.py).
 - Alt+F+flechas, Alt+M+flechas… (ver kyora/core/chords.py): se tragan sus teclas y su acción se ejecuta en otro hilo,
   para que el gancho nunca haga esperar al teclado.
-- Win+↑/↓, Win+Esc (ver WinComboGuard): igual, en vez de lo que haría Windows con ellas.
 Si una tecla llega tarde al gancho (Python ocupado en otra cosa), se anota en kyora.log.
 Las demás pulsaciones pasan sin tocarse.
+
+Kyora lo lanza en su propio proceso (KeyHookProcess, ver keyproc.py): así nunca espera a la interfaz.
 """
 import ctypes
 import logging
+import os
 import queue
+import subprocess
+import sys
 import threading
 import time
 from ctypes import wintypes
 
 from kyora.core.chords import ChordGuard
-from kyora.core.winkey import WIN_KEYS, WinComboGuard, WinKeyGuard
+from kyora.core.winkey import WinBlock
 
 log = logging.getLogger("kyora.keys")
 
@@ -39,6 +43,13 @@ LRESULT = ctypes.c_ssize_t
 class KBDLLHOOKSTRUCT(ctypes.Structure):
     _fields_ = [
         ("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD), ("flags", wintypes.DWORD),
+        ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t),
+    ]
+
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("pt", wintypes.POINT), ("mouseData", wintypes.DWORD), ("flags", wintypes.DWORD),
         ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t),
     ]
 
@@ -87,21 +98,23 @@ def send_mask():
     user32.SendInput(2, events, ctypes.sizeof(INPUT))
 
 
+def _down(vk):
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
 class KeyboardHook(threading.Thread):
     """Hilo con el gancho. `ready` se activa cuando está instalado; `failed` indica si no se pudo instalar.
 
     `chords` = {(capa, tecla): función} y `taps` = {capa: función}: las combinaciones de dos teclas con Alt.
-    `wins` = {tecla: función}: Win+tecla que resuelve Kyora.
     """
 
-    def __init__(self, chords=None, taps=None, wins=None):
+    def __init__(self, chords=None, taps=None):
         super().__init__(daemon=True, name="kyora-keys")
         self.ready = threading.Event()
         self.failed = False
         self._thread_id = 0
-        self._guard = WinKeyGuard()
+        self._block = WinBlock()
         self._chords = ChordGuard(chords or {}, taps or {})
-        self._wins = WinComboGuard(wins or {})
         self._slow = (0, 0, 0.0)  # (teclas lentas, peor retraso en ms, cuándo se avisó la última vez)
         self._actions = queue.Queue()
         self._proc = HOOKPROC(self._callback)  # se guarda: si Python lo recoge, Windows llamaría a memoria liberada
@@ -114,14 +127,8 @@ class KeyboardHook(threading.Thread):
                 if not info.flags & LLKHF_INJECTED:
                     self._measure(info.time)
                     down = wparam in (WM_KEYDOWN, WM_SYSKEYDOWN)
-                    if (info.vkCode in WIN_KEYS or down) and self._guard.feed(info.vkCode, down):
-                        send_mask()
-                    swallow, action = self._wins.feed(info.vkCode, down)
-                    if action is not None:
-                        self._actions.put(action)
-                        send_mask()  # Windows no vio la tecla: sin esto, al soltar Win se abriría el menú de inicio
-                    if swallow:
-                        return 1
+                    if self._block.feed(info.vkCode, down):
+                        return 1  # la tecla Windows (y Ctrl+Esc) no llegan a nadie
                     swallow, action, mask = self._chords.feed(info.vkCode, down)
                     if action is not None:
                         self._actions.put(action)
@@ -176,3 +183,92 @@ class KeyboardHook(threading.Thread):
         self._actions.put(None)
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
+
+
+CREATE_NO_WINDOW = 0x08000000
+CHILD_READY_SECONDS = 5
+
+
+class KeyHookProcess:
+    """El mismo gancho, pero en su propio proceso (kyora/system/keyproc.py): las teclas nunca esperan a Kyora.
+
+    Se usa igual que KeyboardHook (`start`, `ready`, `failed`, `stop`). Si el proceso no se puede lanzar, usa el
+    gancho de dentro, como antes.
+    """
+
+    def __init__(self, chords=None, taps=None):
+        self._groups = {"chords": chords, "taps": taps}
+        self.ready = threading.Event()
+        self.failed = False
+        self._child = None
+        self._inside = None  # el gancho de dentro, si el proceso no arrancó
+        self._actions = queue.Queue()
+
+    def start(self):
+        from kyora.system.keyproc import encode_bindings
+
+        text, self._codes = encode_bindings(**self._groups)
+        package_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        try:
+            self._child = subprocess.Popen(
+                [sys.executable, "-m", "kyora.system.keyproc"], cwd=package_root,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, encoding="utf-8", creationflags=CREATE_NO_WINDOW,
+            )
+            self._child.stdin.write(text + "\n")
+            self._child.stdin.flush()
+        except OSError as err:
+            log.warning("El gancho del teclado no pudo ir en su propio proceso (%s): va dentro de Kyora", err)
+            self._fallback()
+            return
+        threading.Thread(target=self._read, daemon=True, name="kyora-keys-pipe").start()
+        threading.Thread(target=self._run_actions, daemon=True, name="kyora-chords").start()
+        if not self.ready.wait(CHILD_READY_SECONDS):
+            log.warning("El proceso del teclado no respondió: va dentro de Kyora")
+            self._kill()
+            self._fallback()
+
+    def _fallback(self):
+        g = self._groups
+        self._inside = KeyboardHook(g["chords"], g["taps"])
+        self._inside.start()
+        self._inside.ready.wait(3)
+        self.failed = self._inside.failed
+        self.ready.set()
+
+    def _read(self):
+        for line in self._child.stdout:
+            line = line.strip()
+            if line in ("ready", "failed"):
+                self.failed = line == "failed"
+                self.ready.set()
+            elif line.startswith("log "):
+                log.info("%s", line[4:])
+            elif line in self._codes:
+                self._actions.put(self._codes[line])
+        self._actions.put(None)  # el hijo terminó
+
+    def _run_actions(self):
+        while True:
+            action = self._actions.get()
+            if action is None:
+                return
+            try:
+                action()
+            except Exception:
+                log.exception("Fallo en una combinación de teclas")
+
+    def _kill(self):
+        child, self._child = self._child, None
+        if child is None:
+            return
+        try:
+            child.stdin.close()  # el hijo lo nota, quita el gancho y termina
+            child.wait(2)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            child.kill()
+
+    def stop(self):
+        self._kill()
+        if self._inside is not None:
+            self._inside.stop()

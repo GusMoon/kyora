@@ -5,6 +5,7 @@ class FakeSystem:
     """Sistema de ventanas simulado para probar WindowManager sin Windows."""
 
     def __init__(self, area=None):
+        self.resizable = set()  # ventanas con borde para cambiar de tamaño (las nuevas pequeñas se agrandan)
         self.area = area or Rect(0, 0, 1920, 1200)
         self.alive = set()
         self.shown = set()
@@ -18,10 +19,12 @@ class FakeSystem:
         self.min_sizes = {}  # hwnd -> (ancho, alto): apps que no se dejan encoger
 
     # ---- manipulación desde las pruebas ----
-    def open(self, hwnd):
+    def open(self, hwnd, rect=None):
         self.alive.add(hwnd)
         self.shown.add(hwnd)
         self.fg = hwnd
+        if rect is not None:
+            self.rects[hwnd] = rect
 
     def kill(self, hwnd):
         self.alive.discard(hwnd)
@@ -36,6 +39,9 @@ class FakeSystem:
 
     def is_alive(self, hwnd):
         return hwnd in self.alive
+
+    def is_resizable(self, hwnd):
+        return hwnd in self.resizable
 
     def is_manageable(self, hwnd):
         return hwnd in self.alive and hwnd in self.shown
@@ -57,7 +63,7 @@ class FakeSystem:
         self.calls.append(("hide", hwnd))
         self.shown.discard(hwnd)
 
-    def place(self, hwnd, rect):
+    def place(self, hwnd, rect, keep=False):
         self.minimized.discard(hwnd)
         min_w, min_h = self.min_sizes.get(hwnd, (0, 0))
         self.rects[hwnd] = Rect(rect.left, rect.top, rect.left + max(rect.width, min_w), rect.top + max(rect.height, min_h))
@@ -80,7 +86,7 @@ class FakeSystem:
         return (2, 1, bytes([hwnd % 256]) * 8) if hwnd in self.shown else None
 
     def frame_rect(self, hwnd):
-        return self.rects[hwnd]
+        return self.rects.get(hwnd) or Rect(0, 0, 100, 100)  # una ventana nueva ya tiene su sitio de origen
 
     def window_at(self, x, y):
         return self.under

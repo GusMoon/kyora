@@ -44,5 +44,32 @@ def test_corrupt_config_is_replaced(tmp_path, monkeypatch):
 
 def test_default_hotkeys_cover_new_actions():
     keys = config.DEFAULTS["hotkeys"]
-    assert keys["alt+m"][0] == "app.focus_follows_mouse"
-    assert keys["alt+space"][0] == "search.toggle"
+    assert keys["ctrl+shift+m"][0] == "music.panel"
+    assert keys["ctrl+shift+space"][0] == "search.toggle"
+
+
+def test_the_chat_hotkey_is_offered_once_to_an_existing_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    folder = tmp_path / "Kyora"
+    folder.mkdir()
+    mine = {"ctrl+shift+space": ["search.toggle", {}]}
+    (folder / "config.json").write_text(json.dumps({"config_version": config.CONFIG_VERSION, "hotkeys": mine}),
+                                        encoding="utf-8")
+    cfg = config.load()
+    assert cfg["hotkeys"]["ctrl+shift+c"] == ["search.open_mode", {"mode": "chat"}]
+    assert cfg["hotkeys"]["ctrl+shift+space"] == ["search.toggle", {}] and len(cfg["hotkeys"]) == 2   # lo suyo, intacto
+    saved = json.loads((folder / "config.json").read_text(encoding="utf-8"))
+    assert saved["hotkeys_offered"] == ["chat"] and "ctrl+shift+c" in saved["hotkeys"]
+    del saved["hotkeys"]["ctrl+shift+c"]                      # lo quitó a propósito: no se vuelve a poner
+    (folder / "config.json").write_text(json.dumps(saved), encoding="utf-8")
+    assert "ctrl+shift+c" not in config.load()["hotkeys"]
+
+
+def test_the_chat_hotkey_is_not_offered_when_the_combination_is_taken(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    folder = tmp_path / "Kyora"
+    folder.mkdir()
+    mine = {"ctrl+shift+c": ["wm.close", {}]}
+    (folder / "config.json").write_text(json.dumps({"config_version": config.CONFIG_VERSION, "hotkeys": mine}),
+                                        encoding="utf-8")
+    assert config.load()["hotkeys"] == mine

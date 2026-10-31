@@ -2,7 +2,10 @@ PySide6-Essentials==6.12.0
 PySide6-Addons==6.12.0  # vista previa del explorador: audio y vídeo (QtMultimedia)
 pypdfium2==5.14.0  # vista previa del explorador: páginas de PDF
 pywin32==312
+websockets==17.4  # el chat (Supabase Realtime): mensajes nuevos al instante
 psutil==7.2.2
+yt-dlp==2026.10.26  # Música (Win+M): listas de YouTube y descarga a MP3; necesita FFmpeg (la página lo instala con winget)
+yt-dlp-ejs==0.8.0  # resuelve el desafío de JavaScript de YouTube (con Node.js o Deno instalado)
 # Bluetooth (encender/apagar y dispositivos): paquetes oficiales de pywinrt
 winrt-runtime==3.2.1
 winrt-Windows.Devices.Bluetooth==3.2.1

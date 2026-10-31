@@ -1,9 +1,11 @@
-"""Piezas del panel de arriba, al estilo de la referencia (placas de cristal oscuras, sin tramas).
+"""Piezas de superficie de Kyora, con la rúbrica de DISEÑO.md (skeumorfismo oscuro inspirado en Linux).
 
-- paint_glass: la placa de cristal: degradado suave de arriba abajo, borde casi invisible y un filete de luz arriba.
-- Glass: un widget que es solo esa placa (para meter contenido dentro).
-- Card: un título suelto encima (como "Explore" en la referencia) y debajo la placa, en `self.inner`. A la derecha
-  del título se pueden poner controles con `self.header.addWidget(...)`.
+- paint_glass (el nombre es de antes): la placa elevada, opaca, con degradado suave (más clara arriba), filete de luz
+  de 1 px arriba, línea oscura alrededor y una sombra corta debajo. `hi`: la elegida, más clara.
+- paint_well: el hueco hundido (campos, carriles): más oscuro, sombra interior arriba y filete claro abajo.
+- paint_flat / paint_flat_well: la excepción plana (tipo GNOME) de las tareas y las notas.
+- Glass: un widget que es solo una placa (para meter contenido dentro).
+- Card: un título suelto encima y debajo la placa, en `self.inner`.
 - BarChart: barras redondeadas con la actual más clara; al pasar el ratón, una tarjetita con el valor.
 - Pills: selector de dos o más opciones en forma de píldora.
 """
@@ -15,30 +17,85 @@ from kyora.ui import glyphs
 from kyora.ui.bar import font
 
 
-def paint_glass(p, theme, rect, radius=None, hi=False, fill=None):
-    """Placa de cristal en `rect`. `hi`: resaltada (más clara). `fill`: un color liso en lugar del cristal."""
+def paint_glass(p, theme, rect, radius=None, hi=False, fill=None, shadow=True):
+    """Placa elevada en `rect` (ver DISEÑO.md). `hi`: elegida (más clara). `fill`: un color liso (con el mismo
+    relieve). `shadow`: la sombra corta de debajo."""
     t = theme
     radius = t.card_radius if radius is None else radius
+    box = QRectF(rect).adjusted(1, 0.5, -1, -2.5 if shadow else -0.5)
+    shape = QPainterPath()
+    shape.addRoundedRect(box, radius, radius)
+    p.save()
+    if shadow:
+        p.setPen(Qt.NoPen)
+        for grow, alpha in ((2.0, 45), (1.0, 70)):  # la sombra corta, pegada debajo
+            p.setBrush(QColor(0, 0, 0, alpha))
+            p.drawRoundedRect(box.adjusted(-grow / 2, grow, grow / 2, grow), radius + grow / 2, radius + grow / 2)
+    if fill is not None:
+        top = QColor(fill)
+        grad = QLinearGradient(box.topLeft(), box.bottomLeft())
+        grad.setColorAt(0, top.lighter(106))
+        grad.setColorAt(1, top.darker(108))
+    else:
+        grad = QLinearGradient(box.topLeft(), box.bottomLeft())
+        grad.setColorAt(0, QColor(t.plate_pick if hi else t.plate_top))
+        grad.setColorAt(1, QColor(t.plate_top if hi else t.plate_bottom))
+    p.fillPath(shape, grad)
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QColor(0, 0, 0, 170), 1))  # la línea oscura de fuera
+    p.drawPath(shape)
+    light = QLinearGradient(box.topLeft(), box.bottomLeft())  # el filete de luz: solo arriba
+    light.setColorAt(0, QColor(t.plate_hi))
+    light.setColorAt(min(12 / max(box.height(), 1), 1), QColor(0, 0, 0, 0))
+    inner = QPainterPath()
+    inner.addRoundedRect(box.adjusted(1, 1, -1, -1), max(radius - 1, 0), max(radius - 1, 0))
+    p.setPen(QPen(QBrush(light), 1))
+    p.drawPath(inner)
+    p.restore()
+
+
+def paint_well(p, theme, rect, radius=8):
+    """Hueco hundido en `rect`: fondo más oscuro, sombra interior arriba y un filete claro abajo."""
+    t = theme
     box = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
     shape = QPainterPath()
     shape.addRoundedRect(box, radius, radius)
-    if fill is not None:
-        p.fillPath(shape, QColor(fill))
-        return
+    p.save()
     grad = QLinearGradient(box.topLeft(), box.bottomLeft())
-    grad.setColorAt(0, QColor(t.glass_top))
-    grad.setColorAt(1, QColor(t.glass_bottom))
+    grad.setColorAt(0, QColor(t.frame_dark))
+    grad.setColorAt(1, QColor(t.frame))
     p.fillPath(shape, grad)
-    if hi:
-        p.fillPath(shape, QColor(t.glass_hi))
+    p.setClipPath(shape)
+    p.setPen(QPen(QColor(0, 0, 0, 140), 2))
+    p.drawLine(box.topLeft(), box.topRight())  # la sombra interior de arriba
+    p.setClipping(False)
     p.setBrush(Qt.NoBrush)
-    p.setPen(QPen(QColor(t.glass_edge), 1))
+    edge = QLinearGradient(box.topLeft(), box.bottomLeft())
+    edge.setColorAt(0, QColor(0, 0, 0, 160))
+    edge.setColorAt(1, QColor(255, 255, 255, 28))
+    p.setPen(QPen(QBrush(edge), 1))
     p.drawPath(shape)
-    light = QLinearGradient(box.topLeft(), box.bottomLeft())  # el filete de luz: solo en el borde de arriba
-    light.setColorAt(0, QColor(t.glass_hi))
-    light.setColorAt(min(28 / max(box.height(), 1), 1), QColor(0, 0, 0, 0))
-    p.setPen(QPen(QBrush(light), 1))
-    p.drawPath(shape)
+    p.restore()
+
+
+FLAT_EDGE = QColor(255, 255, 255, 20)  # el borde fino de las superficies planas
+
+
+def paint_flat(p, theme, rect, radius=12, hi=False, fill=None):
+    """Superficie plana (tareas y notas, por ahora; ver DISEÑO.md): relleno liso, esquinas redondeadas y un borde
+    de 1 px. Sin degradado, filete ni sombra. `hi`: la elegida, algo más clara. `fill`: otro color liso."""
+    t = theme
+    box = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+    p.save()
+    p.setPen(QPen(FLAT_EDGE, 1))
+    p.setBrush(QColor(fill) if fill is not None else QColor(t.plate_pick if hi else t.plate_top))
+    p.drawRoundedRect(box, radius, radius)
+    p.restore()
+
+
+def paint_flat_well(p, theme, rect, radius=12):
+    """Fondo plano más oscuro (columnas del Kanban, la píldora de la fecha), con el mismo borde fino."""
+    paint_flat(p, theme, rect, radius, fill=theme.frame_dark)
 
 
 class Glass(QWidget):

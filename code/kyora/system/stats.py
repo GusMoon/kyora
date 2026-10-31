@@ -1,11 +1,7 @@
-"""Uso del equipo para el Lobby: CPU, RAM, disco y batería (psutil; solo lectura y barato), y quién lo usa."""
-import getpass
-import os
+"""Uso del equipo para el Lobby: CPU, RAM, disco y batería (psutil; solo lectura y barato)."""
 from collections import deque
 
 import psutil
-import pywintypes
-import win32api
 
 DISK = "C:\\"
 HISTORY = 60  # valores guardados de CPU y RAM (uno por lectura: 2 minutos con una lectura cada 2 s)
@@ -48,12 +44,3 @@ class History:
 def gigabytes(n):
     """Bytes -> texto en GB con coma decimal, como se escribe en español."""
     return f"{n / 1024 ** 3:.1f}".replace(".", ",")
-
-
-def user_info():
-    """(nombre para mostrar, nombre del equipo) de quien usa Windows."""
-    try:
-        name = win32api.GetUserNameEx(3)  # NameDisplay: el nombre completo (falla en algunas cuentas locales)
-    except pywintypes.error:
-        name = ""
-    return name or getpass.getuser(), os.environ.get("COMPUTERNAME", "")

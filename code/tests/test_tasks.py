@@ -163,3 +163,56 @@ def test_service_actions(clock):
     assert registry.invoke("tasks.list", {"due": "none"})["data"] == []
     assert registry.invoke("tasks.add_subtask", {"task_id": tid, "name": "Adjuntar"})["ok"]
     assert registry.is_destructive("tasks.delete")
+
+
+def test_statuses_and_counts(store, clock):
+    a = store.create("A")
+    b = store.create("B")
+    assert store.get(a)["status"] == "pending"
+    store.timer_start(a)
+    store.set_status(a, "doing")
+    assert store.get(a)["timer_started"] is not None  # en proceso el cronómetro sigue
+    clock.advance(60)
+    store.set_status(a, "done")
+    task = store.get(a)
+    assert task["status"] == "done" and task["finished"] == "2026-10-21T10:01:00" and task["real_s"] == 60
+    store.set_status(a, "review")
+    assert store.get(a)["finished"] is None
+    store.set_status(b, "doing")
+    assert store.counts() == {"pending": 0, "doing": 1, "review": 1, "done": 0}
+    with pytest.raises(ActionError):
+        store.set_status(a, "archivada")
+    assert model.next_status("pending") == "doing" and model.next_status("done") == "pending"
+
+
+def test_old_database_is_migrated(tmp_path, clock):
+    import sqlite3
+
+    path = tmp_path / "tasks.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, parent_id INTEGER, position INTEGER NOT NULL DEFAULT 0,"
+        " name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', expected_min INTEGER,"
+        " real_s INTEGER NOT NULL DEFAULT 0, timer_started TEXT, created TEXT NOT NULL, updated TEXT NOT NULL,"
+        " due TEXT, finished TEXT);"
+        "INSERT INTO tasks (name, created, updated, finished) VALUES ('hecha', 'x', 'x', '2026-10-20T10:00:00');"
+        "INSERT INTO tasks (name, created, updated) VALUES ('abierta', 'x', 'x');"
+        "PRAGMA user_version = 1;")
+    old.commit()
+    old.close()
+    store = TaskStore(path, now=clock)
+    assert {t["name"]: t["status"] for t in store.tasks()} == {"hecha": "done", "abierta": "pending"}
+    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+    store.close()
+
+
+def test_list_by_status(clock):
+    registry = ActionRegistry()
+    service = TaskService(":memory:", now=clock)
+    service.register(registry)
+    a = registry.invoke("tasks.create", {"name": "Uno"})["data"]
+    registry.invoke("tasks.create", {"name": "Dos"})
+    registry.invoke("tasks.set_status", {"task_id": a, "status": "review"})
+    assert [t["name"] for t in registry.invoke("tasks.list", {"status": "review"})["data"]] == ["Uno"]
+    assert [t["name"] for t in registry.invoke("tasks.list", {"status": "pending"})["data"]] == ["Dos"]
+    assert registry.invoke("tasks.counts")["data"]["review"] == 1

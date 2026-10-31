@@ -9,11 +9,12 @@ FRAME_MS = 7  # ~140 fotogramas por segundo: también en pantallas de 120/144 Hz
 class Tween:
     """Animación por tiempo real con un reloj preciso: si un fotograma se retrasa, el siguiente salta a donde toca."""
 
-    def __init__(self, parent, on_value, on_finished=lambda: None):
+    def __init__(self, parent, on_value, on_finished=lambda: None, frame_ms=FRAME_MS):
+        """`frame_ms`: cada cuánto se pinta (las piezas grandes, como el panel de ventanas, piden 16 ms: 60 por segundo)."""
         self._on_value, self._on_finished = on_value, on_finished
         self._timer = QTimer(parent)
         self._timer.setTimerType(Qt.PreciseTimer)
-        self._timer.setInterval(FRAME_MS)
+        self._timer.setInterval(frame_ms)
         self._timer.timeout.connect(self._step)
         self._clock = QElapsedTimer()
         self._start = self._end = 0.0

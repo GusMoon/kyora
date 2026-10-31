@@ -1,0 +1,23 @@
+# Secretos: las credenciales del chat nunca se suben
+.env
+.env.*
+supabase/.env
+supabase/.temp/
+
+# Python
+__pycache__/
+*.pyc
+code/.venv/
+.pytest_cache/
+.ruff_cache/
+
+# La app del movil (Flutter): lo que se genera al compilar y los datos de tu proyecto de Supabase
+mobile/env.json
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/captures/
+*.apk
+*.aab

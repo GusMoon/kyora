@@ -1,13 +1,18 @@
-"""Gestor de ventanas de Kyora: escritorios propios, máximo 3 ventanas visibles, el resto en espera.
+"""Gestor de ventanas de Kyora: cada escritorio es un mosaico de hasta 3 ventanas.
 
-No conoce Win32: habla con un objeto `system` (ver kyora/system/win32.py), lo que permite
-probarlo con un sistema falso. Todo el estado vive bajo un único bloqueo.
+El mosaico está siempre activo: las ventanas nuevas entran solas (las 3 primeras visibles y el resto en espera, en el
+panel izquierdo); una ventana nueva ocupa el sitio de la que tiene el foco. Cada escritorio guarda su propio mosaico,
+su lista de espera y su reparto; al cambiar de escritorio la pantalla se desliza.
+
+No conoce Win32: habla con un objeto `system` (ver kyora/system/win32.py), lo que permite probarlo con un sistema
+falso. Todo el estado vive bajo un único bloqueo.
 """
 import threading
 import time
 from dataclasses import dataclass, field
 
 from kyora.core.actions import ActionError
+from kyora.core.drop import ZONES, plan, zone_at
 from kyora.core.layout import (
     MAX_VISIBLE,
     Rect,
@@ -15,33 +20,37 @@ from kyora.core.layout import (
     compute_slots,
     fit_ratios,
     neighbor,
+    slide_offset,
 )
 
-LAUNCH_WINDOW_SECONDS = 15  # tras abrir una app desde la búsqueda, su ventana ocupa el lugar de la enfocada
-MAX_THUMBNAILS = 16  # capturas de ventanas guardadas para el panel de espera (grandes: cada una ocupa unos MB)
+LAUNCH_WINDOW_SECONDS = 15  # tras abrir una app desde la búsqueda (se anota; la ventana nueva ya ocupa el sitio de la enfocada)
+MAX_THUMBNAILS = 12  # capturas de ventanas guardadas para el panel de espera (cada una ocupa MB: pocas)
+THUMB_FRESH_SECONDS = 5.0  # una captura más reciente que esto se reutiliza al ocultar la ventana
 SHOW_GRACE_SECONDS = 1.0  # tras mostrar una ventana no se la da por desaparecida enseguida
 DIRECTIONS = ("left", "right", "up", "down")
 RESIZE_STEP = 0.05  # fracción del espacio que se mueve una división con el teclado
 RESIZE_THRESHOLD = 8  # píxeles: menos que esto al arrastrar un borde no cuenta como cambio de tamaño
 MIN_SIZE_TOLERANCE = 2  # píxeles: una ventana que queda más grande que su hueco por más que esto tiene tamaño mínimo
-# giro de la ventana grande con Alt+O: arriba, derecha, abajo, izquierda (sin espejo la principal es la primera mitad)
+# giro de la ventana grande: arriba, derecha, abajo, izquierda (sin espejo la principal es la primera mitad)
 ROTATION = (("rows", False), ("columns", True), ("rows", True), ("columns", False))
+# Win+Alt+flecha sobre una ventana del mosaico: dónde queda la ventana grande
+ARRANGE = {"up": ("rows", False), "right": ("columns", True), "down": ("rows", True), "left": ("columns", False)}
 
 
 @dataclass
 class Desktop:
     name: str
-    visible: list = field(default_factory=list)
-    waiting: list = field(default_factory=list)
+    tiled: list = field(default_factory=list)  # ventanas del mosaico (máx. 3), la principal primero
+    waiting: list = field(default_factory=list)  # aparcadas o minimizadas: ocultas hasta que se pidan
     orientation: str = "columns"
     mirrored: bool = False
     ratio: float = 0.5  # espacio de la ventana principal
     ratio2: float = 0.5  # espacio de la primera ventana del par apilado
     last_focus: int = 0
-    zoomed: int = 0  # ventana en grande sobre todo el hueco (Alt+C), o 0
+    zoomed: int = 0  # ventana en grande sobre todo el hueco, o 0
 
     def windows(self):
-        return self.visible + self.waiting
+        return self.tiled + self.waiting
 
 
 class WindowManager:
@@ -57,8 +66,10 @@ class WindowManager:
         self._hidden = set()  # ventanas que ocultó Kyora; las que se ocultan solas no cuentan
         self._shown_at = {}
         self._launch_until = 0.0
-        self._thumbs = {}  # hwnd -> (ancho, alto, bytes BGRX) de la última vez que se vio antes de pasar a espera
+        self._thumb_at = {}  # hwnd -> cuándo se tomó su captura
+        self._thumbs = {}  # hwnd -> (ancho, alto, bytes BGRX) de la última vez que se vio antes de ocultarse
         self._min_size = {}  # hwnd -> (ancho, alto) mínimos de las apps que no se dejan encoger (0 = sin mínimo)
+        self._booting = False  # al arrancar, las ventanas que ya había se colocan sin animación
 
     # ---------- utilidades internas ----------
 
@@ -69,10 +80,7 @@ class WindowManager:
         return {h for d in self.desktops for h in d.windows()}
 
     def _area(self):
-        """Hueco que deja el marco de Kyora (barra a la izquierda y borde fino en los demás lados).
-
-        La interfaz fija `insets` (izquierda, arriba, derecha, abajo) en píxeles físicos al arrancar.
-        """
+        """Pantalla donde viven las ventanas (menos los márgenes `insets` si los hay: sin marco son cero)."""
         a = self.sys.work_area()
         left, top, right, bottom = self.cfg.get("insets", (0, 0, 0, 0))
         return Rect(a.left + left, a.top + top, a.right - right, a.bottom - bottom)
@@ -85,71 +93,84 @@ class WindowManager:
 
         No se guarda: cuando la app con mínimo se va, el mosaico vuelve al reparto del usuario.
         """
-        n = len(desktop.visible)
+        n = len(desktop.tiled)
         return fit_ratios(
             n, self._area(), desktop.orientation, self.cfg["gap"], self._outer(n), desktop.ratio, desktop.ratio2,
-            [self._min_size.get(h) for h in desktop.visible],
+            [self._min_size.get(h) for h in desktop.tiled],
         )
 
     def _slots(self, desktop):
-        """Huecos del mosaico, sin contar la ventana en grande (las direcciones y el reparto se calculan con estos)."""
-        n = len(desktop.visible)
+        """Huecos del mosaico en pantalla, sin contar la ventana en grande (las direcciones y el reparto se calculan
+        con estos)."""
+        n = len(desktop.tiled)
         return compute_slots(
             n, self._area(), desktop.orientation, desktop.mirrored,
             self.cfg["gap"], self._outer(n), *self._ratios(desktop),
         )
 
     def _rects(self, desktop):
-        """Dónde está cada ventana visible: la ventana en grande ocupa todo el hueco, con el margen del marco."""
+        """Dónde está cada ventana del mosaico: la ventana en grande ocupa todo el hueco."""
         slots = self._slots(desktop)
-        if desktop.zoomed not in desktop.visible:
+        if desktop.zoomed not in desktop.tiled:
             desktop.zoomed = 0
             return slots
-        full = compute_slots(1, self._area(), gap=self.cfg["gap"], outer=self._outer(len(desktop.visible)))[0]
-        return [full if hwnd == desktop.zoomed else rect for hwnd, rect in zip(desktop.visible, slots)]
+        full = compute_slots(1, self._area(), gap=self.cfg["gap"], outer=self._outer(len(desktop.tiled)))[0]
+        return [full if hwnd == desktop.zoomed else rect for hwnd, rect in zip(desktop.tiled, slots)]
+
+    def _on_screen(self, desktop):
+        """Las ventanas que se ven en la pantalla: las del mosaico."""
+        return list(desktop.tiled)
 
     def _focused(self):
         cur = self._current()
         fg = self.sys.foreground()
-        if fg in cur.visible:
+        if fg in cur.tiled:
             cur.last_focus = fg
             return fg
-        if cur.last_focus in cur.visible:
+        if cur.last_focus in cur.tiled:
             return cur.last_focus
-        return cur.visible[0] if cur.visible else 0
+        return cur.tiled[0] if cur.tiled else 0
 
     def _promote(self, desktop, count):
-        """Sube ventanas de la espera a visibles (sin las minimizadas) mientras haya hueco."""
+        """Sube ventanas de la espera al mosaico (sin las minimizadas) mientras haya hueco."""
         for _ in range(count):
-            if len(desktop.visible) >= MAX_VISIBLE:
+            if len(desktop.tiled) >= MAX_VISIBLE:
                 return
             candidate = next((h for h in desktop.waiting if not self.sys.is_minimized(h)), None)
             if candidate is None:
                 return
             desktop.waiting.remove(candidate)
-            desktop.visible.append(candidate)
+            desktop.tiled.append(candidate)
 
     def _place_in(self, desktop, hwnd):
-        (desktop.visible if len(desktop.visible) < MAX_VISIBLE else desktop.waiting).append(hwnd)
+        """Una ventana llega a otro escritorio (al cerrar uno o al enviarla): al mosaico si cabe; si no, a la espera."""
+        (desktop.tiled if len(desktop.tiled) < MAX_VISIBLE else desktop.waiting).append(hwnd)
+
+    def _forget(self, desktop, hwnd):
+        """Saca una ventana de las listas de un escritorio (sin tocar la ventana)."""
+        for group in (desktop.tiled, desktop.waiting):
+            if hwnd in group:
+                group.remove(hwnd)
 
     def _signature(self):
         return (
             self.active,
             tuple(
-                (d.name, tuple(d.visible), tuple(d.waiting), d.orientation, d.mirrored, d.ratio, d.ratio2, d.zoomed)
+                (d.name, tuple(d.tiled), tuple(d.waiting), d.orientation, d.mirrored, d.ratio, d.ratio2, d.zoomed)
                 for d in self.desktops
             ),
         )
 
     def _apply(self):
-        """Deja el sistema como dice el estado: coloca lo visible y después oculta lo que sale.
+        """Deja el sistema como dice el estado: coloca lo que se ve y después oculta lo que sale.
 
-        Se muestra antes de ocultar para que, al cambiar de escritorio, no se vea el fondo entre medias.
+        Se muestra antes de ocultar para que, al cambiar de escritorio, no se vea el fondo entre medias. Las
+        ventanas se colocan al instante en su hueco: sin capturas estiradas ni animaciones que deformen su contenido.
         """
         cur = self._current()
         for _ in range(2):  # si una app resulta no dejarse encoger, se reparte otra vez con su mínimo
             learned = False
-            for hwnd, rect in zip(cur.visible, self._rects(cur)):
+            for hwnd, rect in zip(cur.tiled, self._rects(cur)):
                 if not self.sys.is_shown(hwnd):
                     self._shown_at[hwnd] = self.clock()
                     self.sys.show(hwnd)
@@ -161,12 +182,9 @@ class WindowManager:
         if cur.zoomed and raise_:
             raise_(cur.zoomed)  # la ventana en grande queda por encima de las demás, sin robar el foco
         for i, desktop in enumerate(self.desktops):
-            for hwnd in desktop.windows() if i != self.active else desktop.waiting:
+            for hwnd in desktop.waiting if i == self.active else desktop.windows():
                 if self.sys.is_shown(hwnd):
-                    # la captura se toma mientras todavía se ve, y solo si va a la espera: las que se ocultan al
-                    # cambiar de escritorio vuelven a verse al volver a él y no aparecen en el panel
-                    if hwnd in desktop.waiting:
-                        self._remember(hwnd)
+                    self._remember(hwnd)  # la captura se toma mientras todavía se ve (panel izquierdo y escritorios)
                     self.sys.hide(hwnd)
                 self._hidden.add(hwnd)
         flush = getattr(self.sys, "flush", None)
@@ -188,12 +206,16 @@ class WindowManager:
         return True
 
     def _remember(self, hwnd):
-        """Guarda una captura de la ventana (para el panel de espera) si el sistema sabe hacerlas."""
+        """Guarda una captura de la ventana (para el panel izquierdo y los escritorios) si el sistema sabe hacerlas."""
         capture = getattr(self.sys, "capture", None)
+        now = self.clock()
+        if hwnd in self._thumbs and now - self._thumb_at.get(hwnd, -1e9) < THUMB_FRESH_SECONDS:
+            return  # PrintWindow cuesta decenas de ms por ventana: con una captura reciente no se repite
         shot = capture(hwnd) if capture else None
         if shot:
             self._thumbs.pop(hwnd, None)
             self._thumbs[hwnd] = shot
+            self._thumb_at[hwnd] = now
             while len(self._thumbs) > MAX_THUMBNAILS:
                 self._thumbs.pop(next(iter(self._thumbs)))
 
@@ -215,8 +237,8 @@ class WindowManager:
             now = self.clock()
 
             for desktop in self.desktops:
-                dead = [h for h in desktop.visible if not self.sys.is_alive(h)]
-                desktop.visible = [h for h in desktop.visible if h not in dead]
+                dead = [h for h in desktop.tiled if not self.sys.is_alive(h)]
+                desktop.tiled = [h for h in desktop.tiled if h not in dead]
                 desktop.waiting = [h for h in desktop.waiting if self.sys.is_alive(h)]
                 self._promote(desktop, len(dead))
             self.floating = {h for h in self.floating if self.sys.is_alive(h)}
@@ -226,7 +248,7 @@ class WindowManager:
 
             cur = self._current()
             gone, keep = 0, []
-            for hwnd in cur.visible:
+            for hwnd in cur.tiled:
                 if self.sys.is_minimized(hwnd):
                     cur.waiting.append(hwnd)
                     gone += 1
@@ -236,25 +258,17 @@ class WindowManager:
                     gone += 1
                 else:
                     keep.append(hwnd)
-            cur.visible = keep
+            cur.tiled = keep
             self._promote(cur, gone)
 
             tracked = self._tracked()
             for hwnd in self.sys.list_windows():
                 if hwnd in tracked or hwnd in self.floating:
                     continue
-                if len(cur.visible) < MAX_VISIBLE:
-                    cur.visible.append(hwnd)
-                elif now < self._launch_until and cur.visible:
-                    target = cur.last_focus if cur.last_focus in cur.visible else cur.visible[-1]
-                    cur.visible[cur.visible.index(target)] = hwnd
-                    cur.waiting.append(target)
-                    self._launch_until = 0.0
-                else:
-                    cur.waiting.append(hwnd)
+                self._join_mosaic(cur, hwnd)
 
             fg = self.sys.foreground()
-            if fg in cur.visible:
+            if fg in cur.tiled:
                 cur.last_focus = fg
                 if cur.zoomed and fg != cur.zoomed:
                     cur.zoomed = 0  # el foco pasó a otra ventana del mosaico: la grande vuelve a su sitio
@@ -263,12 +277,41 @@ class WindowManager:
             if self._signature() != before:
                 self.notify()
 
+    def _join_mosaic(self, cur, hwnd):
+        """Una ventana nueva entra al mosaico en el sitio de la enfocada: con hueco, la enfocada se
+        corre; con 3, la enfocada pasa a la espera. Al arrancar (ventanas que ya había) solo se rellenan los huecos."""
+        if self._booting:
+            (cur.tiled if len(cur.tiled) < MAX_VISIBLE else cur.waiting).append(hwnd)
+            return
+        focused = self._focused()
+        if focused in cur.tiled:
+            index = cur.tiled.index(focused)
+            if len(cur.tiled) < MAX_VISIBLE:
+                cur.tiled.insert(index, hwnd)
+            else:
+                cur.tiled[index] = hwnd
+                cur.waiting.append(focused)
+        elif len(cur.tiled) < MAX_VISIBLE:
+            cur.tiled.append(hwnd)
+        else:
+            cur.waiting.append(hwnd)
+        self._launch_until = 0.0
+
     def adopt_existing(self):
-        self.sync()
+        self._booting = True
+        try:
+            self.sync()
+        finally:
+            self._booting = False
 
     def expect_launch(self):
         with self.lock:
             self._launch_until = self.clock() + LAUNCH_WINDOW_SECONDS
+
+    def _card(self, hwnd, rect, visible):
+        app, _title = self.sys.describe(hwnd)
+        return {"hwnd": hwnd, "rect": (rect.left, rect.top, rect.right, rect.bottom), "visible": visible,
+                "name": app, "exe": self.sys.exe_path(hwnd), "shot": self._thumbs.get(hwnd)}
 
     # ---------- foco y disposición ----------
 
@@ -277,28 +320,30 @@ class WindowManager:
         with self.lock:
             cur = self._current()
             hwnd = self._focused()
-            if not hwnd:
+            if not hwnd or hwnd not in cur.tiled:
                 return
-            target = neighbor(self._slots(cur), cur.visible.index(hwnd), dir)
+            target = neighbor(self._slots(cur), cur.tiled.index(hwnd), dir)
             if target is not None:
                 if cur.zoomed:
                     cur.zoomed = 0  # cambiar de ventana deshace la ventana en grande
                     self._changed()
-                cur.last_focus = cur.visible[target]
+                cur.last_focus = cur.tiled[target]
                 self.sys.focus(cur.last_focus)
 
     def focus_next(self):
-        """Pasa el foco a la siguiente ventana visible del mosaico (después de la última, vuelve a la primera)."""
+        """Pasa el foco a la siguiente ventana del mosaico (después de la última, vuelve a la primera)."""
         with self.lock:
             cur = self._current()
             hwnd = self._focused()
-            if not hwnd or len(cur.visible) < 2:
+            order = cur.tiled
+            if not hwnd or len(order) < 2:
                 return
             if cur.zoomed:
                 cur.zoomed = 0  # cambiar de ventana deshace la ventana en grande
                 self._changed()
-            cur.last_focus = cur.visible[(cur.visible.index(hwnd) + 1) % len(cur.visible)]
-            self.sys.focus(cur.last_focus)
+            target = order[(order.index(hwnd) + 1) % len(order)] if hwnd in order else order[0]
+            cur.last_focus = target
+            self.sys.focus(target)
 
     def rotate(self):
         """Gira la ventana grande por los 4 lados: arriba, derecha, abajo, izquierda y otra vez arriba."""
@@ -308,32 +353,48 @@ class WindowManager:
             cur.orientation, cur.mirrored = ROTATION[(ROTATION.index(here) + 1) % len(ROTATION)]
             self._changed()
 
+    def arrange(self, dir):
+        """Win+Alt+flecha. La ventana grande del mosaico pasa a ese lado; si ya estaba ahí, abajo la minimiza (al panel
+        izquierdo)."""
+        self._check_direction(dir)
+        with self.lock:
+            cur = self._current()
+            hwnd = self._focused()
+            if not hwnd or hwnd not in cur.tiled:
+                return
+            target = ARRANGE[dir]
+            if (cur.orientation, cur.mirrored) == target and dir == "down":
+                return self.park()
+            cur.orientation, cur.mirrored = target
+            self._changed()
+
     def zoom_toggle(self):
-        """La ventana enfocada pasa a ocupar todo el hueco (con el margen del marco) por encima de las demás.
+        """La ventana enfocada del mosaico pasa a ocupar todo el hueco por encima de las demás.
 
         Las demás no se mueven ni pasan a espera. Otra vez (o al enfocar otra ventana) vuelve a su sitio.
         """
         with self.lock:
             cur = self._current()
             hwnd = self._focused()
-            if not hwnd:
+            if not hwnd or hwnd not in cur.tiled:
                 return
             cur.zoomed = 0 if cur.zoomed == hwnd else hwnd
             self._changed()
             self.sys.focus(hwnd)
 
     def move_dir(self, dir):
+        """Win+flechas: la ventana cambia de hueco con su vecina."""
         self._check_direction(dir)
         with self.lock:
             cur = self._current()
             hwnd = self._focused()
-            if not hwnd:
+            if not hwnd or hwnd not in cur.tiled:
                 return
-            i = cur.visible.index(hwnd)
+            i = cur.tiled.index(hwnd)
             j = neighbor(self._slots(cur), i, dir)
             if j is None:
                 return
-            cur.visible[i], cur.visible[j] = cur.visible[j], cur.visible[i]
+            cur.tiled[i], cur.tiled[j] = cur.tiled[j], cur.tiled[i]
             self._changed()
 
     def orientation_toggle(self):
@@ -354,63 +415,79 @@ class WindowManager:
     # ---------- ventanas ----------
 
     def park(self):
-        """Manda la ventana enfocada a la espera; si hay otra esperando, ocupa su sitio."""
+        """Aparca la ventana enfocada (la minimiza: espera en el panel izquierdo). Si hay otra esperando, ocupa su sitio."""
         with self.lock:
             cur = self._current()
             hwnd = self._focused()
-            if not hwnd:
+            if not hwnd or hwnd not in cur.tiled:
                 return
-            i = cur.visible.index(hwnd)
+            i = cur.tiled.index(hwnd)
             replacement = next((h for h in cur.waiting if not self.sys.is_minimized(h)), None)
             if replacement:
-                cur.visible[i] = replacement
+                cur.tiled[i] = replacement
                 cur.waiting.remove(replacement)
             else:
-                cur.visible.pop(i)
+                cur.tiled.pop(i)
             cur.waiting.append(hwnd)
             self._changed()
             if replacement:
                 self.sys.focus(replacement)
 
     def unpark(self, hwnd):
-        """Trae una ventana en espera: ocupa un hueco libre o reemplaza a la enfocada."""
+        """Trae una ventana aparcada: ocupa un hueco libre del mosaico o, si está lleno, el sitio de la enfocada."""
         with self.lock:
             cur = self._current()
             if hwnd not in cur.waiting:
                 raise ActionError("not_waiting", "Esa ventana no está en espera en este escritorio")
-            if len(cur.visible) < MAX_VISIBLE:
+            if len(cur.tiled) < MAX_VISIBLE:
                 cur.waiting.remove(hwnd)
-                cur.visible.append(hwnd)
+                cur.tiled.append(hwnd)
             else:
-                self._swap_in(cur, hwnd, cur.visible.index(self._focused()))
+                focused = self._focused()
+                self._swap_in(cur, hwnd, cur.tiled.index(focused) if focused in cur.tiled else len(cur.tiled) - 1)
             self._changed()
             self.sys.focus(hwnd)
 
+    def bring_to(self, hwnd, x=None, y=None):
+        """Trae una ventana en espera al mosaico. Si se suelta en (x, y) de la pantalla (desde el panel izquierdo),
+        ocupa ese sitio."""
+        with self.lock:
+            cur = self._current()
+            if hwnd in cur.tiled:
+                self.sys.focus(hwnd)
+                return
+            if hwnd not in cur.waiting:
+                raise ActionError("unknown_window", "Esa ventana no está en este escritorio")
+            if x is not None and cur.tiled:
+                self._drop_into_mosaic(cur, hwnd, x, y)
+                return
+            self.unpark(hwnd)
+
     def show_count(self, n):
-        """Deja visibles `n` ventanas (1, 2 o 3): aparca las de más, empezando por la última, o trae las que esperan."""
+        """Deja en el mosaico `n` ventanas (1, 2 o 3): aparca las de más, empezando por la última, o trae las que esperan."""
         if n not in range(1, MAX_VISIBLE + 1):
             raise ActionError("bad_count", f"Solo se pueden ver 1, 2 o 3 ventanas, no {n}")
         with self.lock:
             cur = self._current()
             focused = self._focused()
-            while len(cur.visible) > n:
-                victim = next(h for h in reversed(cur.visible) if h != focused)
-                cur.visible.remove(victim)
+            while len(cur.tiled) > n:
+                victim = next(h for h in reversed(cur.tiled) if h != focused)
+                cur.tiled.remove(victim)
                 cur.waiting.append(victim)
-            self._promote(cur, n - len(cur.visible))
+            self._promote(cur, n - len(cur.tiled))
             self._changed()
-            if focused and focused in cur.visible:
+            if focused and focused in cur.tiled:
                 self.sys.focus(focused)
 
     def close_window(self, hwnd):
-        """Cierra una ventana concreta (por ejemplo desde el panel de espera)."""
+        """Cierra una ventana concreta (por ejemplo desde el panel izquierdo)."""
         with self.lock:
             if hwnd not in self._tracked():
                 raise ActionError("unknown_window", "Esa ventana ya no existe")
             self.sys.close(hwnd)
 
     def close_all(self):
-        """Pide cerrarse a todas las ventanas de Kyora: visibles, en espera, de otros escritorios y flotantes.
+        """Pide cerrarse a todas las ventanas de Kyora: de todos los escritorios y las flotantes.
 
         Es un cierre amable (la app puede preguntar si guardar). Las que no se cierran las recoloca el siguiente sync.
         """
@@ -421,7 +498,7 @@ class WindowManager:
             return len(targets)
 
     def solo(self):
-        """Deja solo la ventana enfocada; las demás pasan a espera (no se cierran ni se minimizan)."""
+        """Deja solo la ventana enfocada en el mosaico; las demás pasan a espera (no se cierran ni se minimizan)."""
         self.show_count(1)
 
     def unpark_next(self):
@@ -438,60 +515,48 @@ class WindowManager:
         with self.lock:
             cur = self._current()
             focused = self._focused()
-            victim = next((h for h in reversed(cur.visible) if h != focused), None)
+            victim = next((h for h in reversed(cur.tiled) if h != focused), None)
             if victim is None:
                 return
-            cur.visible.remove(victim)
+            cur.tiled.remove(victim)
             cur.waiting.append(victim)
             self._changed()
 
     def drop(self, hwnd, x, y):
-        """Suelta una ventana (en espera o visible) sobre el hueco que está en (x, y) de la pantalla.
-
-        Devuelve True si cambió algo. Soltar fuera de un hueco, o sobre el suyo, deja todo como estaba.
-        """
+        """Suelta una ventana (en espera o del mosaico) en (x, y) de la pantalla: ocupa el sitio de esa zona y las demás
+        se acomodan solas. Devuelve True si cambió algo; fuera de la pantalla la ventana vuelve a su hueco."""
         with self.lock:
             cur = self._current()
-            slot = self._slot_index_at(cur, x, y)
-            if hwnd in cur.waiting:
-                if slot is None:
-                    return False
-                self._swap_in(cur, hwnd, slot)
-                self._changed()
-                self.sys.focus(hwnd)
-                return True
-            if hwnd in cur.visible:
-                i = cur.visible.index(hwnd)
-                if slot is None or slot == i:
-                    self._apply()  # la ventana vuelve a su hueco
-                    return False
-                cur.visible[i], cur.visible[slot] = cur.visible[slot], cur.visible[i]
-                self._changed()
-                self.sys.focus(hwnd)
-                return True
-            return False
+            if hwnd not in cur.tiled and hwnd not in cur.waiting:
+                return False
+            area = self._area()
+            if not (area.left <= x < area.right and area.top <= y < area.bottom):
+                self._apply()  # la ventana vuelve a su hueco
+                return False
+            self._drop_into_mosaic(cur, hwnd, x, y)
+            return True
 
     def move_to_slot(self, slot, hwnd=0):
-        """Lleva una ventana (por defecto la enfocada) al hueco `slot` (0 = principal)."""
+        """Lleva una ventana (por defecto la enfocada) al hueco `slot` del mosaico (0 = principal)."""
         with self.lock:
             cur = self._current()
             hwnd = hwnd or self._focused()
             if not hwnd:
                 return
-            if not isinstance(slot, int) or not 0 <= slot < len(cur.visible):
+            if not isinstance(slot, int) or not 0 <= slot < len(cur.tiled):
                 raise ActionError("no_slot", f"No hay un hueco {slot + 1 if isinstance(slot, int) else slot} en este escritorio")
             if hwnd in cur.waiting:
                 self._swap_in(cur, hwnd, slot)
-            elif hwnd in cur.visible:
-                i = cur.visible.index(hwnd)
-                cur.visible[i], cur.visible[slot] = cur.visible[slot], cur.visible[i]
+            elif hwnd in cur.tiled:
+                i = cur.tiled.index(hwnd)
+                cur.tiled[i], cur.tiled[slot] = cur.tiled[slot], cur.tiled[i]
             else:
                 raise ActionError("unknown_window", "Esa ventana no está en este escritorio")
             self._changed()
             self.sys.focus(hwnd)
 
     def swap_into_focused(self, hwnd):
-        """Una ventana en espera ocupa el hueco de la enfocada, que pasa a espera (el selector de Alt+E)."""
+        """Win+R: una ventana en espera ocupa el sitio de la enfocada, que pasa a esperar en el panel izquierdo."""
         with self.lock:
             cur = self._current()
             if hwnd not in cur.waiting:
@@ -499,22 +564,24 @@ class WindowManager:
             focused = self._focused()
             if not focused:
                 return self.unpark(hwnd)
-            self._swap_in(cur, hwnd, cur.visible.index(focused))
+            self._swap_in(cur, hwnd, cur.tiled.index(focused))
             cur.last_focus = hwnd
             self._changed()
             self.sys.focus(hwnd)
 
     def switcher_rect(self):
-        """Dónde abrir el selector: el hueco de la ventana enfocada o, si no hay ninguna, todo el hueco del marco."""
+        """Dónde abrir el selector: el hueco de la ventana enfocada o, si no hay ninguna, toda la pantalla."""
         with self.lock:
             cur = self._current()
             focused = self._focused()
-            return self._rects(cur)[cur.visible.index(focused)] if focused else self._area()
+            if focused in cur.tiled:
+                return self._rects(cur)[cur.tiled.index(focused)]
+            return self._area()
 
     def _slot_index_at(self, desktop, x, y):
         rects = self._rects(desktop)
-        if desktop.zoomed:  # la ventana en grande está encima: manda en todo el hueco que cubre
-            i = desktop.visible.index(desktop.zoomed)
+        if desktop.zoomed in desktop.tiled:  # la ventana en grande está encima: manda en todo el hueco que cubre
+            i = desktop.tiled.index(desktop.zoomed)
             if rects[i].contains(x, y):
                 return i
         return next((i for i, rect in enumerate(rects) if rect.contains(x, y)), None)
@@ -526,46 +593,95 @@ class WindowManager:
             slot = self._slot_index_at(cur, x, y)
             return self._rects(cur)[slot] if slot is not None else None
 
-    def slot_rect(self, hwnd):
-        """Rectángulo del hueco que le toca a una ventana visible, o None."""
+    def _zone_rects(self, cur):
+        """Los 4 sitios (izquierda-arriba, izquierda-abajo, derecha-arriba, derecha-abajo) como rectángulos de pantalla."""
+        area = self._area()
+        gap, outer = self.cfg["gap"], self._outer(MAX_VISIBLE)
+        left, top = area.left + outer, area.top + outer
+        right, bottom = area.right - outer, area.bottom - outer
+        mid_x, mid_y = (left + right) // 2, (top + bottom) // 2
+        h = gap // 2
+        return {"left_top": Rect(left, top, mid_x - h, mid_y - h), "left_bottom": Rect(left, mid_y + h, mid_x - h, bottom),
+                "right_top": Rect(mid_x + h, top, right, mid_y - h), "right_bottom": Rect(mid_x + h, mid_y + h, right, bottom)}
+
+    def _plan_drop(self, cur, hwnd, x, y):
+        """(tiled, mirrored, desplazada, sitio) que resultarían de soltar `hwnd` en (x, y)."""
+        area = self._area()
+        zone = zone_at((area.left, area.top, area.right, area.bottom), x, y)
+        others = [h for h in cur.tiled if h != hwnd]
+        tiled, mirrored, out = plan(others, cur.mirrored if cur.orientation == "columns" else False, hwnd, zone)
+        return tiled, mirrored, out, zone
+
+    def drop_zones(self, hwnd, x, y):
+        """Lo que se enseña mientras se arrastra `hwnd`: los 4 sitios donde puede quedar, cuál está bajo (x, y) y el
+        rectángulo donde quedaría de verdad. None si no hay mosaico."""
         with self.lock:
             cur = self._current()
-            return self._rects(cur)[cur.visible.index(hwnd)] if hwnd in cur.visible else None
+            if not cur.tiled:
+                return None
+            tiled, mirrored, _, zone = self._plan_drop(cur, hwnd, x, y)
+            slots = compute_slots(len(tiled), self._area(), "columns", mirrored, self.cfg["gap"], self._outer(len(tiled)))
+            result = slots[tiled.index(hwnd)]
+            quads = self._zone_rects(cur)
+            return {"quads": [(quads[z].left, quads[z].top, quads[z].right, quads[z].bottom) for z in ZONES],
+                    "hover": ZONES.index(zone), "result": (result.left, result.top, result.right, result.bottom)}
+
+    def _drop_into_mosaic(self, cur, hwnd, x, y):
+        """`hwnd` se suelta en (x, y): ocupa ese sitio y las demás se acomodan solas."""
+        tiled, mirrored, out, _ = self._plan_drop(cur, hwnd, x, y)
+        self._forget(cur, hwnd)
+        if out is not None:
+            self._forget(cur, out)
+            cur.waiting.append(out)  # la ventana a la que quita el sitio espera en el panel izquierdo
+        cur.tiled, cur.mirrored, cur.orientation = tiled, mirrored, "columns"
+        cur.ratio = cur.ratio2 = 0.5
+        cur.zoomed = 0
+        self._changed()
+        self.sys.focus(hwnd)
+
+    def slot_rect(self, hwnd):
+        """Rectángulo del hueco que le toca a una ventana del mosaico, o None."""
+        with self.lock:
+            cur = self._current()
+            return self._rects(cur)[cur.tiled.index(hwnd)] if hwnd in cur.tiled else None
 
     def focused_window(self, keep_last=False):
-        """Ventana del mosaico que tiene el foco ahora, o 0 (para rodearla con el contorno).
+        """Ventana del escritorio que tiene el foco ahora, o 0 (para rodearla con el contorno).
 
         Con `keep_last` también cuenta la última enfocada aunque el foco esté en otra parte (la tarjeta del buscador).
         """
         with self.lock:
             cur = self._current()
             fg = self.sys.foreground()
-            if fg in cur.visible:
+            if fg in cur.tiled:
                 return fg
-            return cur.last_focus if keep_last and cur.last_focus in cur.visible else 0
+            return cur.last_focus if keep_last and cur.last_focus in cur.tiled else 0
 
     def visible_windows(self):
-        """Ventanas que se ven ahora en el mosaico (para dibujar su borde). Con una en grande, solo esa: las demás
-        quedan debajo y su borde se pintaría encima de ella."""
+        """Ventanas que se ven ahora (para el contorno). Con una en grande, solo esa: las demás quedan debajo."""
         with self.lock:
             cur = self._current()
-            if cur.zoomed in cur.visible:
+            if cur.zoomed in cur.tiled:
                 return [cur.zoomed]
-            return list(cur.visible)
+            return self._on_screen(cur)
+
+    def is_draggable_here(self, hwnd):
+        """True si es una ventana del mosaico: su arrastre enseña los huecos."""
+        with self.lock:
+            return hwnd in self._current().tiled
 
     def is_tiled(self, hwnd):
         with self.lock:
-            return hwnd in self._current().visible
+            return hwnd in self._current().tiled
 
     def focus_at(self, x, y):
-        """Da el foco a la ventana del mosaico que está bajo (x, y), si realmente es la que se ve ahí."""
+        """Da el foco a la ventana que está bajo (x, y), si es una de Kyora y no la tiene ya."""
         with self.lock:
             cur = self._current()
-            slot = self._slot_index_at(cur, x, y)
-            if slot is None:
+            target = self.sys.window_at(x, y)
+            if target not in cur.tiled:
                 return False
-            target = cur.visible[slot]
-            if self.sys.foreground() == target or self.sys.window_at(x, y) != target:
+            if self.sys.foreground() == target:
                 return False
             cur.last_focus = target
             self.sys.focus(target)
@@ -587,7 +703,7 @@ class WindowManager:
     def _move_border(self, desktop, axis, fraction):
         desktop.ratio, desktop.ratio2 = self._ratios(desktop)  # se parte de lo que se ve (con los mínimos aplicados)
         desktop.ratio, desktop.ratio2 = adjust_ratios(
-            len(desktop.visible), desktop.orientation, desktop.mirrored,
+            len(desktop.tiled), desktop.orientation, desktop.mirrored,
             desktop.ratio, desktop.ratio2, axis, fraction,
         )
 
@@ -604,11 +720,11 @@ class WindowManager:
         """Tras arrastrar un borde de una ventana, conserva el nuevo reparto. False si no cambió nada útil."""
         with self.lock:
             cur = self._current()
-            if hwnd not in cur.visible or hwnd == cur.zoomed:  # la ventana en grande no reparte el mosaico
+            if hwnd not in cur.tiled or hwnd == cur.zoomed:  # la ventana en grande no reparte el mosaico
                 self._apply()
                 return False
             slots = self._slots(cur)
-            index = cur.visible.index(hwnd)
+            index = cur.tiled.index(hwnd)
             old, new = slots[index], self.sys.frame_rect(hwnd)
             moves = {
                 "left": new.left - old.left, "right": new.right - old.right,
@@ -627,9 +743,15 @@ class WindowManager:
             return changed
 
     def _swap_in(self, desktop, hwnd, slot):
-        out = desktop.visible[slot]
-        desktop.visible[slot] = hwnd
-        desktop.waiting[desktop.waiting.index(hwnd)] = out
+        """`hwnd` (en espera) ocupa el hueco `slot` del mosaico; la que estaba pasa a esperar (en el mismo sitio de la
+        lista, si venía de ella)."""
+        out = desktop.tiled[slot]
+        if hwnd in desktop.waiting:
+            desktop.waiting[desktop.waiting.index(hwnd)] = out
+        else:
+            self._forget(desktop, hwnd)
+            desktop.waiting.append(out)
+        desktop.tiled[slot] = hwnd
 
     def refocus(self):
         """Devuelve el foco a la última ventana usada (al cerrar la búsqueda)."""
@@ -645,7 +767,7 @@ class WindowManager:
                 self.sys.close(hwnd)
 
     def float_toggle(self):
-        """Saca de Kyora la ventana enfocada (queda libre) o la devuelve al mosaico."""
+        """Saca de Kyora la ventana enfocada (queda libre de verdad: Kyora no la toca) o la devuelve al mosaico."""
         with self.lock:
             fg = self.sys.foreground()
             if fg in self.floating:
@@ -655,25 +777,45 @@ class WindowManager:
             if not hwnd:
                 return
             cur = self._current()
-            cur.visible.remove(hwnd)
+            self._forget(cur, hwnd)
             self.floating.add(hwnd)
             self._promote(cur, 1)
             self._changed()
 
     def activate(self, hwnd):
-        """Lleva al frente cualquier ventana de Kyora, cambiando de escritorio si hace falta."""
+        """Lleva al frente cualquier ventana de Kyora, cambiando de escritorio si hace falta (la búsqueda). Una ventana
+        en espera vuelve al mosaico."""
         with self.lock:
             index = next((i for i, d in enumerate(self.desktops) if hwnd in d.windows()), None)
             if index is None:
                 raise ActionError("unknown_window", "Kyora no gestiona esa ventana")
             if index != self.active:
                 self.desktop_switch(index)
-            if hwnd in self._current().waiting:
+            cur = self._current()
+            if hwnd in cur.waiting:
                 self.unpark(hwnd)
             else:
                 self.sys.focus(hwnd)
 
     # ---------- escritorios ----------
+
+    def _slide(self, target, direction):
+        """Si el sistema sabe enseñarlo, desliza todo el contenido al escritorio `target` (ver ui/transition.py).
+        True si se hizo; después hay que avisar con `transition_done`."""
+        slide = getattr(self.sys, "slide", None)
+        if not slide or self._booting or self.cfg.get("light_mode", True) or not self.cfg.get("animate_windows", True):
+            return False
+        cur, dest = self._current(), self.desktops[target]
+        for hwnd in cur.tiled:
+            self._remember(hwnd)  # lo que sale: la captura se guarda para cuando se vuelva
+        old = self._cards(cur, cur.tiled)
+        new = self._cards(dest, dest.tiled)
+        return bool(slide({"old": old, "new": new, "offset": slide_offset(direction, self._area()),
+                           "area": (*self._area().center,)}))
+
+    def _cards(self, desktop, hwnds):
+        rects = dict(zip(desktop.tiled, self._rects(desktop)))
+        return [self._card(h, rects[h], True) for h in hwnds]
 
     def desktop_switch(self, index):
         with self.lock:
@@ -682,10 +824,16 @@ class WindowManager:
             self._check_index(index)
             if index == self.active:
                 return
+            started = self._slide(index, 1 if index > self.active else -1)
             self.active = index
             self._changed()
+            if started:
+                done = getattr(self.sys, "transition_done", None)
+                if done:
+                    done()
             cur = self._current()
-            target = cur.last_focus if cur.last_focus in cur.visible else (cur.visible[0] if cur.visible else 0)
+            seen = self._on_screen(cur)
+            target = cur.last_focus if cur.last_focus in seen else (seen[0] if seen else 0)
             if target:
                 self.sys.focus(target)
 
@@ -706,8 +854,13 @@ class WindowManager:
     def desktop_create(self):
         with self.lock:
             self._new_desktop()
+            started = self._slide(len(self.desktops) - 1, 1)
             self.active = len(self.desktops) - 1
             self._changed()
+            if started:
+                done = getattr(self.sys, "transition_done", None)
+                if done:
+                    done()
 
     def desktop_rename(self, index, name):
         with self.lock:
@@ -742,7 +895,7 @@ class WindowManager:
                 self._new_desktop()
             self._check_index(index)
             cur = self._current()
-            cur.visible.remove(hwnd)
+            self._forget(cur, hwnd)
             self._place_in(self.desktops[index], hwnd)
             self._promote(cur, 1)
             self._changed()
@@ -774,14 +927,20 @@ class WindowManager:
                     {"index": i, "name": d.name, "count": len(d.windows()), "active": i == self.active}
                     for i, d in enumerate(self.desktops)
                 ],
-                "visible": [info(h) for h in cur.visible],
+                "visible": [info(h) for h in self._on_screen(cur)],
+                "tiled": [info(h) for h in cur.tiled],
                 "waiting": [info(h) for h in cur.waiting],
                 "orientation": cur.orientation,
                 "mirrored": cur.mirrored,
+                "active": self.active,
             }
 
-    def window_list(self):
-        with self.lock:
+    def window_list(self, blocking=True):
+        """Las ventanas de todos los escritorios. Con `blocking=False`, si el gestor está ocupado (acomodando ventanas)
+        devuelve None en vez de esperar: la interfaz no se queda parada."""
+        if not self.lock.acquire(blocking):
+            return None
+        try:
             result = []
             for i, desktop in enumerate(self.desktops):
                 for hwnd in desktop.windows():
@@ -791,6 +950,8 @@ class WindowManager:
                         "exe": self.sys.exe_path(hwnd),
                     })
             return result
+        finally:
+            self.lock.release()
 
     # ---------- validaciones ----------
 

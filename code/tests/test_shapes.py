@@ -55,60 +55,8 @@ def test_small_popout_shrinks_its_curves():
 def test_theme_is_consistent():
     assert THEME.joint_radius * 2 < THEME.search_rows * 34
     assert THEME.corner_radius * 2 < THEME.search_width
-    assert all(v > 0 for v in THEME.insets())
-    assert THEME.font_px >= 13
-
-
-def test_hole_edge_is_the_same_on_every_side():
-    from kyora.ui.relief import build_frame_image
-
-    w, h = 900, 700
-    image = build_frame_image(THEME, w, h)
-    left, top, right, bottom = THEME.insets()
-    alpha = lambda x, y: image.pixelColor(x, y).alphaF()
-    # (x, y, paso hacia dentro del hueco) de cada lado, empezando en el primer píxel del hueco
-    sides = ((w // 2, top, (0, 1)), (w // 2, h - bottom - 1, (0, -1)), (left, h // 2, (1, 0)), (w - right - 1, h // 2, (-1, 0)))
-    clear = round(THEME.edge_width + THEME.edge_shadow_size + 2)
-    edges = []
-    for x, y, (dx, dy) in sides:
-        edges.append(alpha(x, y))
-        assert alpha(x, y) > alpha(x + 3 * dx, y + 3 * dy) > 0, (x, y)  # línea oscura y sombra que se desvanece
-        assert alpha(x + clear * dx, y + clear * dy) == 0, (x, y)        # el resto del hueco queda limpio
-    assert max(edges) - min(edges) < 0.02, edges  # ningún lado se ve distinto
-    assert alpha(w // 2, h // 2) == 0
-    # filete de luz por dentro del marco: el filo es más claro que el marco de al lado
-    assert image.pixelColor(w // 2, top - 1).lightness() > image.pixelColor(w // 2, top - 5).lightness()
-    assert image.pixelColor(w // 2, h - bottom).lightness() > image.pixelColor(w // 2, h - bottom + 4).lightness()
-    assert alpha(w // 2, 2) == 1  # el marco es opaco
-    for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):  # esquinas de la pantalla rectas
-        assert image.pixelColor(x, y).alphaF() == 1, (x, y)
-    for x, y in ((left + 1, top + 1), (w - right - 2, top + 1), (left + 1, h - bottom - 2), (w - right - 2, h - bottom - 2)):
-        assert image.pixelColor(x, y).alphaF() == 1, (x, y)  # las 4 esquinas del hueco, redondeadas
-
-
-def test_side_bar_keeps_its_width():
-    """Si la barra se ensancha tapa la curva de las esquinas izquierdas del hueco."""
-    from PySide6.QtCore import QRect
-    from PySide6.QtWidgets import QApplication
-
-    from kyora.ui.bar import SideBar
-
-    app = QApplication.instance() or QApplication([])
-    screen_map = type("Map", (), {"geometry": QRect(0, 0, 1536, 960), "dpr": 1.25})()
-    bar = SideBar(THEME, screen_map, lambda *a, **k: None)
-    bar.dots.set_desktops([{"index": 0, "name": "1", "count": 0, "active": True}])
-    bar.adjustSize()
-    assert bar.width() == THEME.bar_width
-    assert bar.minimumSizeHint().width() <= THEME.bar_width
-    bar.deleteLater()
-    app.processEvents()
-
-
-def test_frame_material_is_lighter_at_the_top():
-    from kyora.ui.relief import build_frame_image
-
-    image = build_frame_image(THEME, 900, 700)
-    assert image.pixelColor(20, 30).lightness() > image.pixelColor(20, 670).lightness()
+    assert THEME.insets() == (0, 0, 0, 0)  # sin marco: las ventanas usan toda la pantalla
+    assert THEME.font_px >= 11  # un solo tamaño de letra, pequeño por decisión de Gustavo
 
 
 def test_popout_can_hang_from_the_bottom_edge():
@@ -213,3 +161,48 @@ def test_waiting_stack_centers_the_chosen_card_and_narrows_the_rest():
     for (_, y1, _, h1), (_, y2, _, _) in pairwise(rects):
         assert abs(y1 + h1 - y2) < 1e-6                       # sin hueco entre tarjetas
     assert stack_layout([], 0, 1000, 800) == []
+
+
+def test_hanging_panel_hangs_from_the_top_edge_with_rounded_bottom_corners():
+    from kyora.ui.shapes import hanging_paths
+
+    fill, outline = hanging_paths(100, 500, 200, 18)
+    assert inside(fill, 300, 100)              # el cuerpo
+    assert inside(fill, 300, 2)                # pegado al borde de arriba
+    assert not inside(fill, 300, 210)          # no pasa de su fondo
+    assert not inside(fill, 90, 100)           # ni de sus lados
+    assert not inside(fill, 101, 199)          # la esquina de abajo es redonda
+    assert outline.length() > 2 * 200          # el contorno baja por los lados y rodea el fondo
+    closed, _ = hanging_paths(100, 500, 0, 18)
+    assert not inside(closed, 300, 4)          # sin fondo no hay pieza
+
+
+def test_hanging_panel_flares_into_small_tabs_where_it_meets_the_screen_edge():
+    from kyora.ui.shapes import hanging_paths
+
+    fill, _ = hanging_paths(100, 500, 200, 10, joint=12)
+    assert inside(fill, 95, 1)                 # la pestaña ensancha la pieza justo en el borde...
+    assert inside(fill, 505, 1)
+    assert not inside(fill, 92, 20)            # ...y a un palmo del borde ya no está
+    assert not inside(fill, 86, 1)             # la pestaña no pasa de su radio
+    assert inside(fill, 300, 100)
+
+
+def test_a_corner_panel_can_keep_its_far_end_square():
+    from kyora.ui.shapes import hanging_paths
+
+    round_fill, _ = hanging_paths(100, 500, 200, 18)
+    square_fill, _ = hanging_paths(100, 500, 200, 18, square_end=True)
+    assert not inside(round_fill, 499, 199)    # la esquina del final es redonda...
+    assert inside(square_fill, 499, 199)       # ...o recta si el panel está pegado a otro borde
+    assert not inside(square_fill, 101, 199)   # la del principio sigue siendo redonda
+
+
+def test_a_corner_panel_flares_into_the_screen_edge_at_its_far_end():
+    from kyora.ui.shapes import hanging_paths
+
+    fill, _ = hanging_paths(100, 500, 200, 18, joint=12, square_end=True)
+    assert inside(fill, 499, 203)              # la curva cóncava sube pegada al borde de la pantalla...
+    assert not inside(fill, 490, 206)          # ...dejando el hueco redondo bajo la curva...
+    assert not inside(fill, 499, 216)          # ...sin pasar de su altura
+    assert inside(fill, 300, 100) and not inside(fill, 300, 215)

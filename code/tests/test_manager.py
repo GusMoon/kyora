@@ -26,9 +26,20 @@ def env():
 
 
 def open_windows(system, manager, *hwnds):
-    for h in hwnds:
-        system.open(h)
-        manager.sync()
+    """Ventanas que ya estaban (o van llegando una tras otra): rellenan el mosaico en orden; las que sobran, a la espera."""
+    manager._booting = True
+    try:
+        for h in hwnds:
+            system.open(h)
+            manager.sync()
+    finally:
+        manager._booting = False
+
+
+def open_new(system, manager, hwnd):
+    """Una app nueva con el mosaico ya hecho: ocupa el sitio de la enfocada."""
+    system.open(hwnd)
+    manager.sync()
 
 
 def test_first_three_visible_rest_waiting_and_hidden(env):
@@ -225,7 +236,7 @@ def test_floating_window_is_released_and_readopted(env):
     assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1]
     system.fg = 2
     m.float_toggle()
-    assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1, 2]
+    assert sorted(w["hwnd"] for w in m.snapshot()["visible"]) == [1, 2]  # vuelve al mosaico (en el sitio de la enfocada)
 
 
 def test_launch_from_search_replaces_focused_when_full(env):
@@ -234,19 +245,30 @@ def test_launch_from_search_replaces_focused_when_full(env):
     system.fg = 2
     m.sync()
     m.expect_launch()
-    open_windows(system, m, 9)
+    open_new(system, m, 9)
     snap = m.snapshot()
     assert [w["hwnd"] for w in snap["visible"]] == [1, 9, 3]
     assert [w["hwnd"] for w in snap["waiting"]] == [2]
 
 
-def test_launch_replacement_expires(env):
+def test_a_new_window_takes_the_slot_of_the_focused_one_even_without_launching_it_from_search(env):
     system, m, clock, _ = env
     open_windows(system, m, 1, 2, 3)
-    m.expect_launch()
+    system.fg = 2
+    m.sync()
     clock.now += 60
-    open_windows(system, m, 9)
-    assert [w["hwnd"] for w in m.snapshot()["waiting"]] == [9]
+    open_new(system, m, 9)
+    assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1, 9, 3]
+    assert [w["hwnd"] for w in m.snapshot()["waiting"]] == [2]
+
+
+def test_a_new_window_with_room_goes_where_the_focused_one_was(env):
+    system, m, _, _ = env
+    open_windows(system, m, 1, 2)
+    system.fg = 2
+    m.sync()
+    open_new(system, m, 9)
+    assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1, 9, 2]
 
 
 def test_activate_switches_desktop_and_unparks(env):
@@ -283,11 +305,13 @@ def test_sync_is_quiet_when_nothing_changes(env):
 # ---------- mover cualquier ventana a cualquier hueco ----------
 
 
-def test_drop_visible_window_swaps_with_target_slot(env):
+def test_dropping_a_window_on_a_zone_puts_it_there(env):
     system, m, _, _ = env
     open_windows(system, m, 1, 2, 3)
-    assert m.drop(1, *system.rects[3].center) is True
-    assert [w["hwnd"] for w in m.snapshot()["visible"]] == [3, 2, 1]
+    area = m._area()
+    assert m.drop(1, area.right - 40, area.bottom - 40) is True     # la zona de abajo a la derecha
+    assert sorted(w["hwnd"] for w in m.snapshot()["visible"]) == [1, 2, 3]
+    assert system.rects[1].left >= area.width // 2 and system.rects[1].top >= area.top + area.height // 2 - 20
     assert system.fg == 1
 
 
@@ -298,13 +322,6 @@ def test_drop_visible_outside_slots_snaps_back(env):
     system.rects[1] = type(original)(700, 300, 900, 500)  # el usuario la arrastró
     assert m.drop(1, 10, 10) is False
     assert system.rects[1] == original
-    assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1, 2]
-
-
-def test_drop_visible_on_own_slot_changes_nothing(env):
-    system, m, _, _ = env
-    open_windows(system, m, 1, 2)
-    assert m.drop(1, *system.rects[1].center) is False
     assert [w["hwnd"] for w in m.snapshot()["visible"]] == [1, 2]
 
 
@@ -515,7 +532,7 @@ def test_solo_keeps_only_the_focused_window_and_parks_the_rest():
     system.fg = 2
     m.solo()
     cur = m._current()
-    assert cur.visible == [2] and sorted(cur.waiting) == [1, 3, 4]
+    assert cur.tiled == [2] and sorted(cur.waiting) == [1, 3, 4]
     assert not {1, 3, 4} & system.shown          # no se cierran: se ocultan para poder traerlas
     assert system.closed == []
 
@@ -524,19 +541,19 @@ def test_show_count_grows_back_from_the_waiting_list():
     _, m = _three()
     m.show_count(1)
     m.show_count(3)
-    assert len(m._current().visible) == 3
+    assert len(m._current().tiled) == 3
     m.show_count(2)
-    assert len(m._current().visible) == 2 and len(m._current().waiting) == 2
+    assert len(m._current().tiled) == 2 and len(m._current().waiting) == 2
 
 
 def test_show_count_never_parks_the_focused_window():
     system, m = _three()
     system.fg = 3
     m.show_count(2)
-    assert 3 in m._current().visible
+    assert 3 in m._current().tiled
     system.fg = 1
     m.show_count(1)
-    assert m._current().visible == [1]
+    assert m._current().tiled == [1]
 
 
 @pytest.mark.parametrize("bad", [0, 4, -1, "2"])
@@ -551,9 +568,9 @@ def test_unpark_next_and_park_last_round_trip():
     open_windows(system, m, 1, 2)
     system.fg = 1
     m.park_last()
-    assert m._current().visible == [1] and m._current().waiting == [2]
+    assert m._current().tiled == [1] and m._current().waiting == [2]
     m.unpark_next()
-    assert sorted(m._current().visible) == [1, 2] and m._current().waiting == []
+    assert sorted(m._current().tiled) == [1, 2] and m._current().waiting == []
     with pytest.raises(ActionError):
         m.unpark_next()
 
@@ -562,7 +579,7 @@ def test_park_last_never_parks_the_only_window():
     system, m = _manager()
     open_windows(system, m, 1)
     m.park_last()
-    assert m._current().visible == [1]
+    assert m._current().tiled == [1]
 
 
 def test_thumbnail_is_taken_just_before_a_window_is_hidden():
@@ -693,11 +710,11 @@ def test_rotate_moves_the_big_window_top_right_bottom_left(env):
     assert sides == ["arriba", "derecha", "abajo", "izquierda", "arriba"]
 
 
-def test_switching_desktop_does_not_capture_windows_that_stay_on_their_desktop(env):
+def test_switching_desktop_captures_the_windows_it_hides_for_the_slide(env):
     system, m, _, _ = env
     open_windows(system, m, 1, 2)
     m.desktop_create()
-    assert not system.is_shown(1) and m.thumbnail(1) is None  # vuelve a verse al volver: no hace falta captura
+    assert not system.is_shown(1) and m.thumbnail(1) is not None  # el deslizamiento de escritorios las dibuja
 
 
 def test_window_with_a_minimum_size_gets_room_and_the_split_comes_back(env):
@@ -728,3 +745,15 @@ def test_visible_windows_for_the_borders(env):
     system.fg = 2
     m.zoom_toggle()
     assert m.visible_windows() == [2]  # la ventana en grande tapa a las demás: solo su borde
+
+
+def test_windows_are_placed_instantly_without_a_stretching_animation(env):
+    """Al agrandar o achicar una ventana no se enseña una captura estirada: el sistema no recibe ninguna transición."""
+    system, manager, _, _ = env
+    calls = []
+    system.transition = lambda *args: calls.append(args) or True  # si el gestor la pidiera, quedaría anotada
+    open_windows(system, manager, 1)
+    open_new(system, manager, 2)
+    manager.resize("right")
+    assert not calls
+    assert system.rects[1].width != system.rects[2].width or system.rects[1].left != system.rects[2].left

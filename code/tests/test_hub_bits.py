@@ -39,14 +39,6 @@ def test_history_keeps_the_last_values():
     assert h.as_dict() == {"cpu": [20, 30, 40], "ram": [21, 31, 41]}
 
 
-def test_dock_span_centers_clamps_and_snaps_to_the_corner():
-    from kyora.ui.dock import dock_span
-
-    assert dock_span(400, 200, 8, 856, 22) == (300, 500, False)  # centrada en el icono
-    assert dock_span(50, 200, 8, 856, 22) == (30, 230, False)  # arriba no se sale del hueco
-    assert dock_span(800, 300, 8, 856, 22) == (556, 856, True)  # abajo se apoya en el marco
-
-
 def test_week_strip_has_today_in_the_middle():
     days = week_days(date(2026, 10, 21))
     assert [d.day for d in days] == [18, 19, 20, 21, 22, 23, 24]

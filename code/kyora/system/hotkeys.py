@@ -15,7 +15,8 @@ MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 0x1, 0x2, 0x4, 0x8, 0x4
 
 MODIFIERS = {"alt": MOD_ALT, "ctrl": MOD_CONTROL, "shift": MOD_SHIFT, "win": MOD_WIN}
 NAMED_KEYS = {
-    "space": 0x20, "enter": 0x0D, "tab": 0x09, "esc": 0x1B,
+    "space": 0x20, "enter": 0x0D, "tab": 0x09, "esc": 0x1B, "pageup": 0x21, "pagedown": 0x22,
+    "backspace": 0x08, "delete": 0x2E,
     "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
     "-": 0xBD, "minus": 0xBD,  # la tecla - de al lado del punto
     "subtract": 0x6D,  # el - del teclado numérico
@@ -57,18 +58,20 @@ def parse_chord(combo):
 
 
 def split_bindings(bindings):
-    """Reparte {atajo: valor} en (normales, combinaciones, toques, con Windows, fallidos).
+    """Reparte {atajo: valor} en (normales, combinaciones, toques, fallidos).
 
-    - normales: {atajo: valor} para RegisterHotKey;
+    - normales: {atajo: valor} para RegisterHotKey (Ctrl+Shift+tecla...);
     - combinaciones: {(capa, tecla): valor} de los atajos con dos teclas ('alt+f+left');
     - toques: {capa: valor} de 'alt+f' cuando F es la capa de alguna combinación (se dispara al soltar F);
-    - con Windows: {tecla: valor} de 'win+up', 'win+esc'… (solo Win): Windows ya usa muchas y RegisterHotKey fallaría,
-      así que las resuelve el gancho de teclado;
-    - fallidos: atajos mal escritos.
+    - fallidos: atajos mal escritos y los que usan la tecla Windows (Kyora la bloquea: usa Ctrl+Shift).
     """
-    normal, chords, taps, wins, failed = {}, {}, {}, {}, []
+    normal, chords, taps, failed = {}, {}, {}, []
     for combo, value in bindings.items():
-        if len(_parts(combo)[1]) == 2:
+        mods, keys = _parts(combo)
+        if "win" in mods:
+            log.error("El atajo '%s' usa la tecla Windows, que Kyora bloquea: usa Ctrl+Shift", combo)
+            failed.append(combo)
+        elif len(keys) == 2:
             try:
                 chords[parse_chord(combo)] = value
             except ValueError as err:
@@ -77,14 +80,7 @@ def split_bindings(bindings):
     layers = {layer for layer, _ in chords}
     for combo, value in bindings.items():
         mods, keys = _parts(combo)
-        if len(keys) == 2:
-            continue
-        if mods == ["win"] and len(keys) == 1:
-            try:
-                wins[_key_code(keys[0], combo)] = value
-            except ValueError as err:
-                log.error("%s", err)
-                failed.append(combo)
+        if "win" in mods or len(keys) == 2:
             continue
         if mods == ["alt"] and len(keys) == 1 and layers:
             try:
@@ -95,7 +91,20 @@ def split_bindings(bindings):
                 taps[vk] = value
                 continue
         normal[combo] = value
-    return normal, chords, taps, wins, failed
+    return normal, chords, taps, failed
+
+
+def is_free(combo):
+    """True si Windows deja registrar `combo` ahora (ningún otro programa la tiene). Se registra y se suelta al momento."""
+    try:
+        mods, key = parse_combo(combo)
+    except ValueError:
+        return False
+    probe = 0x7FF0  # un identificador que Kyora no usa
+    if user32.RegisterHotKey(None, probe, mods | MOD_NOREPEAT, key):
+        user32.UnregisterHotKey(None, probe)
+        return True
+    return False
 
 
 class Hotkeys(threading.Thread):

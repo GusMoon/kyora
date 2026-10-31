@@ -1,9 +1,57 @@
-"""Hoja de estilos del explorador: los tokens del tema (marco, tinta, acento) sobre los widgets de Qt."""
-from kyora.ui.search import _css
+"""Hoja de estilos de los paneles: los tokens del tema sobre los widgets de Qt, con la rúbrica de DISEÑO.md."""
+from PySide6.QtGui import QColor
 
 
-def stylesheet(t):
-    f = f"{t.explorer_font_px}px '{t.font_family}'"
+def _css(color):
+    """#aarrggbb (QColor) -> rgba() de las hojas de estilo de Qt (la misma de search.py: el buscador usa esta hoja,
+    así que no puede importarla de allí)."""
+    c = QColor(color)
+    return f"rgba({c.red()}, {c.green()}, {c.blue()}, {c.alpha()})"
+
+
+def _lighter(color, factor=118):
+    return QColor(color).lighter(factor).name()
+
+
+def raised(t):
+    """Relieve de un botón o una píldora: degradado claro arriba, borde oscuro y el filete de luz arriba."""
+    return (f"background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {t.plate_top}, stop:1 {t.plate_bottom});"
+            f" border: 1px solid rgba(0, 0, 0, 170); border-top-color: {_css(t.plate_hi)};")
+
+
+def well(t):
+    """Hueco hundido de un campo: más oscuro, borde oscuro arriba y un filete claro abajo."""
+    return (f"background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {t.frame_dark}, stop:1 {t.frame});"
+            f" border: 1px solid rgba(0, 0, 0, 150); border-top-color: rgba(0, 0, 0, 220);"
+            f" border-bottom-color: rgba(255, 255, 255, 30);")
+
+
+def flat(t):
+    """La excepción plana (tipo GNOME) de tareas y notas: relleno liso y un borde fino, sin degradado ni relieve."""
+    edge = "rgba(255, 255, 255, 20)"
+    plain = f"background: {t.plate_top}; border: 1px solid {edge};"
+    return (
+        f"QLineEdit {{ background: {t.frame_dark}; border: 1px solid {edge}; }}"
+        f"QLineEdit:focus {{ border-color: {_css(t.gold_line)}; }}"
+        f"QPushButton, #Pill {{ {plain} }}"
+        f"QPushButton:hover, #Pill:hover {{ background: {t.plate_pick}; }}"
+        f"QPushButton:pressed {{ background: {t.plate_bottom}; border-color: {edge}; }}"
+        f"QPushButton#Accent {{ background: {t.gold}; border: 1px solid {t.gold}; }}"
+        f"QPushButton#Accent:hover {{ background: {_lighter(t.gold, 110)}; }}"
+        f"QDateTimeEdit {{ background: {t.frame_dark}; border: 1px solid {edge}; }}"
+        # la tarea abierta: letra más contenida (Gustavo la quería menos grande; nunca por debajo de 15 px)
+        f"QLineEdit#Title {{ font: 600 {t.font_px}px '{t.font_family}'; }}"
+        f"QPlainTextEdit#Body {{ font: {t.font_px}px '{t.font_family}'; }}"
+    )
+
+
+def stylesheet(t, flat_style=False):
+    """La hoja de los paneles; `flat_style`: con la excepción plana de tareas y notas (ver `flat`)."""
+    f = f"{t.font_px}px '{t.font_family}'"
+    return _base(t, f) + (flat(t) if flat_style else "")
+
+
+def _base(t, f):
     return (
         f"QWidget {{ color: {t.ink}; font: {f}; }}"
         f"#ExplorerBody, #ExplorerBody QWidget#Plain {{ background: transparent; }}"
@@ -14,6 +62,9 @@ def stylesheet(t):
         f"QListView::item:selected, QTreeView::item:selected, QListWidget::item:selected {{"
         f" background: {_css(t.glass_hi)}; color: {t.ink}; border: 1px solid {_css(t.glass_hi)}; }}"
         f"QTreeView::branch:selected, QTreeView::branch:hover {{ background: transparent; }}"
+        f"QListView::indicator {{ width: 14px; height: 14px; border: 1px solid {_css(t.glass_hi)}; border-radius: 4px;"
+        f" background: {_css(t.field)}; }}"
+        f"QListView::indicator:checked {{ background: {t.gold}; border-color: {t.gold}; }}"
         f"QHeaderView::section {{ background: transparent; color: {t.dim}; border: 0;"
         f" border-bottom: 1px solid {_css(t.line)}; padding: 4px 8px; }}"
         f"#Sidebar {{ background: {_css('#26000000')}; border-radius: 12px; }}"
@@ -22,13 +73,16 @@ def stylesheet(t):
         f"#Crumb:hover {{ background: {_css(t.hover)}; }}"
         f"#Crumb[last=\"true\"] {{ font-weight: bold; }}"
         f"#PathBox {{ background: transparent; border: 0; }}"
-        f"QLineEdit {{ background: {_css(t.field)}; border: 1px solid {_css(t.line)}; border-radius: 10px;"
-        f" padding: 6px 12px; selection-background-color: {_css(t.gold_soft)}; }}"
-        f"QLineEdit:focus {{ border-color: {_css(t.gold_line)}; }}"
-        f"QPushButton {{ background: {_css(t.hover)}; border: 1px solid {_css(t.line)}; border-radius: 10px;"
-        f" padding: 6px 14px; }}"
-        f"QPushButton:hover {{ border-color: {_css(t.gold_line)}; }}"
-        f"QPushButton#Accent {{ color: {t.gold}; border-color: {_css(t.gold_line)}; background: {_css(t.gold_soft)}; }}"
+        # rúbrica de DISEÑO.md: campos hundidos, botones en relieve
+        f"QLineEdit {{ {well(t)} border-radius: 10px; padding: 6px 12px;"
+        f" selection-background-color: {_css(t.gold_soft)}; }}"
+        f"QLineEdit:focus {{ border-color: {_css(t.gold_line)}; border-top-color: rgba(0, 0, 0, 200); }}"
+        f"QPushButton {{ {raised(t)} border-radius: 10px; padding: 6px 14px; }}"
+        f"QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {t.plate_pick},"
+        f" stop:1 {t.plate_top}); }}"
+        f"QPushButton:pressed {{ background: {t.plate_bottom}; border-top-color: rgba(0, 0, 0, 200); }}"
+        f"QPushButton#Accent {{ color: {t.pick_ink}; font-weight: bold; border-color: rgba(0, 0, 0, 180);"
+        f" background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {_lighter(t.gold)}, stop:1 {t.gold}); }}"
         f"QCheckBox {{ spacing: 8px; }}"
         f"QProgressBar {{ background: {_css(t.line)}; border: 0; border-radius: 4px; max-height: 8px; }}"
         f"QProgressBar::chunk {{ background: {t.gold}; border-radius: 4px; }}"
@@ -45,31 +99,37 @@ def stylesheet(t):
         f"#Chip {{ color: {t.gold}; border-color: {_css(t.gold_line)}; background: {_css(t.gold_soft)};"
         f" padding: 3px 10px; border-radius: 9px; }}"
         # ---------- panel de arriba: tarjetas, números y migas de pan, como la referencia ----------
-        f"#CardTitle {{ font: 600 15px '{t.font_family}'; color: {t.ink}; }}"
-        f"#BigNumber {{ font: 34px '{t.font_family}'; color: {t.ink}; }}"
-        f"#MidNumber {{ font: 24px '{t.font_family}'; color: {t.ink}; }}"
-        f"#SectionNumber {{ font: 24px '{t.font_family}'; color: {t.ink}; }}"
-        f"#Pill {{ background: {t.glass_top}; border: 1px solid {_css(t.glass_edge)}; border-radius: 12px;"
-        f" padding: 5px 14px; }}"
-        f"#Pill:hover {{ border-color: {_css(t.glass_hi)}; background: {_css(t.glass_hi)}; }}"
-        f"#Pill:checked {{ background: {t.pick_bg}; color: {t.pick_ink}; border-color: {t.pick_bg}; font-weight: bold; }}"
-        f"#Clock {{ font: 300 64px '{t.font_family}'; color: {t.ink}; }}"
-        f"#ClockSuffix {{ font: 22px '{t.font_family}'; color: {t.dim}; }}"
-        f"#DateLine {{ font: 600 18px '{t.font_family}'; color: {t.ink}; }}"
-        f"#Heading {{ font: 600 16px '{t.font_family}'; color: {t.ink}; }}"
-        f"#Big {{ font: 600 20px '{t.font_family}'; color: {t.ink}; }}"
+        f"#CardTitle {{ font: 600 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#BigNumber {{ font: {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#MidNumber {{ font: {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#SectionNumber {{ font: {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#Pill {{ {raised(t)} border-radius: 12px; padding: 5px 14px; }}"
+        f"#Pill:hover {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {t.plate_pick},"
+        f" stop:1 {t.plate_top}); }}"
+        f"#Pill:checked {{ {well(t)} color: {t.gold}; font-weight: bold; }}"
+        f"#Clock {{ font: 300 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#ClockSuffix {{ font: {t.font_px}px '{t.font_family}'; color: {t.dim}; }}"
+        f"#DateLine {{ font: 600 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#Heading {{ font: 600 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#PageTitle {{ font: 600 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        # panel de la tarea: sin cajas (como la referencia), el texto es el contenido
+        f"QLineEdit#Title {{ background: transparent; border: 0; padding: 2px 0; font: 600 {t.font_px}px '{t.font_family}'; }}"
+        f"QLineEdit#Bare {{ background: transparent; border: 0; padding: 4px 0; color: {t.dim}; }}"
+        f"QLineEdit#Bare:focus {{ color: {t.ink}; }}"
+        f"QPlainTextEdit#Body {{ background: transparent; border: 0; font: {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"QListWidget#Checklist::item {{ padding: 5px 2px; border-bottom: 1px solid rgba(255, 255, 255, 18);"
+        f" border-radius: 0; }}"
+        f"#Big {{ font: 600 {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
         f"#Ghost {{ background: transparent; border: 0; border-radius: 8px; padding: 4px 8px; color: {t.dim}; }}"
         f"#Ghost:hover {{ background: {_css(t.hover)}; color: {t.ink}; }}"
         f"QTextEdit, QPlainTextEdit#Source {{ background: transparent; border: 0; }}"
-        f"QPlainTextEdit#Field {{ background: {_css(t.field)}; border: 1px solid {_css(t.line)}; border-radius: 10px;"
-        f" padding: 4px 8px; }}"
+        f"QPlainTextEdit#Field {{ {well(t)} border-radius: 10px; padding: 4px 8px; }}"
         f"QPlainTextEdit#Field:focus {{ border-color: {_css(t.gold_line)}; }}"
-        f"QDateTimeEdit {{ background: {_css(t.field)}; border: 1px solid {_css(t.line)}; border-radius: 10px;"
-        f" padding: 5px 10px; }}"
+        f"QDateTimeEdit {{ {well(t)} border-radius: 10px; padding: 5px 10px; }}"
         f"QDateTimeEdit::up-button, QDateTimeEdit::down-button {{ width: 0; border: 0; }}"
-        f"#CrumbRoot {{ font: 16px '{t.font_family}'; color: {t.dim}; }}"
-        f"#CrumbLeaf {{ font: bold 16px '{t.font_family}'; color: {t.ink}; }}"
-        f"#Crumb {{ font: 16px '{t.font_family}'; color: {t.dim}; }}"
+        f"#CrumbRoot {{ font: {t.font_px}px '{t.font_family}'; color: {t.dim}; }}"
+        f"#CrumbLeaf {{ font: bold {t.font_px}px '{t.font_family}'; color: {t.ink}; }}"
+        f"#Crumb {{ font: {t.font_px}px '{t.font_family}'; color: {t.dim}; }}"
         f"#Crumb[last=\"true\"] {{ color: {t.ink}; }}"
         f"#Divider {{ background: {t.card_line}; border: 0; }}"
     )

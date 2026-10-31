@@ -1,64 +1,32 @@
-"""Lógica de la tecla Windows: ignorar la pulsación suelta y dejar pasar las combinaciones (sin Windows: se puede probar).
+"""El bloqueo de la tecla Windows (sin Windows: se puede probar).
 
-Pulsar y soltar Windows sin tocar nada más abre el menú de inicio. Para impedirlo se "tapa" la pulsación inyectando
-una tecla sin asignar justo antes de soltarla. Con una combinación (Win+L, Win+D, Win+Shift+S…) no hace falta.
+Kyora no usa la tecla Windows: la traga entera, así que no abre el menú de inicio ni forma ninguna combinación de
+Windows (Win+E, Win+D, Win+Tab...). También traga Ctrl+Esc, que abre el menú de inicio igual. Todo lo demás pasa sin
+tocarse. (Win+L lo resuelve el propio Windows antes que ningún programa y no se puede bloquear.)
 """
 VK_LWIN, VK_RWIN = 0x5B, 0x5C
 WIN_KEYS = (VK_LWIN, VK_RWIN)
+VK_ESCAPE = 0x1B
+CTRL_KEYS = (0x11, 0xA2, 0xA3)
+SHIFT_KEYS = (0x10, 0xA0, 0xA1)
 
 
-class WinKeyGuard:
+class WinBlock:
     def __init__(self):
-        self._down = set()
-        self._combo = False
+        self._ctrl, self._shift = set(), set()
+        self._eaten_esc = False  # se tragó la bajada de Esc: también se traga su subida
 
     def feed(self, vk, is_down):
-        """Procesa una tecla física. Devuelve True si hay que inyectar la tecla tapadera antes de dejarla pasar."""
+        """Procesa una tecla física. Devuelve True si hay que tragarla (que nadie más la reciba)."""
         if vk in WIN_KEYS:
+            return True
+        for keys, held in ((CTRL_KEYS, self._ctrl), (SHIFT_KEYS, self._shift)):
+            if vk in keys:
+                (held.add if is_down else held.discard)(vk)
+        if vk == VK_ESCAPE:
             if is_down:
-                if not self._down:
-                    self._combo = False
-                self._down.add(vk)
-                return False
-            lone = vk in self._down and len(self._down) == 1 and not self._combo
-            self._down.discard(vk)
-            return lone
-        if is_down and self._down:
-            self._combo = True
+                self._eaten_esc = bool(self._ctrl) and not self._shift  # Ctrl+Esc (Ctrl+Mayús+Esc es el administrador de tareas)
+                return self._eaten_esc
+            eaten, self._eaten_esc = self._eaten_esc, False
+            return eaten
         return False
-
-
-OTHER_MODIFIERS = (0x10, 0xA0, 0xA1, 0x11, 0xA2, 0xA3, 0x12, 0xA4, 0xA5)  # Shift, Ctrl y Alt
-
-
-class WinComboGuard:
-    """Win+tecla que resuelve Kyora (Win+↑/↓, Win+Esc) en vez de Windows.
-
-    Solo con Windows pulsado (sin Shift, Ctrl ni Alt): la tecla se traga al bajar y al subir y su acción se dispara una
-    vez (la autorrepetición no la repite). Win+Shift+↑ y las demás combinaciones siguen llegando a Windows.
-    """
-
-    def __init__(self, combos):
-        """`combos`: {tecla: acción}."""
-        self.combos = dict(combos)
-        self._win = set()
-        self._others = set()
-        self._pressed = set()
-
-    def feed(self, vk, down):
-        """Procesa una tecla física. Devuelve (tragar, acción a disparar o None)."""
-        if vk in WIN_KEYS or vk in OTHER_MODIFIERS:
-            held = self._win if vk in WIN_KEYS else self._others
-            (held.add if down else held.discard)(vk)
-            return False, None
-        if not down:
-            if vk in self._pressed:
-                self._pressed.discard(vk)
-                return True, None
-            return False, None
-        if vk in self._pressed:
-            return True, None  # autorrepetición: la acción ya se disparó
-        if self._win and not self._others and vk in self.combos:
-            self._pressed.add(vk)
-            return True, self.combos[vk]
-        return False, None

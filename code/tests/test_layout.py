@@ -159,3 +159,11 @@ def test_fit_ratios_shares_the_space_when_both_cannot_fit():
 def test_fit_ratios_stays_within_the_limits():
     ratio, _ = fit_ratios(2, SMALL, "columns", 8, 8, 0.5, 0.5, [(970, 0), None])
     assert ratio == 0.8
+
+
+def test_slide_offset_moves_everything_one_screen_height():
+    from kyora.core.layout import Rect, slide_offset
+
+    area = Rect(0, 0, 1920, 1080)
+    assert slide_offset(1, area) == (0, -1080)
+    assert slide_offset(-1, area) == (0, 1080)

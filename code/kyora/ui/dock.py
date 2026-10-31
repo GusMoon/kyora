@@ -1,9 +1,7 @@
-"""El panel de la barra: una sola pieza que sale de la barra y se transforma de una página a otra.
+"""Un panel suelto que cuelga de un borde de la pantalla y se transforma de una página a otra.
 
-Las páginas (apagar, wifi, Bluetooth y calendario) se abren al pasar el ratón por su icono. Si el panel ya está
-abierto y el ratón pasa a otro icono, la pieza no se cierra: se desliza hasta el icono nuevo, toma el tamaño de su
-página y el contenido cambia con un fundido cruzado. Cerca del fondo, la pieza se apoya en el marco de abajo con la
-esquina abierta (ver `corner_popout_paths`).
+Las páginas se abren desde la fila de arriba (panel superior). Si el panel ya está abierto y se pide otra página, la
+pieza no se cierra: cambia de tamaño hasta el de la página nueva y el contenido cambia con un fundido cruzado.
 """
 from PySide6.QtCore import QEasingCurve, Signal
 from PySide6.QtGui import QPainter
@@ -11,25 +9,11 @@ from PySide6.QtWidgets import QStackedLayout, QWidget
 
 from kyora.core.animation import lerp
 from kyora.ui.anim import Tween
-from kyora.ui.popout import BAR_OVERLAP, EdgePopout, grab_clear
-
-CORNER_SNAP = 28  # px antes de la esquina del hueco a partir de los cuales la pieza se apoya en el marco de abajo
-
-
-def dock_span(anchor, length, hole_top, hole_bottom, joint, snap=CORNER_SNAP):
-    """(inicio, fin, esquina) de la pieza a lo largo de la barra, centrada en `anchor` si cabe.
-
-    Si llegaría a la esquina de abajo, se apoya en el marco de abajo (`esquina` = True); arriba no pasa del hueco.
-    """
-    start = anchor - length / 2
-    if start + length + joint + snap >= hole_bottom:
-        return hole_bottom - length, hole_bottom, True
-    start = max(start, hole_top + joint)
-    return start, start + length, False
+from kyora.ui.popout import EdgePopout, grab_clear
 
 
 class DockPage(QWidget):
-    """Una página del panel de la barra. `size` = (fondo, largo) en px lógicos."""
+    """Una página del panel. `size` = (alto, ancho) de la pieza en px lógicos (en un panel lateral, (fondo, largo))."""
 
     size = (320, 300)
     close_requested = Signal()
@@ -41,12 +25,14 @@ class DockPage(QWidget):
         self.setFocus()
 
 
-class BarDock(EdgePopout):
-    def __init__(self, theme, screen_map, pages):
-        g = screen_map.geometry
+class PageDock(EdgePopout):
+    page_changed = Signal(str)  # la página abierta ("" al cerrar)
+
+    def __init__(self, theme, screen_map, pages, edge="top", title="KyoraDock", pad=8, extra=0):
+        # en el borde de arriba `size` es (alto, ancho); en el lateral, (fondo, largo): los dos casos son (v, u) al revés
         depth = max(page.size[0] for page in pages.values())
-        super().__init__(theme, screen_map, "bar", depth=depth, length=g.height(), title="KyoraDock",
-                         along=g.height(), extra=theme.joint_radius)
+        length = max(page.size[1] for page in pages.values())
+        super().__init__(theme, screen_map, edge, depth=depth, length=length, title=title, free=True, pad=pad, extra=extra)
         self.pages = pages
         self.stack = QStackedLayout(self.body)
         for page in pages.values():
@@ -64,22 +50,17 @@ class BarDock(EdgePopout):
     def piece(self):
         return self._piece
 
-    def place(self, anchor):
-        g = self.map.geometry
-        self.move(round(g.x() + self.theme.bar_width - BAR_OVERLAP), g.y())  # la ventana cubre todo el alto
-
-    def _target(self, name, anchor_y):
-        t = self.theme
+    def _target(self, name):
         depth, length = self.pages[name].size
-        hole_top, hole_bottom = t.frame_width, self.map.geometry.height() - t.frame_width
-        start, end, corner = dock_span(anchor_y - self.map.geometry.y(), length, hole_top, hole_bottom, t.joint_radius)
-        return start, end, depth, corner
+        center = self._along / 2
+        return center - length / 2, center + length / 2, depth, False
 
     # ---------- mostrar una página ----------
 
-    def show_page(self, name, anchor_y, zone=None):
-        """Abre (o transforma) el panel con la página `name` junto a la y `anchor_y`. Sin `zone`, con el teclado."""
-        target = self._target(name, anchor_y)
+    def show_page(self, name, zone=None):
+        """Abre (o transforma) el panel con la página `name`. Con `zone` (zona global del ratón) se abre por el ratón;
+        sin ella, con el teclado y tomando el foco."""
+        target = self._target(name)
         page = self.pages[name]
         if not self.opened:
             self.name = name
@@ -87,12 +68,13 @@ class BarDock(EdgePopout):
             self._piece = target
             self._mix = 1.0
             page.activate()
-            self.open(anchor_y, zone)
+            self.open(None, zone)
+            self.page_changed.emit(name)
             return
         if zone is not None:
             self._anchor_rect = zone
         else:
-            self.open(anchor_y, None)  # ya abierta por el ratón y ahora la pide el teclado: toma el foco
+            self.open(None, None)  # ya abierta por el ratón y ahora la pide el teclado: toma el foco
         if name == self.name:
             return
         # ya abierta en otra página: la pieza se transforma hacia la nueva
@@ -101,6 +83,7 @@ class BarDock(EdgePopout):
         self._progress = 1.0
         self._shot = None
         self.name = name
+        self.page_changed.emit(name)
         page.activate()
         self.stack.setCurrentWidget(page)
         self._from, self._to = self._piece, target
@@ -109,11 +92,29 @@ class BarDock(EdgePopout):
         self._piece = self._from
         self._morph.start(0.0, 1.0, self.theme.morph_ms, QEasingCurve.OutCubic)
 
+    def switch_now(self, name):
+        """Cambia de página al instante: sin transformar la pieza ni sacar capturas de las dos páginas (es lo que
+        cuesta). Lo usa el panel de arriba al pasar el cursor por un icono, que tiene que abrirse sin demora."""
+        if not self.opened:
+            return self.show_page(name)
+        if name == self.name:
+            return
+        self._morph.stop()
+        self._anim.stop()
+        self._progress, self._shot, self._old_shot, self._new_shot, self._mix = 1.0, None, None, None, 1.0
+        self.name = name
+        self.page_changed.emit(name)
+        self.pages[name].activate()
+        self.stack.setCurrentWidget(self.pages[name])
+        self._piece = self._target(name)
+        self.body.setGeometry(self.body_rect().toAlignedRect())
+        self.body.show()
+        self.update()
+
     def _set_mix(self, value):
         self._mix = float(value)
         a, b = self._from, self._to
-        corner = b[3] if self._mix > 0.5 else a[3]
-        self._piece = (lerp(a[0], b[0], self._mix), lerp(a[1], b[1], self._mix), lerp(a[2], b[2], self._mix), corner)
+        self._piece = (lerp(a[0], b[0], self._mix), lerp(a[1], b[1], self._mix), lerp(a[2], b[2], self._mix), False)
         self.update()
 
     def _morphed(self):
@@ -138,7 +139,10 @@ class BarDock(EdgePopout):
         if self._morph.running():  # cerrar a mitad de una transformación: se queda en la página nueva
             self._morph.stop()
             self._morphed()
+        was_open = self.opened
         super().close_popout()
+        if was_open:
+            self.page_changed.emit("")
 
     # ---------- pintura ----------
 

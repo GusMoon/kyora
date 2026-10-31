@@ -50,7 +50,7 @@ user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
 PW_RENDERFULLCONTENT = 0x2
 SRCCOPY = 0x00CC0020
 HALFTONE = 4
-THUMB_MAX_SIDE = 1280  # px físicos: cubre la tarjeta elegida del panel de espera aun con el hueco a toda pantalla
+THUMB_MAX_SIDE = 640  # px físicos del lado mayor de una captura guardada (sobra para el panel de espera y gasta 4 veces menos)
 
 
 class _BITMAPINFOHEADER(ctypes.Structure):
@@ -90,6 +90,10 @@ def _frame_bounds(hwnd):
 def force_foreground(hwnd):
     if win32gui.IsIconic(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    # Windows deja pasar al frente a quien acaba de recibir una entrada: una tecla sin asignar (que no hace nada)
+    # pulsada y soltada desde Kyora le da ese derecho aunque la tecla que lo abrió la leyera el otro proceso
+    win32api.keybd_event(0xE8, 0, 0, 0)
+    win32api.keybd_event(0xE8, 0, win32con.KEYEVENTF_KEYUP, 0)
     try:
         win32gui.SetForegroundWindow(hwnd)
         return
@@ -104,7 +108,10 @@ def force_foreground(hwnd):
     except pywintypes.error as err:
         log.warning("No se pudo dar el foco a %s: %s", hwnd, err)
     finally:
-        win32process.AttachThreadInput(current, foreground, False)
+        try:  # también puede negarse (ventana con otros permisos): nunca debe romper a quien llama
+            win32process.AttachThreadInput(current, foreground, False)
+        except pywintypes.error:
+            pass
 
 
 class Win32System:
@@ -141,6 +148,13 @@ class Win32System:
 
     def is_minimized(self, hwnd):
         return bool(win32gui.IsIconic(hwnd))
+
+    @staticmethod
+    def is_resizable(hwnd):
+        """True si la ventana tiene borde para cambiar de tamaño (las calculadoras y los avisos fijos, no) y no está
+        maximizada."""
+        style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+        return bool(style & win32con.WS_THICKFRAME) and not user32.IsZoomed(hwnd)
 
     def is_manageable(self, hwnd):
         return self.is_alive(hwnd) and self.is_shown(hwnd) and not _is_cloaked(hwnd)
@@ -274,8 +288,9 @@ class Win32System:
         dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, ctypes.byref(value), ctypes.sizeof(value))
         (self._quiet.add if quiet else self._quiet.discard)(hwnd)
 
-    def place(self, hwnd, rect):
-        """Coloca la ventana en `rect` y devuelve dónde quedó de verdad (None si falló).
+    def place(self, hwnd, rect, keep=False):
+        """Coloca la ventana en `rect` y devuelve dónde quedó de verdad (None si falló). Con `keep`, una ventana
+        maximizada sigue maximizada (solo se mueve: las ventanas libres no cambian de tamaño).
 
         Una app con tamaño mínimo (Calculadora, Fotos…) no se deja encoger: queda más grande que `rect`.
         """
@@ -283,17 +298,23 @@ class Win32System:
         def run():
             if hwnd not in self._quiet:
                 self._silence(hwnd)
-            if win32gui.IsIconic(hwnd) or user32.IsZoomed(hwnd):
+            if win32gui.IsIconic(hwnd) or (user32.IsZoomed(hwnd) and not keep):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
             fl, ft, fr, fb = _frame_bounds(hwnd)
             wl, wt, wr, wb = win32gui.GetWindowRect(hwnd)
             pad_l, pad_t, pad_r, pad_b = fl - wl, ft - wt, wr - fr, wb - fb
             if (fl, ft, fr, fb) == (rect.left, rect.top, rect.right, rect.bottom):
                 return rect
+            flags = win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+            if (fr - fl, fb - ft) == (rect.width, rect.height):
+                # solo se mueve: sin avisar del tamaño (la app no recompone su contenido, no se deforma ni se
+                # pausa) y sin esperarla (si la app tarda en responder, Kyora no se queda parado con ella)
+                win32gui.SetWindowPos(hwnd, 0, rect.left - pad_l, rect.top - pad_t, 0, 0,
+                                      flags | win32con.SWP_NOSIZE | win32con.SWP_ASYNCWINDOWPOS)
+                return rect
             win32gui.SetWindowPos(
                 hwnd, 0, rect.left - pad_l, rect.top - pad_t,
-                rect.width + pad_l + pad_r, rect.height + pad_t + pad_b,
-                win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE,
+                rect.width + pad_l + pad_r, rect.height + pad_t + pad_b, flags,
             )
             # SetWindowPos espera a la app, así que el rectángulo ya es el definitivo (con los mismos bordes invisibles)
             wl, wt, wr, wb = win32gui.GetWindowRect(hwnd)
@@ -336,6 +357,10 @@ class Win32System:
     @staticmethod
     def cursor_pos():
         return win32api.GetCursorPos()
+
+    @staticmethod
+    def shift_down():
+        return bool(win32api.GetAsyncKeyState(win32con.VK_SHIFT) & 0x8000)
 
     @staticmethod
     def left_button_down():
@@ -386,11 +411,31 @@ class Win32System:
         return count
 
 
+ABM_GETSTATE, ABM_SETSTATE = 0x4, 0xA
+ABS_AUTOHIDE = 0x1
+
+
+class _AppBarData(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("hWnd", wintypes.HWND), ("uCallbackMessage", wintypes.UINT),
+                ("uEdge", wintypes.UINT), ("rc", wintypes.RECT), ("lParam", ctypes.c_ssize_t)]
+
+
+def _appbar(message, hwnd, state=0):
+    """SHAppBarMessage con el estado de la barra de tareas (ABM_GETSTATE / ABM_SETSTATE); devuelve lo que contesta."""
+    data = _AppBarData(ctypes.sizeof(_AppBarData), hwnd, 0, 0, wintypes.RECT(), state)
+    shell = ctypes.windll.shell32.SHAppBarMessage
+    shell.restype = ctypes.c_size_t
+    shell.argtypes = [wintypes.DWORD, ctypes.POINTER(_AppBarData)]
+    return shell(message, ctypes.byref(data))
+
+
 class Taskbar:
     CLASSES = ("Shell_TrayWnd", "Shell_SecondaryTrayWnd")
 
     def __init__(self):
         self._hidden_by_us = set()
+        self._autohide_path = data_dir() / "taskbar_autohide.json"
+        self._autohide_off = False
 
     def _find(self):
         found = []
@@ -403,7 +448,43 @@ class Taskbar:
                 found.append(hwnd)
         return found
 
+    def _disable_autohide(self):
+        """Con "ocultar automáticamente" activo, Windows la hace salir sola al llevar el cursor al borde de abajo, aunque
+        esté escondida. Se apaga mientras Kyora corre (y se apunta para devolverlo al salir, aunque Kyora se cierre mal)."""
+        if self._autohide_off:
+            return
+        main = win32gui.FindWindow("Shell_TrayWnd", None)
+        if not main:
+            return
+        try:
+            state = _appbar(ABM_GETSTATE, main)
+            if state & ABS_AUTOHIDE:
+                self._autohide_path.write_text(json.dumps({"autohide": True}), encoding="utf-8")
+                _appbar(ABM_SETSTATE, main, state & ~ABS_AUTOHIDE)
+            self._autohide_off = True
+        except (OSError, AttributeError):
+            log.warning("No se pudo apagar el ocultado automático de la barra de tareas", exc_info=True)
+
+    def _restore_autohide(self):
+        try:
+            wanted = json.loads(self._autohide_path.read_text(encoding="utf-8")).get("autohide")
+        except (OSError, ValueError):
+            wanted = False
+        main = win32gui.FindWindow("Shell_TrayWnd", None)
+        if wanted and main:
+            try:
+                _appbar(ABM_SETSTATE, main, _appbar(ABM_GETSTATE, main) | ABS_AUTOHIDE)
+            except (OSError, AttributeError):
+                log.warning("No se pudo devolver el ocultado automático de la barra de tareas", exc_info=True)
+        if wanted:
+            try:
+                self._autohide_path.unlink()
+            except OSError:
+                pass
+        self._autohide_off = False
+
     def hide(self):
+        self._disable_autohide()
         for hwnd in self._find():
             if win32gui.IsWindowVisible(hwnd):
                 self._hidden_by_us.add(hwnd)
@@ -419,3 +500,5 @@ class Taskbar:
             if force or hwnd in self._hidden_by_us:
                 win32gui.ShowWindow(hwnd, win32con.SW_SHOWNA)
         self._hidden_by_us.clear()
+        if self._autohide_off or force:
+            self._restore_autohide()

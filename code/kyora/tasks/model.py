@@ -5,6 +5,27 @@ Las fechas se guardan como texto ISO local: "2026-10-21T22:45:00" (las de entreg
 import re
 from datetime import date, datetime, timedelta
 
+STATUSES = (
+    ("pending", "Pendiente"),
+    ("doing", "En proceso"),
+    ("review", "En revisión"),
+    ("done", "Finalizada"),
+)
+STATUS_KEYS = tuple(key for key, _ in STATUSES)
+
+
+def next_status(status):
+    """El estado siguiente (después de "Finalizada" vuelve a "Pendiente")."""
+    index = STATUS_KEYS.index(status) if status in STATUS_KEYS else -1
+    return STATUS_KEYS[(index + 1) % len(STATUS_KEYS)]
+
+
+def progress(children):
+    """(hechas, total) de las subtareas: cuántas están finalizadas."""
+    done = sum(1 for c in children if c.get("status") == "done" or c.get("finished"))
+    return done, len(children)
+
+
 DUE_FILTERS = (
     ("all", "Todas"),
     ("today", "Hoy"),
@@ -78,9 +99,13 @@ def week_range(today):
     return monday, monday + timedelta(days=6)
 
 
-def matches(task, tag_ids, due_filter, now, show_finished):
-    """¿Sale la tarea con estos filtros? `tag_ids`: vale con tener una de ellas. `now`: datetime."""
-    if task.get("finished") and not show_finished:
+def matches(task, tag_ids, due_filter, now, show_finished, status=None):
+    """¿Sale la tarea con estos filtros? `tag_ids`: vale con tener una de ellas. `now`: datetime.
+    Con `status`, solo las de ese estado (y entonces `show_finished` no cuenta)."""
+    if status is not None:
+        if task.get("status", "pending") != status:
+            return False
+    elif task.get("finished") and not show_finished:
         return False
     if tag_ids and not set(tag_ids) & {tag["id"] for tag in task.get("tags", ())}:
         return False
@@ -117,3 +142,43 @@ def due_label(due_text, today=None):
     if due.date() == today - timedelta(days=1):
         return f"Ayer {clock}"
     return due.strftime("%d/%m ") + clock
+
+
+# ---------- tarjetas de ">task" ----------
+
+_DAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
+_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def date_text(moment, now):
+    """"Hoy 18:00", "Mañana 09:30", "Ayer 17:00" o "vie 24 oct 18:00"."""
+    if moment is None:
+        return ""
+    clock = moment.strftime("%H:%M")
+    days = (moment.date() - now.date()).days
+    if days == 0:
+        return f"Hoy {clock}"
+    if days == 1:
+        return f"Mañana {clock}"
+    if days == -1:
+        return f"Ayer {clock}"
+    return f"{_DAYS[moment.weekday()]} {moment.day} {_MONTHS[moment.month - 1]} {clock}"
+
+
+def _group(due, finished, now):
+    """El título del grupo de la línea de tiempo: Vencidas, Hoy, Mañana, una fecha, Sin fecha o Terminadas."""
+    if finished:
+        return "Terminadas"
+    if due is None:
+        return "Sin fecha"
+    days = (due.date() - now.date()).days
+    if days < 0:
+        return "Vencidas"
+    if days == 0:
+        return "Hoy"
+    if days == 1:
+        return "Mañana"
+    return f"{_DAYS[due.weekday()]} {due.day} {_MONTHS[due.month - 1]}"
+
+
+DONE_SHOWN = 10  # finalizadas que se ven al final del checklist

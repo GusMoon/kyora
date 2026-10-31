@@ -1,16 +1,69 @@
-LO QUE VAMOS AGREGAR:
-1. Que nos deje conectarnos a un red de internet nos muestre las redes disponibles, nos deje escribir contraseña y nos diga si estamos conectados o desconectados
-2. En el panel lateral vamos definir que solamente debe mostrar información que es relevante para nuestro flujo de trabajo diario:
-	- Hora
-	- Fecha
-	- Clima
-	- Uso de RAM
-	- Uso de Memoria
-	- Uso de CPU
-3. Requiero agregar un comando para cerrar un escritorio (win + "-")
-4. Requiero agregar un comando para que me salgan las opciones de apagar, reiniciar y suspender
+LO QUE VAMOS A MODIFICAR:
+1. Vamos a mover los siguientes valores a el panel lateral:
+- RAM, CPU y BATERIA
+- Clima
+2. Requiero que todos los iconos sean del mismo tamaño y color principal, cuando uno se este usando entonces este debe sobresalir sobre el resto, podemos usar un estilo de sobresaltado
+3. Vamos a quitar definitivamente el panel superior y para el resto de secciones vamos a mnejarlo de la siguiente manera:
+- para acceder a todos mis archivos vamos a usar la activación de comandos ">" y la palabra tree para activarlo
+- Para poder ver mis tareas requiero poder usar la activación de comando ">" y la palabra task
+- El cerebro por el momento lo vamos a dejar de usar pero no borres su lógica solamente no lo muestres y para la ultimo sección de Kyora requiero con solo usar la activación de comandos ">" y la palabra config
 
+---- 2026-10-26: SIN MARCO, PIZARRÓN INFINITO Y PANELES DE LOS BORDES ----
+1. Se quitó el marco y la barra lateral. El efecto de salto al abrir (EdgePopout) se conserva.
+2. Panel superior (cursor en el borde de arriba): hora, fecha, clima, wifi, Bluetooth (conectar y ver opciones), batería y RAM.
+   Win abre el buscador en ese mismo sitio; "<" solo apps, "/" solo carpetas, "@" solo archivos.
+3. Ventanas libres en un pizarrón infinito (Win + clic arrastrando). Win+O organiza las 3 de arriba en mosaico.
+   Win+flechas mueve, Win+Alt+flechas orienta/minimiza, Win+F foco, Win+R reemplazar, Win+W fondos, Win+E escritorio nuevo,
+   Win+Ctrl+flechas arriba/abajo cambia de escritorio deslizando la pantalla, Win+X apagar con fondo desenfocado.
+4. Panel izquierdo (cursor en el borde izquierdo): ventanas fuera de la pantalla (clic o arrastrar para traerlas) y número de escritorio.
 
-LO QUE VAMOS A MEJORAR:
-1. El botón de apagar lo vamos a cambiar por un icono de lechuza y que al pasar por este me de las opciones de desconectar Kyora, igual requiero es que me deje ejecutar desde este nuevo menú las opciones de reiniciar, abrir, y los archivos .bat que tenemos para que no tengamos que hacerlo desde el explorer de archivos.
-2. El borde de color de las ventanas requiero que sea un poco mas visible y mas rápido que se vea mas y el rango del color sea mayor.
+---- 2026-10-26 (ajustes) ----
+1. Paneles superior, izquierdo y buscador más pequeños (letra e iconos menores), con líneas finas entre datos; el buscador crece según lo que encuentra.
+2. Los paneles nacen del borde con pestañitas, sin relieve (solo sombra sutil) y la pantalla se oscurece un poco mientras están fuera.
+3. El contorno de la ventana activa ya no gira: se ilumina donde pasa el cursor cerca del borde.
+4. Ventanas libres: se colocan sin cambiar de tamaño ni esperar a la app, y sin ventanas fantasma al organizar.
+5. Win+O otra vez deshace el mosaico; arrastrar el fondo del escritorio (sin Win) mueve el pizarrón.
+
+---- 2026-10-26 (segundos ajustes) ----
+1. Contenido de los paneles sin cortes (margen interior arreglado) y un solo tamaño de letra e iconos en toda la aplicación.
+2. Panel izquierdo: solo iconos; al cambiar de escritorio, barra con los números. Win+O ya no lo abre.
+3. Las ventanas libres no cambian de tamaño al abrirse, moverse o arrastrarse; se apaga el acomodo de Windows.
+4. Modo organizado: ventana nueva a un lado y huecos visibles al arrastrar.
+5. Borde de la ventana activa: línea fina siempre, se ilumina con el cursor. Sombras de los paneles más pegadas.
+
+---- 2026-10-26 (cuartos ajustes) ----
+1. Touchpad: 1 dedo mueve ventanas; 2 dedos (sobre el fondo, o con Win) deslizan el pizarrón; pellizco = zoom.
+2. Sin comandos con >: Win+T tareas, Win+N notas, Win+C configuración con secciones.
+3. Tareas como filas con icono de estado (pendiente, en proceso, en revisión, terminada).
+4. Win+R: tarjetas opacas, la ventana actual pequeña arriba, sin negros.
+
+---- 2026-10-26 (quintos ajustes) ----
+1. Cada escritorio nace organizado; Ctrl+clic pasa al pizarrón libre; Win+O solo organiza (ya no alterna).
+2. Win+Tab: mapa de ventanas (icono de cada app al centro, contenido difuminado con el color de Kyora).
+3. El borde luminoso se enciende en todas las ventanas visibles, no solo en la enfocada.
+4. Fondo de paneles: gris oscuro teñido del color del fondo, con el contenido de detrás desenfocado.
+5. Se olvida el modo organizado/libre: vuelve el mosaico de siempre (Win+O alterna). Al deslizar no se redimensionan ni parpadean las ventanas y se apaga el borde luminoso.
+6. Estados con icono propio (pendiente punteado, en proceso aro gris con punto, en revision y finalizada con relleno de enfasis); subtareas como linea de tiempo (clic cambia de estado, arrastrar reordena, x borra, doble clic renombra); barra de progreso y tarjeta que se tine y cristaliza al completar subtareas.
+7. Las subtareas solo tienen dos estados (terminada o sin terminar). Al completar todas, la tarjeta de la tarea queda como cristal esmerilado con degradado calido del color de enfasis, letras oscuras y borde luminoso.
+8. Se quita el efecto de cristal de la tarjeta de la tarea (queda solo la barra de progreso). El estado se elige con una pildora oscura (nombre, icono, flecha) que abre una columna con los cuatro estados.
+9. Barra de progreso sin brillo en la punta. El selector de estado es un panel dentro de la tarjeta (ya no una ventana emergente, que le quitaba el foco al buscador). La tarjeta muestra primero la descripcion y debajo las subtareas, que se alcanzan deslizando o con Ctrl+flechas; Ctrl+Mayus+flechas reordena la subtarea elegida.
+
+---- 2026-10-27: MÚSICA (Win+M) ----
+1. Nuevo icono de música en el panel de arriba y atajo Win+M: tus listas de YouTube (cookies del navegador, music.browser en config.json) y sus canciones.
+2. Descargar todas, una sola o Detener; Descargar otra vez solo baja las que faltan. MP3 320 kbps directo en la carpeta Música (yt-dlp + FFmpeg).
+3. El foco con el ratón ya no tiene atajo (Win+M era suyo).
+
+---- 2026-10-27 (música: escuchar sin bajar) ----
+1. Enter o clic en una canción la reproduce en streaming (sin descargarla); al acabar sigue con la siguiente de la lista. Si ya estaba descargada, suena el MP3 local.
+2. Barra del pie con pausa/seguir, siguiente, tiempo y salto; Espacio pausa. D descarga la canción.
+3. Un servidor local (127.0.0.1) pide el audio a YouTube con las cabeceras de yt-dlp, porque QtMultimedia solo recibe 403.
+10. Se elimina el modo organizado/libre y el pizarron infinito (Ctrl+arrastrar, gancho de raton, Win+O): el mosaico siempre esta activo. Cada escritorio tiene 4 ejes (cuadricula 2x2), cada uno un mosaico de 3 ventanas con su espera; Win+Shift+flechas pasa de uno a otro y Win+Tab los muestra juntos. Se conserva el deslizamiento entre escritorios.
+11. Sin animacion de capturas estiradas al agrandar/achicar ventanas. Nueva pagina de Configuracion (icono de ajustes en la barra de arriba, sin atajo; se quita Win+C): tarjetas desplegables de Comandos (por seccion o por tecla) y Ejecutables.
+12. Se quitan los ejes y el mapa (solo escritorios). La tecla Windows queda bloqueada y todos los atajos pasan a Ctrl+Shift+tecla (buscador: Ctrl+Shift+Espacio). Configuracion rediseñada (barra lateral, filtro, teclas dibujadas, confirmacion en la tarjeta). Las tareas abren directo el Kanban; boton de ajustes con rueda dentada.
+13. Configuracion mas baja y ancha. Los atajos se pueden editar desde la pagina (Editar, captura de la combinacion, validacion: sin Windows, con Ctrl o Alt, no reservados, sin duplicar los de Kyora ni los de otros programas; se guarda en config.json y vale al momento; Restaurar con confirmacion).
+14. Configuracion: areas Fondos (cambiar el fondo de pantalla, solo nombres) y Rendimiento (Modo ligero). Rendimiento: sin lienzo de fondo desenfocado, capturas de ventanas de 640 px y maximo 12, sin deslizamiento ni borde luminoso en modo ligero. Barra superior: los iconos abren su pagina al pasar el cursor.
+15. Fondos: miniaturas con flechas (cambian con Enter o clic, carga perezosa en un hilo, cache de 48). Barra superior: cambio de pagina por hover instantaneo (45 ms, sin capturas ni transformacion); la pagina de configuracion se conserva al reabrir.
+16. Editar un grupo de atajos (flechas, 1/2/3, T/N): las teclas se quedan atenuadas y solo se pulsan los modificadores nuevos.
+17. Tareas: se elimina la lista cronologica; Ctrl+Shift+T abre directo el Kanban (tarjetas pequenas, scroll por columna con oscurecimiento de bordes, mas alto), el campo de arriba solo crea tareas, teclado propio (flechas, Enter, Ctrl+flechas, Ctrl+Enter, Ctrl+Supr). La tarea abierta sustituye al campo, mas ancha (subtareas a la izquierda, descripcion a la derecha) y con etiquetas (la base de datos ya tenia tags/task_tags: ahora se usan desde la tarea y se ven en el Kanban).
+
+18. Panel de sistema en la esquina de abajo a la derecha (cursor en la esquina): hora y clima, fichas de ajustes rapidos (Wi-Fi, Bluetooth, Ajustes) y medidores de RAM y bateria; wifi, Bluetooth, calendario y configuracion se abren en el mismo panel con flecha de volver. El panel superior queda solo con la fila de accesos: Buscar, Tareas, Notas, Musica y Fondos (lo que suena sigue saliendo ahi).

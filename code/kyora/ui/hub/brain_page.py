@@ -675,7 +675,13 @@ class BrainPage(QWidget):
     def _set_markdown(self, body):
         """Carga el Markdown en el editor visual con las sinapsis como enlaces del color de acento."""
         self.editor.setMarkdown(links.wiki_to_anchor(body))
+        self._color_links()
+
+    def _color_links(self):
+        """Las sinapsis, del color de acento (el editor no lo toma solo de la paleta)."""
         color = QColor(self.theme.gold)
+        modified = self.editor.document().isModified()
+        loading, self._loading = self._loading, True
         block = self.editor.document().begin()
         while block.isValid():
             it = block.begin()
@@ -690,6 +696,16 @@ class BrainPage(QWidget):
                     cursor.mergeCharFormat(link)
                 it += 1
             block = block.next()
+        self.editor.document().setModified(modified)
+        self._loading = loading
+
+    def retheme(self, theme):
+        """Colores nuevos (el fondo cambió): texto y sinapsis del editor."""
+        palette = self.editor.palette()
+        palette.setColor(QPalette.Link, QColor(theme.gold))
+        palette.setColor(QPalette.Text, QColor(theme.ink))
+        self.editor.setPalette(palette)
+        self._color_links()
 
     def open_title(self, title):
         path = self._do("brain.resolve", title=title)

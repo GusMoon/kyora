@@ -228,6 +228,15 @@ def play(p, box):
     p.drawPath(path)
 
 
+def skip_next(p, box):
+    path = QPainterPath(_at(box, 0.26, 0.24))
+    path.lineTo(_at(box, 0.62, 0.5))
+    path.lineTo(_at(box, 0.26, 0.76))
+    path.closeSubpath()
+    p.drawPath(path)
+    p.drawLine(_at(box, 0.74, 0.24), _at(box, 0.74, 0.76))
+
+
 def pause(p, box):
     p.drawLine(_at(box, 0.38, 0.25), _at(box, 0.38, 0.75))
     p.drawLine(_at(box, 0.62, 0.25), _at(box, 0.62, 0.75))
@@ -239,6 +248,84 @@ def music(p, box):
     p.drawLine(_at(box, 0.42, 0.72), _at(box, 0.42, 0.22))
     p.drawLine(_at(box, 0.82, 0.64), _at(box, 0.82, 0.16))
     p.drawLine(_at(box, 0.42, 0.22), _at(box, 0.82, 0.16))
+
+
+def gear(p, box):
+    """Ajustes: una rueda dentada (aro con ocho dientes y un círculo en el centro)."""
+    centre = _at(box, 0.5, 0.5)
+    radius = box.width() * 0.5
+    p.drawEllipse(centre, radius * 0.56, radius * 0.56)
+    p.drawEllipse(centre, radius * 0.24, radius * 0.24)
+    for i in range(8):
+        angle = i * math.pi / 4
+        dx, dy = math.cos(angle), math.sin(angle)
+        p.drawLine(QPointF(centre.x() + dx * radius * 0.56, centre.y() + dy * radius * 0.56),
+                   QPointF(centre.x() + dx * radius * 0.88, centre.y() + dy * radius * 0.88))
+
+
+def keyboard(p, box):
+    """Atajos: un teclado con dos filas de teclas y la barra espaciadora."""
+    p.drawRoundedRect(QRectF(_at(box, 0.06, 0.24), _at(box, 0.94, 0.78)), 3, 3)
+    for fy in (0.4, 0.55):
+        for fx in (0.22, 0.4, 0.58, 0.76):
+            p.drawPoint(_at(box, fx, fy))
+    p.drawLine(_at(box, 0.3, 0.68), _at(box, 0.7, 0.68))
+
+
+def terminal(p, box):
+    """Ejecutables: una ventana de consola con su indicador y el cursor."""
+    p.drawRoundedRect(QRectF(_at(box, 0.06, 0.2), _at(box, 0.94, 0.8)), 3, 3)
+    p.drawLine(_at(box, 0.24, 0.4), _at(box, 0.4, 0.5))
+    p.drawLine(_at(box, 0.4, 0.5), _at(box, 0.24, 0.6))
+    p.drawLine(_at(box, 0.5, 0.62), _at(box, 0.7, 0.62))
+
+
+def picture(p, box):
+    """Fondos: un cuadro con una montaña y un sol."""
+    p.drawRoundedRect(QRectF(_at(box, 0.08, 0.18), _at(box, 0.92, 0.82)), 3, 3)
+    p.drawEllipse(_at(box, 0.68, 0.38), box.width() * 0.07, box.width() * 0.07)
+    p.drawLine(_at(box, 0.12, 0.76), _at(box, 0.38, 0.5))
+    p.drawLine(_at(box, 0.38, 0.5), _at(box, 0.56, 0.68))
+    p.drawLine(_at(box, 0.56, 0.68), _at(box, 0.66, 0.6))
+    p.drawLine(_at(box, 0.66, 0.6), _at(box, 0.88, 0.78))
+
+
+def gauge(p, box):
+    """Rendimiento: un medidor con su aguja."""
+    path = QPainterPath()
+    path.arcMoveTo(QRectF(_at(box, 0.1, 0.16), _at(box, 0.9, 0.96)), 205)
+    path.arcTo(QRectF(_at(box, 0.1, 0.16), _at(box, 0.9, 0.96)), 205, -230)
+    p.drawPath(path)
+    p.drawLine(_at(box, 0.5, 0.58), _at(box, 0.72, 0.36))
+    p.drawPoint(_at(box, 0.5, 0.58))
+
+
+def globe(p, box):
+    """Predeterminados y páginas web: un globo con su meridiano y el ecuador."""
+    c = _at(box, 0.5, 0.5)
+    r = box.width() * 0.4
+    p.drawEllipse(c, r, r)
+    p.drawEllipse(c, r * 0.42, r)
+    p.drawLine(_at(box, 0.1, 0.5), _at(box, 0.9, 0.5))
+
+
+def bubble(p, box):
+    """Chat: un globo de diálogo con su colita."""
+    body = QPainterPath()
+    body.addRoundedRect(QRectF(_at(box, 0.1, 0.16), _at(box, 0.9, 0.7)), 4, 4)
+    p.drawPath(body)
+    tail = QPainterPath(_at(box, 0.3, 0.7))
+    tail.lineTo(_at(box, 0.26, 0.88))
+    tail.lineTo(_at(box, 0.5, 0.7))
+    p.drawPath(tail)
+
+
+def download(p, box):
+    """Flecha hacia abajo sobre una base: bajar al equipo."""
+    p.drawLine(_at(box, 0.5, 0.18), _at(box, 0.5, 0.64))
+    p.drawLine(_at(box, 0.3, 0.46), _at(box, 0.5, 0.66))
+    p.drawLine(_at(box, 0.7, 0.46), _at(box, 0.5, 0.66))
+    p.drawLine(_at(box, 0.24, 0.84), _at(box, 0.76, 0.84))
 
 
 def bluetooth(p, box):
@@ -344,9 +431,92 @@ def chevron(p, box, direction="up"):
     """Flecha pequeña (subir o bajar una subtarea)."""
     if direction == "up":
         points = (_at(box, 0.28, 0.6), _at(box, 0.5, 0.38), _at(box, 0.72, 0.6))
+    elif direction == "right":
+        points = (_at(box, 0.4, 0.28), _at(box, 0.62, 0.5), _at(box, 0.4, 0.72))
     else:
         points = (_at(box, 0.28, 0.4), _at(box, 0.5, 0.62), _at(box, 0.72, 0.4))
     path = QPainterPath(points[0])
     for point in points[1:]:
         path.lineTo(point)
     p.drawPath(path)
+
+
+def wifi(p, box, connected=True):
+    """Wifi: tres arcos y un punto; sin conexión, cruzado por una raya."""
+    center = _at(box, 0.5, 0.78)
+    for f in (0.62, 0.42, 0.22):
+        r = box.width() * f
+        p.drawArc(QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r), 45 * 16, 90 * 16)
+    dot = box.width() * 0.05
+    p.drawEllipse(center, dot, dot)
+    if not connected:
+        p.drawLine(_at(box, 0.16, 0.16), _at(box, 0.84, 0.84))
+
+
+def memory(p, box):
+    """RAM: un módulo con sus contactos."""
+    p.drawRoundedRect(QRectF(_at(box, 0.1, 0.3), _at(box, 0.9, 0.66)), 2, 2)
+    for fx in (0.3, 0.5, 0.7):
+        p.drawLine(_at(box, fx, 0.66), _at(box, fx, 0.8))
+    p.drawLine(_at(box, 0.26, 0.44), _at(box, 0.26, 0.52))
+    p.drawLine(_at(box, 0.74, 0.44), _at(box, 0.74, 0.52))
+
+
+def battery(p, box, level=1.0, charging=False):
+    """Batería con su nivel (0 a 1) y, si carga, un rayo."""
+    body = QRectF(_at(box, 0.1, 0.3), _at(box, 0.82, 0.7))
+    p.drawRoundedRect(body, 2.5, 2.5)
+    p.drawLine(_at(box, 0.9, 0.42), _at(box, 0.9, 0.58))
+    inner = body.adjusted(2.5, 2.5, -2.5, -2.5)
+    if level > 0 and not charging:
+        inner.setWidth(inner.width() * max(min(level, 1.0), 0.08))
+        p.save()
+        p.setBrush(p.pen().color())
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(inner, 1, 1)
+        p.restore()
+    if charging:
+        bolt = QPainterPath(_at(box, 0.5, 0.33))
+        bolt.lineTo(_at(box, 0.38, 0.52))
+        bolt.lineTo(_at(box, 0.5, 0.52))
+        bolt.lineTo(_at(box, 0.42, 0.68))
+        p.drawPath(bolt)
+
+
+def status_pending(p, box):
+    """Tarea pendiente: un reloj de arena."""
+    top, bottom = box.top() + box.height() * 0.2, box.top() + box.height() * 0.8
+    left, right = box.left() + box.width() * 0.28, box.left() + box.width() * 0.72
+    path = QPainterPath(QPointF(left, top))
+    path.lineTo(right, top)
+    path.lineTo(left, bottom)
+    path.lineTo(right, bottom)
+    path.closeSubpath()
+    p.drawPath(path)
+
+
+def status_doing(p, box):
+    """Tarea en proceso: una flecha que avanza."""
+    p.drawLine(_at(box, 0.2, 0.5), _at(box, 0.78, 0.5))
+    p.drawLine(_at(box, 0.56, 0.26), _at(box, 0.8, 0.5))
+    p.drawLine(_at(box, 0.56, 0.74), _at(box, 0.8, 0.5))
+
+
+def status_review(p, box):
+    """Tarea en revisión: un ojo."""
+    path = QPainterPath(_at(box, 0.12, 0.5))
+    path.quadTo(_at(box, 0.5, 0.1), _at(box, 0.88, 0.5))
+    path.quadTo(_at(box, 0.5, 0.9), _at(box, 0.12, 0.5))
+    p.drawPath(path)
+    p.drawEllipse(_at(box, 0.5, 0.5), box.width() * 0.13, box.width() * 0.13)
+
+
+def status_done(p, box):
+    """Tarea finalizada: una marca de verificación."""
+    path = QPainterPath(_at(box, 0.2, 0.52))
+    path.lineTo(_at(box, 0.42, 0.74))
+    path.lineTo(_at(box, 0.8, 0.28))
+    p.drawPath(path)
+
+
+STATUS_GLYPHS = {"pending": status_pending, "doing": status_doing, "review": status_review, "done": status_done}

@@ -19,6 +19,18 @@ def hwnd_of(widget):
     return int(widget.winId())
 
 
+def place_under(widget, other):
+    """Pone `widget` justo debajo de `other` en el orden de las ventanas (sin moverla, cambiarla de tamaño ni activarla)."""
+    try:
+        import win32con
+        import win32gui
+
+        win32gui.SetWindowPos(hwnd_of(widget), hwnd_of(other), 0, 0, 0, 0,
+                              win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
+    except Exception:  # noqa: BLE001, S110 - sin Windows (las pruebas) o con una ventana que ya no existe: se queda donde esté
+        pass
+
+
 class ScreenMap:
     """Convierte entre píxeles físicos de Windows (los del gestor de ventanas) y lógicos de Qt."""
 
@@ -34,3 +46,5 @@ class ScreenMap:
         ox, oy = self.geometry.x() * self.dpr, self.geometry.y() * self.dpr
         d = self.dpr
         return QRectF((left - ox) / d, (top - oy) / d, (right - left) / d, (bottom - top) / d)
+
+

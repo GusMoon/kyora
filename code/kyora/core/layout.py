@@ -151,3 +151,9 @@ def neighbor(slots, index, direction):
         if best_score is None or score < best_score:
             best, best_score = j, score
     return best
+
+
+def slide_offset(direction, area):
+    """(dx, dy) en píxeles de pantalla que se desplaza todo al pasar al escritorio de abajo (+1) o de arriba (-1):
+    lo que sale se va hacia el lado contrario al que llega lo nuevo."""
+    return 0, -direction * area.height

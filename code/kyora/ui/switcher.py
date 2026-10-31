@@ -1,21 +1,32 @@
-"""Panel de Alt+E: las ventanas en espera de este escritorio, apiladas como en una revista.
+"""Panel de Win+R: reemplazar la ventana enfocada por otra de este escritorio que no se ve (fuera de la pantalla o
+minimizada).
 
-Las capturas se apilan en vertical, sin hueco y alineadas a la izquierda. La elegida es la más ancha y queda en el
-centro; las demás se estrechan cuanto más lejos están. Con ↑/↓ (o la rueda) la pila se desliza; Enter trae la
-ventana al hueco enfocado, Supr la cierra y Esc sale. Sin ventanas en espera lo dice. Aparece con un fundido corto.
-Es una pieza del marco: su mismo material y su borde, con las esquinas redondeadas de las ventanas.
+Una pila vertical de tarjetas redondeadas, centrada y sin hueco entre ellas, con el nombre de cada app encima. La
+ventana que se va a reemplazar sale pequeña arriba del todo; la elegida es la más grande y queda en el centro y las demás
+se estrechan cuanto más lejos están. Con ↑/↓ (o la rueda) la pila se desliza; Enter pone la elegida en el sitio de la
+enfocada (que pasa al panel izquierdo), Supr la cierra y Esc sale. Todo opaco: una placa sólida, sin transparencias ni
+negros (si una captura sale vacía, la tarjeta lleva el icono de la app).
 """
 import logging
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QGuiApplication,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import QWidget
 
 from kyora.system.win32 import force_foreground
 from kyora.ui.anim import Tween
+from kyora.ui.bar import font
 from kyora.ui.icons import app_icon
-from kyora.ui.relief import frame_gradient, paint_raised_edge
 from kyora.ui.win import hwnd_of, make_tool_window
 
 log = logging.getLogger("kyora.ui")
@@ -25,7 +36,6 @@ FALLOFF = 0.78  # cada paso de distancia estrecha la tarjeta en este factor
 DEFAULT_ASPECT = 16 / 10  # tarjetas sin captura
 MAX_HEIGHT = 0.55  # ninguna tarjeta pasa de esta fracción del alto del panel
 PAD = 22
-FADE_MS = 90
 SLIDE_MS = 260
 BLUR_CHECK_MS = 200
 SLOW_OPEN_MS = 50  # abrir el panel más lento que esto se anota en kyora.log
@@ -51,14 +61,6 @@ def stack_layout(aspects, pos, width, height):
     return [(x, top + shift, w, h) for x, top, w, h in rects]
 
 
-def _mono(theme, px, bold=False):
-    f = QFont(theme.mono_family)
-    f.setStyleHint(QFont.Monospace)
-    f.setPixelSize(px)
-    f.setBold(bold)
-    return f
-
-
 class WaitingStack(QWidget):
     def __init__(self, theme, screen_map, items, thumb, invoke):
         """`items()` -> lista de {hwnd, name, title, exe}; `thumb(hwnd)` -> (ancho, alto, bytes) o None."""
@@ -66,6 +68,8 @@ class WaitingStack(QWidget):
         make_tool_window(self)
         self.setWindowTitle("KyoraSwitcher")
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)  # opaco: sin transparencias
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.theme = theme
         self.map = screen_map
         self._items_fn, self._thumb_fn, self._invoke = items, thumb, invoke
@@ -74,7 +78,7 @@ class WaitingStack(QWidget):
         self.selected = 0
         self._pos = 0.0
         self._thumbs = {}
-        self._fade = Tween(self, self.setWindowOpacity, self._finished)
+        self._current_shot = None  # la captura de la ventana que se reemplaza, tomada antes de abrir
         self._slide = Tween(self, self._set_pos)
 
     # ---------- abrir, cerrar y elegir ----------
@@ -88,17 +92,19 @@ class WaitingStack(QWidget):
         g = self.map.geometry
         self.setGeometry(self.map.rect_to_logical(*rect).translated(g.x(), g.y()).toAlignedRect())
         self._thumbs.clear()
+        grab = QGuiApplication.primaryScreen().grabWindow(0, self.x(), self.y(), self.width(), self.height())
+        self._current_shot = None if grab.isNull() else grab  # antes de mostrar nada: es la ventana tal cual está
         self.items = self._items_fn()
-        self.selected, self._pos = 0, 0.0
+        self.selected = 1 if len(self.items) > 1 and self.items[0].get("current") else 0
+        self._pos = float(self.selected)
         self.opened = True
-        self.setWindowOpacity(0.0)
+        self.setWindowOpacity(1.0)
         self.show()
         self.raise_()
         self.activateWindow()
         force_foreground(hwnd_of(self))
         self.setFocus()
         self.update()
-        self._fade.start(self.windowOpacity(), 1.0, FADE_MS, QEasingCurve.OutCubic)
         took = (time.perf_counter() - started) * 1000
         if took > SLOW_OPEN_MS:
             log.info("El panel de espera tardó %.0f ms en abrirse (%s ventanas)", took, len(self.items))
@@ -107,18 +113,19 @@ class WaitingStack(QWidget):
         if not self.opened:
             return
         self.opened = False
-        self._fade.start(self.windowOpacity(), 0.0, FADE_MS, QEasingCurve.InCubic)
+        self.hide()
         if refocus:
             self._invoke("wm.refocus")
 
-    def _finished(self):
-        if not self.opened:
-            self.hide()
-
     def _pick(self):
-        if self.items:
-            self._invoke("switcher.pick", hwnd=self.items[self.selected]["hwnd"])
-            self.close_popout(refocus=False)
+        if not self.items:
+            return
+        item = self.items[self.selected]
+        if item.get("current"):  # la que ya está en su sitio: nada que reemplazar
+            self.close_popout()
+            return
+        self._invoke("switcher.pick", hwnd=item["hwnd"])
+        self.close_popout(refocus=False)
 
     def _select(self, index):
         if not self.items:
@@ -142,7 +149,7 @@ class WaitingStack(QWidget):
             self._pick()
         elif key == Qt.Key_Escape:
             self.close_popout()
-        elif key == Qt.Key_Delete and self.items:
+        elif key == Qt.Key_Delete and self.items and not self.items[self.selected].get("current"):
             self._invoke("wm.close_window", hwnd=self.items[self.selected]["hwnd"])
             self.items.pop(self.selected)
             self._select(min(self.selected, len(self.items) - 1))
@@ -177,78 +184,88 @@ class WaitingStack(QWidget):
 
     # ---------- pintura ----------
 
-    def _pixmap(self, hwnd):
+    def _pixmap(self, item):
+        """La captura de una tarjeta, o None si no hay o salió vacía (negra): entonces se pinta su icono."""
+        hwnd = item["hwnd"]
+        if item.get("current"):
+            shot = self._current_shot
+            return None if shot is None or _blank(shot.toImage()) else shot
         if hwnd not in self._thumbs:
             shot = self._thumb_fn(hwnd)
-            # RGB32: el cuarto byte de la captura no es alfa. fromImage copia los píxeles, así que no hace falta copy()
-            self._thumbs[hwnd] = (
-                QPixmap.fromImage(QImage(shot[2], shot[0], shot[1], shot[0] * 4, QImage.Format_RGB32)) if shot else None
-            )
+            image = QImage(shot[2], shot[0], shot[1], shot[0] * 4, QImage.Format_RGB32) if shot else None
+            self._thumbs[hwnd] = QPixmap.fromImage(image) if image is not None and not _blank(image) else None
         return self._thumbs[hwnd]
 
     def _layout(self):
         aspects = []
         for item in self.items:
-            shot = self._pixmap(item["hwnd"])
+            shot = self._pixmap(item)
             aspects.append(shot.width() / shot.height() if shot else DEFAULT_ASPECT)
-        return stack_layout(aspects, self._pos, self.width(), self.height())
+        rects = stack_layout(aspects, self._pos, self.width(), self.height())
+        return [((self.width() - w) / 2, y, w, h) for _, y, w, h in rects]  # centradas
 
     def paintEvent(self, _):
         t = self.theme
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        # medio borde hacia dentro: así la línea oscura de fuera cabe en la ventana y no se corta
-        inset = t.edge_width
-        piece = QPainterPath()
-        piece.addRoundedRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset), t.panel_radius, t.panel_radius)
-        p.fillPath(piece, frame_gradient(t, self.map.geometry.height(), self.y() - self.map.geometry.y()))
-        paint_raised_edge(p, piece, QRectF(self.rect()), t)
-        p.setClipPath(piece)  # las tarjetas y los textos no se salen de las esquinas redondeadas
-        right = QRectF(self.width() * (WIDEST + 0.04), PAD, self.width() * (1 - WIDEST - 0.04) - PAD, self.height() - 2 * PAD)
-        p.setPen(QColor(t.ink))
-        p.setFont(_mono(t, t.small_px))
-        p.drawText(right, Qt.AlignRight | Qt.AlignTop, f"EN ESPERA · {len(self.items)}")
+        p.fillRect(self.rect(), QColor(t.plate_top))  # una placa sólida
+        p.setFont(font(t))
         p.setPen(QColor(t.dim))
-        p.drawText(right, Qt.AlignRight | Qt.AlignBottom, "↑↓ ELEGIR\nENTER TRAER · SUPR CERRAR\nESC SALIR")
-        if not self.items:
+        p.drawText(QRectF(self.rect()).adjusted(0, 0, 0, -14), Qt.AlignHCenter | Qt.AlignBottom,
+                   "↑↓ elegir  ·  Enter reemplazar  ·  Supr cerrar  ·  Esc salir")
+        if len(self.items) < 2:
             p.setPen(QColor(t.ink))
-            p.setFont(_mono(t, t.font_px + 2))
-            p.drawText(QRectF(self.rect()), Qt.AlignCenter, "No hay aplicaciones en espera")
-            return
-        layout = self._layout()
-        for i, (item, (x, y, w, h)) in enumerate(zip(self.items, layout)):
+            p.drawText(QRectF(self.rect()), Qt.AlignCenter, "No hay ventanas fuera de la pantalla")
+            if not self.items:
+                return
+        for i, (item, (x, y, w, h)) in enumerate(zip(self.items, self._layout())):
             if y + h < 0 or y > self.height():
                 continue
             self._paint_card(p, QRectF(x, y, w, h), item, abs(i - self._pos))
-        x, y, w, h = layout[self.selected]
-        item = self.items[self.selected]
-        label = QRectF(right.left(), y, right.width(), h)
-        p.setPen(QColor(t.ink))
-        p.setFont(_mono(t, t.small_px + 1, bold=True))
-        name = p.fontMetrics().elidedText(item["name"].upper(), Qt.ElideRight, int(label.width()))
-        p.drawText(label.adjusted(0, 0, 0, -h / 2 - 2), Qt.AlignRight | Qt.AlignBottom, name)
-        p.setPen(QColor(t.dim))
-        p.setFont(_mono(t, t.small_px))
-        title = p.fontMetrics().elidedText((item["title"] or "").upper(), Qt.ElideRight, int(label.width()))
-        p.drawText(label.adjusted(0, h / 2 + 2, 0, 0), Qt.AlignRight | Qt.AlignTop, title)
 
     def _paint_card(self, p, rect, item, distance):
         t = self.theme
+        rect = rect.adjusted(0, 3, 0, -3)  # un respiro entre tarjetas
+        radius = t.panel_radius + 4
+        shape = QPainterPath()
+        shape.addRoundedRect(rect, radius, radius)
         p.save()
-        p.setClipRect(rect, Qt.IntersectClip)
-        shot = self._pixmap(item["hwnd"])
+        p.setClipPath(shape)
+        p.fillRect(rect, QColor(t.capsule))  # base sólida: nada se transparenta detrás de la captura
+        shot = self._pixmap(item)
         if shot:
-            # recorte centrado, sin deformar la captura. Se dibuja directamente del original: Qt la muestrea a la
-            # resolución real de la pantalla (nítida con escala) y no hay que reescalarla en cada fotograma
+            # recorte centrado, sin deformar la captura (se muestrea del original, nítida)
             scale = max(rect.width() / shot.width(), rect.height() / shot.height())
             cw, ch = rect.width() / scale, rect.height() / scale
             p.drawPixmap(rect, shot, QRectF((shot.width() - cw) / 2, (shot.height() - ch) / 2, cw, ch))
         else:
-            p.fillRect(rect, QColor(t.capsule))
-            side = int(min(48, rect.height() * 0.5))
+            side = int(min(t.icon_px * 2.4, rect.height() * 0.5))
             icon = app_icon(item.get("exe", ""), item["hwnd"], side, self.devicePixelRatioF())
             p.drawPixmap(int(rect.center().x() - side / 2), int(rect.center().y() - side / 2), icon)
-        if distance > 0.01:  # las que no están elegidas se apagan un poco
-            p.fillRect(rect, QColor(0, 0, 0, round(90 * min(distance, 1.5))))
+        if rect.height() > 26:  # el nombre de la app, sobre un velo en la parte de abajo de la tarjeta
+            label = ("ACTUAL · " if item.get("current") else "") + item["name"]
+            veil = QLinearGradient(rect.left(), rect.bottom() - 40, rect.left(), rect.bottom())
+            veil.setColorAt(0, QColor(0, 0, 0, 0))
+            veil.setColorAt(1, QColor(0, 0, 0, 170))
+            p.fillRect(QRectF(rect.left(), rect.bottom() - 40, rect.width(), 40), veil)
+            p.setFont(font(t, bold=True))
+            p.setPen(QColor("#ffffff"))
+            p.drawText(rect.adjusted(14, 0, -14, -8), Qt.AlignLeft | Qt.AlignBottom,
+                       p.fontMetrics().elidedText(label, Qt.ElideRight, int(rect.width() - 28)))
         p.restore()
+        if distance < 0.5:  # la elegida: un borde fino del acento
+            p.setPen(QPen(QColor(t.gold), 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+
+
+def _blank(image):
+    """True si una captura es (casi) toda negra: PrintWindow no sabe leer algunas ventanas aceleradas."""
+    step_x, step_y = max(image.width() // 8, 1), max(image.height() // 8, 1)
+    for y in range(0, image.height(), step_y):
+        for x in range(0, image.width(), step_x):
+            c = image.pixelColor(x, y)
+            if c.red() + c.green() + c.blue() > 24:
+                return False
+    return True

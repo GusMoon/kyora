@@ -69,8 +69,8 @@ class NetworkHeader(QWidget):
             glyphs.lock(p, QRectF(36, ROW_H / 2 - 8, 16, 16))
         p.setPen(QColor(t.ink))
         p.setFont(font(t, t.font_px + 2, bold=n["connected"]))
-        name = p.fontMetrics().elidedText(n["ssid"], Qt.ElideRight, self.width() - 160)
-        p.drawText(QRectF(60, 0, self.width() - 160, ROW_H), Qt.AlignVCenter | Qt.AlignLeft, name)
+        name = p.fontMetrics().elidedText(n["ssid"], Qt.ElideRight, self.width() - 130)
+        p.drawText(QRectF(60, 0, self.width() - 130, ROW_H), Qt.AlignVCenter | Qt.AlignLeft, name)
         tag = "Conectada" if n["connected"] else ("Guardada" if n["has_profile"] else "")
         if not n["supported"]:
             tag = "Empresa"
@@ -126,7 +126,7 @@ class NetworkRow(QWidget):
 
 
 class WifiPage(DockPage):
-    size = (420, 470)
+    size = (380, 380)
 
     def __init__(self, theme, invoke):
         super().__init__()
@@ -177,7 +177,7 @@ class WifiPage(DockPage):
         self.setStyleSheet(
             f"QWidget {{ background: transparent; color: {t.ink}; }}"
             f"QLineEdit {{ background: {_css(t.field)}; border: 1px solid {_css(t.line)}; border-radius: 8px;"
-            f" padding: 6px 10px; font: {t.font_px + 1}px '{t.font_family}'; selection-background-color: {_css(t.gold_soft)}; }}"
+            f" padding: 6px 10px; font: {t.font_px}px '{t.font_family}'; selection-background-color: {_css(t.gold_soft)}; }}"
             f"QLineEdit:focus {{ border-color: {_css(t.gold_line)}; }}"
             f"QPushButton {{ background: {_css(t.hover)}; border: 1px solid {_css(t.line)}; border-radius: 8px;"
             f" padding: 6px 12px; font: {t.font_px}px '{t.font_family}'; }}"

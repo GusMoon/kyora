@@ -71,8 +71,40 @@ def test_owl_menu_scripts_are_a_closed_list(tmp_path):
 
 
 def test_owl_menu_only_offers_known_scripts():
-    from kyora.ui.panels import OWL_OPTIONS
+    from kyora.core.commands import KYORA_OPTIONS
 
-    for _, _, action, payload in OWL_OPTIONS:
+    for _, _, action, payload in KYORA_OPTIONS:
         if action == "app.run_script":
             assert payload["name"] in launch.SCRIPTS
+
+
+def test_location_by_ip_is_cached_and_falls_back(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_get(url):
+        calls.append(url)
+        if "ipwho" in url:
+            raise OSError("caído")
+        return {"latitude": 20.97, "longitude": -89.62, "city": "Mérida", "country_name": "Mexico"}
+
+    monkeypatch.setattr(weather, "_get", fake_get)
+    cache = tmp_path / "location.json"
+    clock = [1000.0]
+    assert weather.locate_ip(cache, now=lambda: clock[0]) == (20.97, -89.62, "Mérida, Mexico")
+    assert len(calls) == 2  # el primero falló: usó el de respaldo
+    weather.locate_ip(cache, now=lambda: clock[0])
+    assert len(calls) == 2  # de la caché
+    clock[0] += weather.IP_MAX_AGE + 1
+    weather.locate_ip(cache, now=lambda: clock[0])
+    assert len(calls) == 4  # caducó: se vuelve a preguntar
+
+
+def test_ipwhois_answer_and_errors():
+    assert weather.parse_ip({"success": True, "latitude": 1, "longitude": 2, "city": "Mérida", "country": "México"}) \
+        == (1.0, 2.0, "Mérida, México")
+    try:
+        weather.parse_ip({"success": False, "message": "límite"})
+    except LookupError as err:
+        assert "límite" in str(err)
+    else:
+        raise AssertionError("debía fallar")

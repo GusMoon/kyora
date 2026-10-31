@@ -8,12 +8,15 @@ import atexit
 import ctypes
 import logging
 import logging.handlers
+import os
 import queue
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pythoncom
 import pywintypes
@@ -23,24 +26,36 @@ import winerror
 
 from kyora import config as config_module
 from kyora.brain.service import BrainService
+from kyora.chat.service import ChatService
 from kyora.core.actions import ActionError, ActionRegistry
-from kyora.core.commands import COMMANDS_WORD, command_rows
+from kyora.core.commands import (
+    KYORA_OPTIONS,
+    config_data,
+)
+from kyora.core.hotkey_edit import normalize as normalize_combo
 from kyora.directory.service import DirectoryService
+from kyora.music.service import MusicService
+from kyora.notes.service import NotesService
+from kyora.search import folders, web
 from kyora.search.apps import AppIndex, score
+from kyora.search.files_index import FileIndex, default_roots
 from kyora.system import (
     audio,
     bluetooth,
+    browsers,
     display,
     launch,
     shell,
+    snap,
     stats,
+    wallpaper,
     weather,
     wifi,
     wlan,
 )
 from kyora.system.events import EVENT_MOVESIZEEND, EVENT_MOVESIZESTART, EventHook
 from kyora.system.hotkeys import Hotkeys, split_bindings
-from kyora.system.keys import KeyboardHook
+from kyora.system.keys import KeyHookProcess
 from kyora.system.win32 import Taskbar, Win32System, make_dpi_aware
 from kyora.tasks.service import TaskService
 from kyora.wm.manager import RESIZE_THRESHOLD, WindowManager
@@ -50,13 +65,19 @@ log = logging.getLogger("kyora")
 SYNC_DEBOUNCE = 0.12
 PUSH_DEBOUNCE = 0.05
 WIFI_INTERVAL = 30
-TASKBAR_INTERVAL = 1
+TASKBAR_INTERVAL = 0.2  # Explorer la muestra con la tecla Windows: se vuelve a ocultar enseguida
 DRAG_TIMEOUT = 30
 TRACK_INTERVAL = 0.03  # seguimiento del cursor mientras se arrastra
 FOCUS_INTERVAL = 0.1  # foco con el ratón: el cursor debe quedarse quieto 2 pasos
 RING_INTERVAL = 0.04  # cada cuánto se mira qué ventana tiene el foco para rodearla
+RING_IDLE_INTERVAL = 0.15  # lo mismo cuando lleva un rato sin cambiar nada
+RING_QUIET_AFTER = 1.0  # segundos sin cambios para pasar al intervalo lento
+TRANSITION_WAIT = 0.7  # lo máximo que se espera a que las ventanas fantasma lleguen a su hueco
+WINDOWS_CACHE_SECONDS = 1.0  # el buscador reutiliza la lista de ventanas mientras se escribe
 SEARCH_RESULTS = 6
-CLOSE_ALL_CONFIRM = 3  # segundos para volver a pulsar Win+Esc y cerrar todas las ventanas
+MIXED_FOLDERS = 3  # sin prefijo, las carpetas y archivos que se suman a las ventanas y apps
+MIXED_FILES = 4
+MIXED_PATHS = MIXED_FOLDERS + MIXED_FILES
 RESTART_WAIT = 15  # segundos que una Kyora nueva (--restart) espera a que se cierre la anterior
 DEVICES_INTERVAL = 2  # segundos entre lecturas de CPU, RAM y volumen
 DISK_EVERY = 30  # el disco, cada tantas lecturas (1 minuto)
@@ -83,13 +104,19 @@ def _as_tuple(rect):
     return (rect.left, rect.top, rect.right, rect.bottom) if rect else None
 
 
+OPTIONS = ("light_mode",)  # los ajustes que la página de configuración puede cambiar
+
+
 class Kyora:
     def __init__(self, cfg):
         self.cfg = cfg
         self.system = Win32System(cfg)
         self.taskbar = Taskbar()
         self.manager = WindowManager(self.system, cfg, notify=self._request_push)
+        self.system.transition_done = self._transition_done
+        self.system.slide = self._slide
         self.index = AppIndex()
+        self.files = FileIndex(lambda: default_roots(folders.drives))  # "/carpeta" y "@archivo" del buscador
         self.registry = ActionRegistry()
         self.ui = None  # UiBridge: se crea al arrancar la interfaz
         self.hook = None
@@ -97,26 +124,36 @@ class Kyora:
         self.winkey = None
         self.wifi = dict(wifi.OFF)
         self.search_open = False
+        self._search_mode = ""  # "", "task" o "notes": cómo se abrió el buscador
         self.devices = {}  # CPU, RAM, disco, volumen y brillo: lo que muestra la barra
         self._device_jobs = queue.Queue()  # cambios de volumen y brillo: los hace el hilo de dispositivos (COM)
         self._history = stats.History()  # CPU y RAM de los últimos minutos, para la gráfica de Sistema
-        self._moving = 0  # ventana del mosaico que el usuario está arrastrando
+        self._moving = 0  # ventana (con el mosaico hecho) que el usuario está arrastrando
         self._ffm_on = threading.Event()
         if cfg["focus_follows_mouse"]:
             self._ffm_on.set()
         self._ui_lock = threading.Lock()
         self._stop = threading.Event()
         self._sync_needed = threading.Event()
+        self._ring_wake = threading.Event()  # un aviso de Windows: el contorno mira ya, sin esperar su turno
+        self._windows_cache = (0.0, [])  # (cuándo, lista de ventanas) para el buscador
         self._push_needed = threading.Event()
         self._down = False
         self._down_lock = threading.Lock()
-        self._close_all_armed = 0.0  # hasta cuándo una segunda pulsación de Win+Esc cierra todo
+        self._wallpaper_lock = threading.Lock()
         self.directory = DirectoryService(
             config_module.data_dir(), lambda event: self._emit("directory_event", event),
             shell.known_folder, shell.recycle, shell.open_with,
         )
         self.tasks = TaskService(config_module.data_dir())
         self.brain = BrainService(config_module.data_dir(), shell.recycle, documents=shell.known_folder("documents"))
+        self.notes = NotesService(shell.known_folder("documents"), shell.recycle)
+        self.music = MusicService(
+            config_module.data_dir(), shell.known_folder("music") or Path.home() / "Music",
+            lambda: self.cfg.get("music"), lambda result: self._emit("music_result", result),
+        )
+        self.chat = ChatService(config_module.data_dir(), lambda event: self._emit("chat_event", event),
+                                lambda: self.cfg.get("chat"))
         self._register_actions()
 
     # ---------- acciones ----------
@@ -131,6 +168,8 @@ class Kyora:
         r.register("wm.zoom_toggle", m.zoom_toggle)
         r.register("wm.focus_next", m.focus_next)
         r.register("wm.rotate", m.rotate)
+        r.register("wm.arrange", lambda dir: m.arrange(dir))  # Win+Alt+flechas
+        r.register("wm.bring_to", lambda hwnd, x=None, y=None: m.bring_to(int(hwnd), x, y))  # desde el panel izquierdo
         r.register("wm.park", m.park)
         r.register("wm.close", m.close_focused, destructive=True)
         r.register("wm.float_toggle", m.float_toggle)
@@ -151,9 +190,10 @@ class Kyora:
         r.register("switcher.pick", self.switcher_pick)
         r.register("wm.swap_into_focused", lambda hwnd: m.swap_into_focused(hwnd))
         r.register("wm.send_to_desktop", lambda index: m.send_to_desktop(index))
-        r.register("desktop.switch", lambda index: m.desktop_switch(index))
-        r.register("desktop.step", lambda delta: m.desktop_step(delta))
-        r.register("desktop.create", m.desktop_create)
+        r.register("desktop.switch", self.desktop_switch)
+        r.register("desktop.step", self.desktop_step)
+        r.register("desktop.overview_hide", lambda: self._emit("desktops_hide"))
+        r.register("desktop.create", self.desktop_create)
         r.register("desktop.rename", lambda index, name: m.desktop_rename(index, name))
         r.register("desktop.close", lambda index: m.desktop_close(index))
         r.register("desktop.close_current", lambda: m.desktop_close(m.active))
@@ -162,10 +202,13 @@ class Kyora:
         r.register("system.restart", lambda: self.power_off(restart=True), destructive=True)
         r.register("system.sleep", self.sleep)
         r.register("app.restart", self.restart)
-        r.register("hub.toggle", lambda section="lobby": self._emit("hub_toggle", section))
         self.directory.register(r)
         self.tasks.register(r)
         self.brain.register(r)
+        self.notes.register(r)
+        self.music.register(r)
+        self.chat.register(r)
+        r.register("music.panel", lambda: self._emit("music_panel"))
         r.register("bluetooth.status", self.bluetooth_status)
         r.register("bluetooth.set", self.bluetooth_set)
         r.register("wifi.networks", self.wifi_networks)
@@ -178,11 +221,20 @@ class Kyora:
         r.register("search.open", self.open_search)
         r.register("search.close", self.close_search)
         r.register("search.toggle", self.toggle_search)
+        r.register("search.open_mode", lambda mode: self.toggle_search(mode))
         r.register("search.query", self.search_query)
         r.register("search.launch", self.search_launch)
+        r.register("wallpaper.set", self.set_wallpaper)
+        r.register("wallpaper.mode", self.wallpaper_mode)  # Win+W
+        r.register("files.children", self.files_children)
         r.register("app.focus_follows_mouse", self.focus_follows_mouse)
         r.register("app.release", self.release, destructive=True)
         r.register("app.quit", self.quit)
+        r.register("config.set_hotkeys", self.set_hotkeys)
+        r.register("config.reset_hotkeys", self.reset_hotkeys)
+        r.register("config.set_option", self.set_option)
+        r.register("config.set_web_shortcuts", self.set_web_shortcuts)
+        r.register("config.set_default_browser", self.set_default_browser)
 
     def invoke_async(self, action, **payload):
         """Lo usan los botones de la interfaz: la acción corre fuera del hilo de Qt para no congelarla."""
@@ -199,6 +251,18 @@ class Kyora:
         if self.ui is not None:
             getattr(self.ui, name).emit(*args)
 
+    def _transition_done(self):
+        self._emit("transition_end")
+
+    def _slide(self, payload):
+        """Desliza lo que hay en pantalla al escritorio de al lado (ver ui/transition.py) y espera a que llegue; las
+        ventanas del escritorio nuevo se muestran después, debajo. False si no hay interfaz o tardó demasiado."""
+        if self.ui is None:
+            return False
+        done = threading.Event()
+        self._emit("slide", {**payload, "done": done})
+        return done.wait(TRANSITION_WAIT)
+
     def get_state(self):
         state = self.manager.snapshot()
         state.update(
@@ -210,14 +274,34 @@ class Kyora:
         )
         return state
 
+    def desktop_step(self, delta):
+        """Ctrl+Shift+RePág/AvPág: va al escritorio de al lado. Los números salen antes de que la pantalla se deslice, para que se
+        vean mientras tanto."""
+        target = self.manager.active + delta
+        if 0 <= target < len(self.manager.desktops):
+            self._emit("desktops_overview", self.desktops_overview(target))
+        self.manager.desktop_step(delta)
+
+    def desktop_switch(self, index):
+        index = int(index)
+        if 0 <= index < len(self.manager.desktops) and index != self.manager.active:
+            self._emit("desktops_overview", self.desktops_overview(index))
+        self.manager.desktop_switch(index)
+
+    def desktop_create(self):
+        """Ctrl+Shift+E: un escritorio nuevo (y se va a él); sus números salen mientras la pantalla se desliza."""
+        count = len(self.manager.desktops)
+        self._emit("desktops_overview", [{"index": i, "active": i == count} for i in range(count + 1)])
+        return self.manager.desktop_create()
+
+    def desktops_overview(self, active=None):
+        """[{index, active}] de cada escritorio, para sus números (con `active`, como quedarán tras el cambio)."""
+        rows = self.manager.snapshot()["desktops"]
+        return [{"index": d["index"], "active": (d["index"] == active) if active is not None else d["active"]}
+                for d in rows]
+
     def close_all(self):
-        """La primera vez solo avisa; si se repite enseguida, cierra todas las ventanas de todos los escritorios."""
-        now = time.monotonic()
-        if now > self._close_all_armed:
-            self._close_all_armed = now + CLOSE_ALL_CONFIRM
-            self._emit("toast", "Pulsa Win+Esc otra vez para cerrar todas las ventanas")
-            return 0
-        self._close_all_armed = 0.0
+        """Cierra todas las ventanas de todos los escritorios (Ctrl+Shift+Alt+X)."""
         return self.manager.close_all()
 
     # ---------- wifi: las respuestas llegan a la interfaz con la señal wifi_result ----------
@@ -319,10 +403,7 @@ class Kyora:
                 self._emit("devices_changed", dict(self.devices))
 
     def _weather_loop(self):
-        city = (self.cfg.get("weather") or {}).get("city", "").strip()
-        if not city:
-            self._emit("weather_changed", {"error": 'Pon tu ciudad en config.json: "weather": {"city": "…"}'})
-            return
+        city = (self.cfg.get("weather") or {}).get("city", "").strip()  # vacía: se usa la ubicación de la IP
         cache = config_module.data_dir() / "weather.json"
         while not self._stop.is_set():
             try:
@@ -330,7 +411,11 @@ class Kyora:
                 wait = WEATHER_INTERVAL
             except (OSError, LookupError, ValueError) as err:  # sin red, ciudad desconocida o respuesta rara
                 log.warning("Clima: %s", err)
-                self._emit("weather_changed", {"error": f"Sin clima: {err}"})
+                if not city and isinstance(err, LookupError):
+                    text = 'No se pudo saber dónde estás: pon tu ciudad en config.json ("weather": {"city": "…"})'
+                else:
+                    text = f"Sin clima: {err}"
+                self._emit("weather_changed", {"error": text})
                 wait = WEATHER_RETRY
             self._stop.wait(wait)
 
@@ -365,12 +450,14 @@ class Kyora:
 
     # ---------- búsqueda ----------
 
-    def open_search(self):
+    def open_search(self, mode=""):
+        """Abre el buscador; con `mode` ("task" o "notes", de Ctrl+Shift+T y Ctrl+Shift+N) se abre directamente en ese modo."""
         with self._ui_lock:
-            if self.search_open:
+            if self.search_open and mode == self._search_mode:
                 return
             self.search_open = True
-        self._emit("search_open")
+            self._search_mode = mode
+        self._emit("search_open", mode)
         self._request_push()
 
     def close_search(self, refocus=True):
@@ -378,27 +465,91 @@ class Kyora:
             if not self.search_open:
                 return
             self.search_open = False
+            self._search_mode = ""
         self._emit("search_close")
         if refocus:
             self.manager.refocus()
         self._request_push()
 
-    def toggle_search(self):
-        if self.search_open:
+    def toggle_search(self, mode=""):
+        """Ctrl+Shift+Espacio, T o N: abre el buscador o el modo pedido; el mismo atajo otra vez lo cierra."""
+        if self.search_open and mode == self._search_mode:
             self.close_search()
         else:
-            self.open_search()
+            self.open_search(mode)
 
-    def search_query(self, text=""):
+    def config_data(self):
+        """Lo que enseña la página de configuración (el botón de la barra de arriba): los atajos, por secciones o por su
+        tecla principal, y los ejecutables."""
+        data = config_data(self.cfg["hotkeys"])
+        folder, images = folders.wallpapers(shell.known_folder)
+        current = os.path.normcase(wallpaper.current())
+        rows = [{"keys": os.path.basename(path), "text": path, "action": "wallpaper.set", "payload": {"path": path},
+                 "current": os.path.normcase(path) == current} for path in images]
+        data["wallpapers"] = [{"title": r"Imágenes\wallpapers", "info": folder, "rows": rows}] if rows else []
+        data["options"] = [{"title": "Rendimiento", "info": "Para equipos con poca RAM; se aplica al momento.", "rows": [
+            {"keys": "Modo ligero", "option": "light_mode", "value": bool(self.cfg.get("light_mode", True)),
+             "text": "Sin deslizamiento al cambiar de escritorio ni borde luminoso en las ventanas."}]}]
+        data["web"] = {"shortcuts": list(self.cfg.get("web_shortcuts") or []), "browser": self._browser_exe(),
+                       "chosen": self._chosen_browser(), "default": browsers.default_exe(),
+                       "browsers": browsers.installed()}
+        return data
+
+    def _chosen_browser(self):
+        """El navegador que eligió Gustavo, o "" si no eligió ninguno o ya no existe."""
+        exe = (self.cfg.get("defaults") or {}).get("browser") or ""
+        return exe if exe and os.path.isfile(exe) else ""
+
+    def _browser_exe(self):
+        """El navegador de las páginas web: el elegido o, si no, el predeterminado de Windows (da el icono y abre)."""
+        return self._chosen_browser() or browsers.default_exe()
+
+    def set_web_shortcuts(self, items):
+        """Desde la configuración: guarda las páginas web del buscador (nombre y dirección)."""
+        try:
+            cleaned = web.clean(items)
+        except ValueError as err:
+            raise ActionError("bad_web", str(err)) from err
+        self.cfg["web_shortcuts"] = cleaned
+        config_module.save_option("web_shortcuts", cleaned)
+        self._request_push()
+
+    def set_default_browser(self, exe):
+        """Desde la configuración: el navegador con el que se abren las páginas web ("" = el predeterminado de Windows)."""
+        exe = (exe or "").strip()
+        if exe and os.path.normcase(exe) not in {os.path.normcase(b["exe"]) for b in browsers.installed()}:
+            raise ActionError("bad_browser", "Ese navegador no está instalado")
+        defaults = {**(self.cfg.get("defaults") or {}), "browser": exe}
+        self.cfg["defaults"] = defaults
+        config_module.save_option("defaults", defaults)
+        self._request_push()
+
+    def set_option(self, key, value):
+        """Desde la configuración: cambia un ajuste y lo guarda en config.json."""
+        if key not in OPTIONS:
+            raise ActionError("bad_option", f"Ajuste desconocido: {key}")
+        self.cfg[key] = bool(value)
+        config_module.save_option(key, bool(value))
+        self._request_push()
+
+    def search_query(self, text="", mode=""):
+        """Lo que enseña el buscador para `text`: en los modos de Ctrl+Shift+T y Ctrl+Shift+N ("task", "notes"), las tareas o las
+        notas; si no, solo apps ("<"), solo carpetas ("/"), solo archivos ("@") o, sin prefijo, ventanas, apps,
+        carpetas y archivos juntos."""
         text = (text or "").strip()
-        if text.lower() == COMMANDS_WORD:  # la lista de atajos, para no tener que mirar COMANDOS.md
-            rows = command_rows(self.cfg["hotkeys"])
-            return {
-                "results": [{"kind": "command", "id": r["keys"], "name": r["keys"], "detail": r["text"]} for r in rows],
-                "indexing": False,
-            }
+        if mode in ("task", "notes", "chat"):
+            return self._kyora_command(mode, text)
+        if text.startswith("<"):  # solo aplicaciones
+            rest = text[1:].strip()
+            return {"results": self._app_rows(rest, SEARCH_RESULTS * 2) if rest else [],
+                    "indexing": not self.index.ready.is_set()}
+        if text.startswith(("/", "@")):
+            only = "dir" if text[0] == "/" else "file"
+            rows = [self._path_row(e) for e in self.files.search(text[1:], only=only)]
+            return {"results": rows, "indexing": not self.files.ready.is_set(), "indexing_text":
+                    f"Indexando archivos… ({len(self.files)})"}
         windows = []
-        for w in self.manager.window_list():
+        for w in self._window_list():
             scores = [s for s in (score(text, w["app"]), score(text, w["title"])) if s is not None] if text else [0]
             if scores:
                 windows.append((min(scores), w))
@@ -410,17 +561,95 @@ class Kyora:
             }
             for _, w in windows[: 3 if text else SEARCH_RESULTS]
         ]
+        indexing = not self.index.ready.is_set()
         if text:
-            results += [
-                {
-                    "kind": "app", "id": a["target"], "name": a["name"], "detail": "Abrir aplicación",
-                    "exe": a["target"] if a["kind"] == "lnk" else rf"shell:AppsFolder\{a['target']}", "hwnd": 0,
-                }
-                for a in self.index.search(text, SEARCH_RESULTS - len(results))
-            ]
-        return {"results": results, "indexing": not self.index.ready.is_set()}
+            results += self._web_rows(text)
+            results += self._app_rows(text, SEARCH_RESULTS - len(results))
+            found = self.files.search(text, limit=MIXED_PATHS * 6)  # un solo recorrido: carpetas y archivos a la vez
+            dirs = [e for e in found if e["is_dir"]][:MIXED_FOLDERS]
+            files = [e for e in found if not e["is_dir"]][:MIXED_FILES]
+            results += [self._path_row(e) for e in dirs + files]
+            indexing = indexing and not results  # si ya hay algo que enseñar, no se avisa de que se está indexando
+        return {"results": results, "indexing": indexing}
 
-    def search_launch(self, kind, id):
+    def _app_rows(self, text, limit):
+        return [
+            {
+                "kind": "app", "id": a["target"], "name": a["name"], "detail": "Abrir aplicación",
+                "exe": a["target"] if a["kind"] == "lnk" else rf"shell:AppsFolder\{a['target']}", "hwnd": 0,
+            }
+            for a in self.index.search(text, limit)
+        ]
+
+    def _web_rows(self, text):
+        """Las páginas web guardadas cuyo nombre coincide; llevan el icono del navegador elegido."""
+        exe = self._browser_exe()
+        return [{"kind": "web", "id": w["url"], "name": w["name"], "detail": w["url"], "exe": exe, "hwnd": 0}
+                for w in web.search(self.cfg.get("web_shortcuts"), text)]
+
+    def _window_list(self):
+        """Las ventanas para el buscador. Se reutilizan un momento: al escribir, cada letra no vuelve a pedir el
+        título de todas a Windows ni espera al candado del gestor."""
+        stamp, windows = getattr(self, "_windows_cache", (0.0, []))
+        now = time.monotonic()
+        if now - stamp > WINDOWS_CACHE_SECONDS:
+            fresh = self.manager.window_list(blocking=False)  # si el gestor está acomodando ventanas, sirve la anterior
+            if fresh is not None:
+                windows = fresh
+                self._windows_cache = (now, windows)
+        return windows
+
+    def _kyora_command(self, word, rest):
+        """Los modos del buscador de Ctrl+Shift+T ("task": el tablero Kanban) y Ctrl+Shift+N ("notes")."""
+        if word == "task":  # el tablero Kanban; lo escrito solo sirve para crear una tarea nueva (lo resuelve la interfaz)
+            return {"mode": "tasks", "results": [], "indexing": False}
+        if word == "chat":  # el chat con tus otros dispositivos (Supabase)
+            return {"mode": "chat", "results": [], "indexing": False}
+        return {"mode": "notes", "results": [], "indexing": False}  # se abren en el mismo buscador, más ancho
+
+    @staticmethod
+    def _path_row(entry):
+        if entry.get("drive"):
+            detail = "Unidad"
+            try:
+                detail = f"Unidad · {folders.human_size(shutil.disk_usage(entry['path']).free)} libres"
+            except OSError:
+                pass
+        elif entry["is_dir"]:
+            detail = folders.short_path(os.path.dirname(entry["path"]))
+        else:
+            size = entry.get("size")
+            if size is None:
+                try:
+                    size = os.path.getsize(entry["path"])
+                except OSError:
+                    size = 0
+            detail = f"{folders.human_size(size)} · {folders.short_path(os.path.dirname(entry['path']))}"
+        return {"kind": "path", "id": entry["path"], "name": entry["name"], "detail": detail, "hwnd": 0, "exe": "",
+                "is_dir": entry["is_dir"], "drive": bool(entry.get("drive"))}
+
+    def files_children(self, path):
+        """Los hijos de una carpeta para el árbol de ">tree" (carpetas primero)."""
+        if not os.path.isdir(path):
+            raise ActionError("missing", "Esa carpeta ya no existe")
+        return [self._path_row(e) for e in folders.listing(path)]
+
+    def wallpaper_mode(self):
+        """Ctrl+Shift+W: la interfaz enseña solo los fondos y el escritorio (ver ui/wallpaper_mode.py); ←/→ los prueban y
+        Enter deja el elegido (con `wallpaper.set`)."""
+        folder, images = folders.wallpapers(shell.known_folder)
+        self._emit("wallpaper_mode", {"images": images, "folder": folder, "current": wallpaper.current()})
+
+    def set_wallpaper(self, path):
+        """Pone el fondo de pantalla (">wallpaper"); la interfaz cambia sus colores al recibir el aviso."""
+        with self._wallpaper_lock:  # varias flechas seguidas: los cambios van en orden
+            try:
+                wallpaper.set_wallpaper(path)
+            except OSError as err:
+                raise ActionError("wallpaper", f"No se pudo poner el fondo: {err}") from err
+        self._emit("wallpaper_changed", path)
+
+    def search_launch(self, kind, id, files=False):
         if kind == "window":
             self.close_search(refocus=False)
             self.manager.activate(int(id))
@@ -431,27 +660,52 @@ class Kyora:
             self.manager.expect_launch()
             self.close_search(refocus=False)
             self.index.launch(entry)
+        elif kind == "path":  # un archivo se abre con su programa; una carpeta (Ctrl+Enter), en el Explorador
+            self.close_search(refocus=False)
+            self.directory.open(id)
+        elif kind == "web":  # `id` es la dirección
+            self.manager.expect_launch()
+            self.close_search(refocus=False)
+            browsers.open_url(id, self._chosen_browser())
+        elif kind == "config":
+            _, _, action, payload = KYORA_OPTIONS[int(id)]
+            self.close_search(refocus=False)
+            self.invoke_async(action, **payload)
+        # las tareas se manejan dentro del buscador: nada de esto lo cierra
+        elif kind == "task_new":  # devuelve el id: el buscador enseña la tarea nueva
+            return self.tasks.create(id)
         else:
             raise ActionError("bad_kind", f"Tipo de resultado desconocido: {kind}")
 
-    # ---------- panel de Alt+E: las ventanas en espera ----------
+    # ---------- panel de Win+E: las ventanas en espera ----------
 
     def toggle_switcher(self):
         """Abre (o cierra) el panel de espera encima del hueco de la ventana enfocada."""
         self._emit("switcher_toggle", _as_tuple(self.manager.switcher_rect()))
 
     def switcher_items(self):
-        """Ventanas en espera de este escritorio: las que no caben en el mosaico (y las minimizadas)."""
-        return [
+        """Ventanas de este escritorio que no se ven: las que esperan en el panel izquierdo."""
+        snapshot = self.manager.snapshot()
+        items = [
             {"hwnd": w["hwnd"], "name": w["app"], "title": w["title"], "exe": w["exe"]}
-            for w in self.manager.snapshot()["waiting"]
+            for w in snapshot["waiting"]
         ]
+        current = self.manager.focused_window()
+        if current:  # la que se va a reemplazar, pequeña arriba de la pila
+            name, title = self.system.describe(current)
+            items.insert(0, {"hwnd": current, "name": name, "title": title, "exe": self.system.exe_path(current),
+                             "current": True})
+        return items
 
     def switcher_pick(self, hwnd):
-        """La ventana elegida ocupa el hueco enfocado y la que estaba ahí pasa a espera."""
+        """La ventana elegida ocupa el sitio de la enfocada y la que estaba ahí pasa a esperar en el panel izquierdo."""
         self.manager.swap_into_focused(int(hwnd))
 
     # ---------- arrastrar una ventana en espera hasta un hueco ----------
+
+    def _zones(self, hwnd):
+        """Los sitios donde puede quedar la ventana que se arrastra."""
+        return self.manager.drop_zones(hwnd, *self.system.cursor_pos())
 
     def drag(self, hwnd):
         threading.Thread(target=self._drag_loop, args=(hwnd,), daemon=True, name="kyora-drag").start()
@@ -460,7 +714,7 @@ class Kyora:
         deadline = time.monotonic() + DRAG_TIMEOUT
         try:
             while self.system.left_button_down() and time.monotonic() < deadline:
-                self._emit("drop_rect", _as_tuple(self.manager.slot_rect_at(*self.system.cursor_pos())))
+                self._emit("drop_rect", self._zones(hwnd))
                 time.sleep(TRACK_INTERVAL)
         finally:
             self._emit("drop_rect", None)
@@ -475,7 +729,7 @@ class Kyora:
     def _on_window_event(self, event, hwnd):
         """Se ejecuta en el hilo de avisos de Windows: debe ser rápido."""
         if event == EVENT_MOVESIZESTART:
-            if not self._moving and self.manager.is_tiled(hwnd):
+            if not self._moving and self.manager.is_draggable_here(hwnd):
                 self._moving = hwnd
                 threading.Thread(target=self._track_move, args=(hwnd,), daemon=True, name="kyora-move").start()
         elif event == EVENT_MOVESIZEEND:
@@ -483,6 +737,7 @@ class Kyora:
                 self._moving = 0  # el hilo de seguimiento lo ve, termina y reparte
         else:
             self._request_sync()
+        self._ring_wake.set()
 
     @staticmethod
     def _resized(before, after):
@@ -496,13 +751,14 @@ class Kyora:
                 if self._resized(start, self.system.frame_rect(hwnd)):
                     self._emit("drop_rect", None)  # está cambiando el tamaño, no moviendo
                 else:
-                    self._emit("drop_rect", _as_tuple(self.manager.slot_rect_at(*self.system.cursor_pos())))
+                    self._emit("drop_rect", self._zones(hwnd))
                 time.sleep(TRACK_INTERVAL)
         finally:
             self._emit("drop_rect", None)
         try:
             if self._resized(start, self.system.frame_rect(hwnd)):
-                self.manager.resize_from_drag(hwnd)
+                if self.manager.is_tiled(hwnd):
+                    self.manager.resize_from_drag(hwnd)
             else:
                 self.manager.drop(hwnd, *self.system.cursor_pos())
         except Exception:
@@ -538,26 +794,39 @@ class Kyora:
 
     # ---------- contorno de la ventana activa ----------
 
+    def _ring_targets(self):
+        if self.cfg.get("light_mode", True):
+            return ()  # modo ligero: sin borde luminoso (ahorra ventanas, temporizadores y memoria)
+        """Las ventanas que se ven con su rectángulo y si tienen el foco: todas llevan contorno, para que el borde
+        se encienda con el cursor cerca estén en uso o no."""
+        focused = self.manager.focused_window(keep_last=self.search_open)
+        targets = []
+        for hwnd in self.manager.visible_windows():
+            rect = _as_tuple(self.system.frame_rect(hwnd))
+            if rect[2] > rect[0] and rect[3] > rect[1]:  # una ventana que acaba de cerrarse no cuenta
+                targets.append((hwnd, rect, hwnd == focused))
+        if focused and focused not in {t[0] for t in targets}:
+            rect = _as_tuple(self.system.frame_rect(focused))
+            if rect[2] > rect[0] and rect[3] > rect[1]:
+                targets.append((focused, rect, True))
+        return tuple(sorted(targets))
+
     def _ring_loop(self):
-        """Mira cada poco qué ventana tiene el foco (para su luz) y dónde están las del mosaico (para su borde)."""
-        shown, tiles = None, None
+        """Mira cada poco qué ventana tiene el foco, para rodearla con su luz."""
+        shown = None
+        quiet_since = time.monotonic()
         while not self._stop.is_set():
-            current = tuple(
-                rect for rect in (_as_tuple(self.system.frame_rect(h)) for h in self.manager.visible_windows()
-                                  if h != self._moving)  # la que se arrastra no lleva borde mientras se mueve
-                if rect and rect[2] > rect[0] and rect[3] > rect[1]
-            )
-            if current != tiles:
-                tiles = current
-                self._emit("tiles_changed", list(tiles))
-            hwnd = 0 if self._moving else self.manager.focused_window(keep_last=self.search_open)
-            target = (hwnd, _as_tuple(self.system.frame_rect(hwnd))) if hwnd else None
-            if target and (target[1][2] <= target[1][0] or target[1][3] <= target[1][1]):
-                target = None  # la ventana acaba de cerrarse
+            changed = bool(self._moving)
+            target = () if self._moving else self._ring_targets()
             if target != shown:
-                shown = target
+                shown, changed = target, True
                 self._emit("focus_target", target)
-            self._stop.wait(RING_INTERVAL)
+            now = time.monotonic()
+            if changed:
+                quiet_since = now
+            # mientras algo cambia, deprisa; tras un rato quieto, más despacio (menos trabajo para Python)
+            self._ring_wake.wait(RING_INTERVAL if now - quiet_since < RING_QUIET_AFTER else RING_IDLE_INTERVAL)
+            self._ring_wake.clear()
 
     # ---------- hilos de trabajo ----------
 
@@ -609,6 +878,8 @@ class Kyora:
         threading.Thread(target=self._ring_loop, daemon=True, name="kyora-ring").start()
         threading.Thread(target=self._devices_loop, daemon=True, name="kyora-devices").start()
         threading.Thread(target=self._weather_loop, daemon=True, name="kyora-weather").start()
+        self.chat.start()  # sin credenciales en supabase/.env, solo avisa de que faltan
+        self.files.start(self._stop)
         if self.cfg["hide_taskbar"]:
             threading.Thread(target=self._taskbar_loop, daemon=True, name="kyora-taskbar").start()
 
@@ -624,22 +895,57 @@ class Kyora:
 
         return call
 
+    def _bind_hotkeys(self, hotkeys):
+        """Registra los atajos normales de `hotkeys` (los de dos teclas con Alt los lleva el gancho del teclado). Devuelve
+        los que Windows no dejó registrar."""
+        normal, _chords, _taps, bad = split_bindings(hotkeys)
+        fresh = Hotkeys({combo: self._hotkey_call(spec) for combo, spec in normal.items()})
+        fresh.start()
+        fresh.ready.wait(5)
+        fresh.failed.extend(bad)
+        self.hotkeys = fresh
+        return fresh.failed
+
+    def set_hotkeys(self, hotkeys):
+        """Desde la configuración: cambia los atajos al momento y los guarda en config.json. Si Windows rechaza alguno,
+        se deja todo como estaba."""
+        if not isinstance(hotkeys, dict) or not hotkeys:
+            raise ActionError("bad_hotkeys", "Los atajos no son válidos")
+        hotkeys = {normalize_combo(c): spec for c, spec in hotkeys.items()}
+        previous = self.cfg["hotkeys"]
+        old = self.hotkeys
+        if old is not None:
+            old.stop()
+            old.join(2)  # sus combinaciones se sueltan al terminar el hilo: así no chocan con las nuevas
+        failed = self._bind_hotkeys(hotkeys)
+        if failed:
+            self._bind_hotkeys(previous)
+            raise ActionError("hotkey_failed", "Windows no deja usar: " + ", ".join(failed[:3]))
+        self.cfg["hotkeys"] = hotkeys
+        config_module.save_hotkeys(hotkeys)
+        self._request_push()
+
+    def reset_hotkeys(self):
+        """Vuelve a los atajos por defecto."""
+        self.set_hotkeys(config_module.default_hotkeys())
+
     def start(self, own_windows):
         """Arranca la parte de Windows; la interfaz ya está a la vista y fijó el hueco del marco (insets)."""
         for hwnd in own_windows:
             self.system.add_own_window(hwnd)
         if self.cfg["hide_taskbar"]:
             self.taskbar.hide()
-        normal, chords, taps, wins, bad = split_bindings(self.cfg["hotkeys"])
+        if self.cfg.get("disable_snap", True):
+            snap.disable()  # Windows no acopla ni encoge las ventanas al arrastrarlas: las coloca Kyora
+        normal, chords, taps, bad = split_bindings(self.cfg["hotkeys"])
         self.hotkeys = Hotkeys({combo: self._hotkey_call(spec) for combo, spec in normal.items()})
         self.hotkeys.start()
         self.hotkeys.ready.wait(5)
         self.hotkeys.failed.extend(bad)
-        # gancho del teclado: la tecla Windows suelta no abre el menú de inicio (y resuelve las combinaciones de dos teclas)
-        self.winkey = KeyboardHook(
+        # gancho del teclado: bloquea la tecla Windows (y resuelve las combinaciones de dos teclas con Alt)
+        self.winkey = KeyHookProcess(  # en su propio proceso: las teclas nunca esperan a Kyora
             {key: self._hotkey_call(spec) for key, spec in chords.items()},
             {key: self._hotkey_call(spec) for key, spec in taps.items()},
-            {key: self._hotkey_call(spec) for key, spec in wins.items()},
         )
         self.winkey.start()
         self.winkey.ready.wait(3)
@@ -661,6 +967,8 @@ class Kyora:
                 return
             self._down = True
         self._stop.set()
+        self.chat.stop()
+        self._ring_wake.set()
         self._sync_needed.set()
         self._push_needed.set()
         self._ffm_on.set()  # despierta el hilo del foco para que vea que hay que terminar
@@ -670,6 +978,7 @@ class Kyora:
                 part.stop()
         shown = self.manager.release_all()
         self.taskbar.restore()
+        snap.restore()
         self.system.recover()
         log.info("Kyora cerrado; ventanas devueltas: %s", shown)
 

@@ -1,11 +1,12 @@
-"""Páginas del panel de la barra (kyora/ui/dock.py): apagar (también con Win+X), calendario y Bluetooth.
+"""Páginas del panel de la barra (kyora/ui/dock.py): apagar (también con Win+X), la hora con el calendario y el
+Bluetooth (el wifi está en wifi_panel.py).
 
 Aquí no hay reglas de negocio: cada opción pide una acción al núcleo con `invoke(acción, **datos)`.
 """
 import os
-from datetime import date
+from datetime import date, datetime
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -26,6 +27,7 @@ from kyora.core.calendar_grid import (
 from kyora.ui import glyphs
 from kyora.ui.bar import font
 from kyora.ui.dock import DockPage
+from kyora.ui.gauges import Caption
 from kyora.ui.search import _css
 
 # (glifo, título, acción) de las opciones de energía, en el orden de las teclas 1, 2 y 3
@@ -33,22 +35,6 @@ POWER_OPTIONS = (
     (glyphs.power, "Apagar", "system.shutdown"),
     (glyphs.restart, "Reiniciar", "system.restart"),
     (glyphs.moon, "Suspender", "system.sleep"),
-)
-
-# (título, explicación, acción, datos) de la sección Kyora del panel de arriba: lo que se usa al desarrollar
-OWL_OPTIONS = (
-    ("Desconectar Kyora", "Devuelve las ventanas y la barra de Windows y cierra Kyora.", "app.quit", {}),
-    ("Reiniciar Kyora", "Cierra y vuelve a abrir Kyora (por ejemplo tras cambiar config.json).", "app.restart", {}),
-    ("Actualizar", "actualizar_kyora.bat: dependencias, pruebas y la vuelve a abrir. Si algo falla, no la abre.",
-     "app.run_script", {"name": "actualizar"}),
-    ("Abrir con consola", "iniciar_kyora.bat: reinicia Kyora con una consola para ver los errores.",
-     "app.run_script", {"name": "consola"}),
-    ("Rescate", "rescate_kyora.bat: cierra Kyora y devuelve las ventanas ocultas y la barra de tareas.",
-     "app.run_script", {"name": "rescate"}),
-    ("Arrancar con Windows", "instalar_inicio.bat: Kyora se abre sola al iniciar sesión.",
-     "app.run_script", {"name": "instalar_inicio"}),
-    ("No arrancar con Windows", "quitar_inicio.bat: quita ese arranque automático.",
-     "app.run_script", {"name": "quitar_inicio"}),
 )
 
 TILE_GAP = 10
@@ -227,33 +213,54 @@ class MonthView(QWidget):
                 else:
                     p.setPen(QColor(t.ink if day.month == self.month else t.line))
                 p.drawText(cell, Qt.AlignCenter, str(day.day))
-        p.setPen(QColor(t.dim))
-        p.setFont(font(t, t.font_px))
-        p.drawText(QRectF(4, self.height() - 24, self.width(), 24), Qt.AlignVCenter | Qt.AlignLeft,
-                   long_date(self.today).capitalize())
 
 
-class CalendarPage(DockPage):
-    """El calendario del mes: sale del icono del calendario al pasar el ratón."""
+class ClockPage(DockPage):
+    """La hora y el calendario juntos: sale de la hora de la barra al pasar el ratón. Arriba la hora en grande y la
+    fecha; debajo el mes con hoy resaltado (‹ › cambian de mes)."""
 
-    size = (330, 336)
+    size = (340, 340)
 
     def __init__(self, theme):
         super().__init__()
         self.theme = theme
+        self.time = Caption(theme, "", px=40, bold=True)
+        self.date = Caption(theme, "", px=16, dim=True)
         self.view = MonthView(theme)
+        self._tick = QTimer(self)
+        self._tick.setInterval(1000)
+        self._tick.timeout.connect(self._show_time)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.view)
+        layout.setContentsMargins(6, 4, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.time)
+        layout.addWidget(self.date)
+        layout.addSpacing(8)
+        layout.addWidget(self.view, 1)
+
+    def _show_time(self):
+        now = datetime.now()
+        self.time.set_text(now.strftime("%H:%M"))
+        self.date.set_text(long_date(now.date()).capitalize())
 
     def activate(self):
+        self._show_time()
         self.view.reset()
+
+    def showEvent(self, event):
+        self._show_time()
+        self._tick.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        self._tick.stop()
+        super().hideEvent(event)
 
 
 class BluetoothPage(DockPage):
     """Bluetooth: encender o apagar y los dispositivos emparejados (conectados primero)."""
 
-    size = (360, 300)
+    size = (380, 240)
 
     def __init__(self, theme, invoke):
         super().__init__()

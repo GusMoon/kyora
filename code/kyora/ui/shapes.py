@@ -69,6 +69,44 @@ def corner_popout_paths(width, top, start, end, depth, joint_radius, corner_radi
     return fill, outline
 
 
+def hanging_paths(start, end, depth, corner_radius, overshoot=8, joint=0, square_end=False):
+    """Panel suelto que cuelga del borde de arriba de la pantalla (sin marco): esquinas inferiores redondeadas.
+
+    Con `joint` el panel nace del borde con dos pestañitas: curvas cóncavas de ese radio que ensanchan la pieza justo
+    donde toca el borde, como si saliera de él (el panel ocupa de `start` a `end`; las pestañas, `joint` px más a
+    cada lado). Devuelve (relleno, contorno). El contorno solo recorre los lados y el fondo: sube `overshoot` px por
+    encima del borde de la ventana para que no se vea una línea en el borde de la pantalla. Con `depth` 0 no hay pieza.
+    Con `square_end` el panel está pegado a otro borde de la pantalla por `end` (una esquina): en vez de la esquina
+    redonda, su lado de fuera se une a ese borde con una curva cóncava de radio `joint`, como si saliera también de él.
+    """
+    d = max(float(depth), 0.0)
+    corner = min(corner_radius, d / 2, (end - start) / 2)
+    j = min(float(joint), d / 2)
+    outline = QPainterPath(QPointF(start - j, -overshoot))
+    if d > 0:
+        outline.lineTo(start - j, 0)
+        if j > 0:
+            outline.arcTo(QRectF(start - 2 * j, 0, 2 * j, 2 * j), 90, -90)  # pestaña izquierda (curva cóncava)
+        outline.lineTo(start, d - corner)
+        outline.arcTo(QRectF(start, d - 2 * corner, 2 * corner, 2 * corner), 180, 90)  # esquina inferior izquierda
+        if square_end:
+            outline.lineTo(end - j, d)
+            if j > 0:
+                outline.arcTo(QRectF(end - 2 * j, d, 2 * j, 2 * j), 90, -90)  # la curva contra el borde de la pantalla
+            outline.lineTo(end + j, d + j)  # y fuera de la pantalla, hasta cerrar
+            outline.lineTo(end + j, -overshoot)
+        else:
+            outline.lineTo(end - corner, d)
+            outline.arcTo(QRectF(end - 2 * corner, d - 2 * corner, 2 * corner, 2 * corner), 270, 90)
+            outline.lineTo(end, j)
+            if j > 0:
+                outline.arcTo(QRectF(end, 0, 2 * j, 2 * j), 180, -90)  # pestaña derecha
+            outline.lineTo(end + j, -overshoot)
+    fill = QPainterPath(outline)
+    fill.closeSubpath()
+    return fill, outline
+
+
 def transpose(path):
     """Cambia x por y: una forma pensada para colgar del borde de arriba pasa a salir hacia la derecha de un borde
     vertical a la izquierda (los paneles que salen de la barra)."""

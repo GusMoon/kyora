@@ -1,9 +1,12 @@
-"""El clima de la barra: Open-Meteo (gratis y sin cuenta) para la ciudad de config.json (`weather.city`).
+"""El clima del Lobby: Open-Meteo (gratis y sin cuenta).
 
-La ciudad se convierte una vez en coordenadas con su geocodificador y se guarda en weather.json, para no repetirlo.
+Dónde: la ciudad de config.json (`weather.city`) si hay una; si no, la ubicación aproximada de la IP pública
+(ipwho.is, y si falla ipapi.co). La ciudad se convierte una vez en coordenadas y se guarda en weather.json; la
+ubicación por IP se guarda en location.json y se renueva cada 12 horas (por si viajas).
 """
 import json
 import logging
+import time
 import urllib.parse
 import urllib.request
 
@@ -17,6 +20,8 @@ FORECAST_URL = (
 )
 HOURS = 6  # horas siguientes en la franja del Lobby (más la de ahora)
 TIMEOUT = 10
+IP_SERVICES = ("https://ipwho.is/", "https://ipapi.co/json/")
+IP_MAX_AGE = 12 * 3600
 
 # códigos del tiempo de la OMM (los que usa Open-Meteo) -> (icono, texto)
 _CODES = (
@@ -94,7 +99,48 @@ def locate(city, cache_path):
     return hit["latitude"], hit["longitude"], name
 
 
+def parse_ip(data):
+    """(latitud, longitud, "Ciudad, País") de la respuesta de ipwho.is o de ipapi.co."""
+    if data.get("success") is False or data.get("error"):
+        raise LookupError(data.get("message") or data.get("reason") or "Sin ubicación")
+    lat, lon = data.get("latitude"), data.get("longitude")
+    if lat is None or lon is None:
+        raise LookupError("La respuesta no trae coordenadas")
+    country = data.get("country") or data.get("country_name")
+    name = ", ".join(x for x in (data.get("city"), country) if x)
+    return float(lat), float(lon), name
+
+
+def locate_ip(cache_path, now=time.time):
+    """(latitud, longitud, nombre) de donde está el equipo según su IP pública; se guarda 12 horas."""
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        if now() - cached["at"] < IP_MAX_AGE:
+            return cached["lat"], cached["lon"], cached["name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    errors = []
+    for url in IP_SERVICES:
+        try:
+            lat, lon, name = parse_ip(_get(url))
+            break
+        except (OSError, ValueError, LookupError) as err:
+            errors.append(f"{url}: {err}")
+    else:
+        raise LookupError("No se pudo saber dónde estás (" + "; ".join(errors) + ")")
+    try:
+        cache_path.write_text(json.dumps({"lat": lat, "lon": lon, "name": name, "at": now()}, ensure_ascii=False),
+                              encoding="utf-8")
+    except OSError:
+        log.warning("No se pudo guardar location.json")
+    return lat, lon, name
+
+
 def current(city, cache_path):
-    """El tiempo de ahora en la ciudad. Lanza OSError/LookupError/ValueError si no se puede saber."""
-    lat, lon, name = locate(city, cache_path)
+    """El tiempo de ahora: en la ciudad, o donde diga la IP si no hay ciudad. Lanza OSError/LookupError/ValueError si
+    no se puede saber."""
+    if city:
+        lat, lon, name = locate(city, cache_path)
+    else:
+        lat, lon, name = locate_ip(cache_path.with_name("location.json"))
     return parse_current(_get(FORECAST_URL.format(lat, lon)), name)

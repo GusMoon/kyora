@@ -1,6 +1,7 @@
 """Las tareas en SQLite (tasks.db en la carpeta de datos de Kyora).
 
-- Una tarea solo se marca como finalizada (`finished` con fecha) y se puede reabrir: sin estados ni prioridad.
+- Cuatro estados (decisión de Gustavo del 22/10/2026): pendiente, en proceso, en revisión y finalizada. Al
+  finalizar se guarda la fecha (`finished`) y se para el cronómetro; al salir de "finalizada" se borra. Sin prioridad.
 - Las subtareas son tareas con `parent_id` (un solo nivel) y su `position`; al borrar la tarea se borran con ella.
 - Las etiquetas son independientes: al borrar una tarea se conservan.
 - Cronómetro: uno a la vez. `timer_started` queda guardado, así que sigue contando aunque Kyora se reinicie; al
@@ -11,8 +12,9 @@ import threading
 from datetime import datetime
 
 from kyora.core.actions import ActionError
+from kyora.tasks.model import STATUS_KEYS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY,
@@ -20,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     position INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
     expected_min INTEGER,
     real_s INTEGER NOT NULL DEFAULT 0,
     timer_started TEXT,
@@ -59,7 +62,15 @@ class TaskStore:
         self.db.execute("PRAGMA foreign_keys = ON")
         with self.db:
             self.db.executescript(SCHEMA)
+            self._migrate()
             self.db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def _migrate(self):
+        """Esquema 1 -> 2: la columna de estado (las finalizadas pasan a "done", las demás a "pending")."""
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(tasks)")}
+        if "status" not in columns:
+            self.db.execute("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+            self.db.execute("UPDATE tasks SET status = 'done' WHERE finished IS NOT NULL")
 
     def close(self):
         self.db.close()
@@ -164,17 +175,36 @@ class TaskStore:
             if row["parent_id"] is not None:
                 self._renumber(row["parent_id"])
 
-    def finish(self, task_id):
+    def set_status(self, task_id, status):
+        """Cambia el estado. "done" pone la fecha de finalización y para el cronómetro; salir de "done" la borra."""
+        if status not in STATUS_KEYS:
+            raise ActionError("bad_status", f"Estado desconocido: {status}")
         with self._lock, self.db:
-            if self._row(task_id)["timer_started"]:
-                self._stop(task_id)
+            row = self._row(task_id)
+            if row["status"] == status:
+                return
             stamp = self._stamp_now()
-            self.db.execute("UPDATE tasks SET finished = ?, updated = ? WHERE id = ?", (stamp, stamp, task_id))
+            if status == "done":
+                if row["timer_started"]:
+                    self._stop(task_id)
+                self.db.execute("UPDATE tasks SET status = ?, finished = ?, updated = ? WHERE id = ?",
+                                (status, stamp, stamp, task_id))
+            else:
+                self.db.execute("UPDATE tasks SET status = ?, finished = NULL, updated = ? WHERE id = ?",
+                                (status, stamp, task_id))
+
+    def finish(self, task_id):
+        self.set_status(task_id, "done")
 
     def reopen(self, task_id):
-        with self._lock, self.db:
-            self._row(task_id)
-            self.db.execute("UPDATE tasks SET finished = NULL, updated = ? WHERE id = ?", (self._stamp_now(), task_id))
+        self.set_status(task_id, "pending")
+
+    def counts(self):
+        """{estado: cuántas tareas} (sin contar subtareas), con los cuatro estados aunque estén a cero."""
+        with self._lock:
+            found = dict(self.db.execute(
+                "SELECT status, COUNT(*) FROM tasks WHERE parent_id IS NULL GROUP BY status").fetchall())
+            return {key: found.get(key, 0) for key in STATUS_KEYS}
 
     def _renumber(self, parent_id, order=None):
         ids = order or [r[0] for r in self.db.execute(

@@ -20,9 +20,10 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from kyora.system.win32 import force_foreground
 from kyora.ui.anim import Tween
-from kyora.ui.relief import frame_gradient, paint_raised_edge
+from kyora.ui.relief import frame_gradient, paint_raised_edge, paint_soft_shadow
 from kyora.ui.shapes import (
     corner_popout_paths,
+    hanging_paths,
     popout_paths,
     rotate_to_right,
     transpose,
@@ -60,23 +61,26 @@ class EdgePopout(QWidget):
     ventana más larga que la pieza (el panel de la barra, que se mueve a lo largo de ella).
     """
 
-    def __init__(self, theme, screen_map, edge, depth, length, title, pad=14, along=None, extra=0):
+    def __init__(self, theme, screen_map, edge, depth, length, title, pad=14, along=None, extra=0, free=False):
         super().__init__()
         make_tool_window(self)
         self.setWindowTitle(title)
         self.theme, self.map, self.edge = theme, screen_map, edge
         self.depth, self.length, self.pad = depth, length, pad
+        self.free = free  # pieza suelta (sin marco): cuelga del borde de la pantalla, sin curvas cóncavas
         self.hover = False  # abierta al pasar el ratón: no toma el foco y se cierra cuando el ratón se va
         self.opened = False
         self._progress = 0.0
         t = theme
-        self._joint = t.joint_radius
-        self._root = BAR_OVERLAP if edge == "bar" else t.frame_width  # franja del marco que la pieza incluye
-        self._shadow = math.ceil(t.edge_shadow_size) + 4
-        self._along = along or round(length + 2 * (self._joint + 4))
+        self._joint = t.dock_tab if free else t.joint_radius  # las pestañitas con las que nace del borde
+        self._root = 0 if free else (BAR_OVERLAP if edge == "bar" else t.frame_width)  # franja del marco que incluye
+        self._shadow = math.ceil(t.dock_shadow_size if free else t.edge_shadow_size) + 4
+        self._along = along or round(length + 2 * ((self._shadow + self._joint) if free else self._joint + 4))
+        if edge == "bottom":  # la esquina de abajo a la derecha: la pieza acaba a ras del borde derecho, sin margen ahí
+            self._along = round(length + self._shadow + self._joint)
         self._thick = round(self._root + depth + self._shadow + extra)
-        if edge == "top":
-            self.resize(self._along, self._thick)  # cuelga del borde de arriba: crece hacia abajo
+        if edge in ("top", "bottom"):
+            self.resize(self._along, self._thick)  # cuelga del borde de arriba (o se apoya en el de abajo)
         else:
             self.resize(self._thick, self._along)  # los bordes verticales: la pieza crece en horizontal
         self.body = QWidget(self)
@@ -92,12 +96,16 @@ class EdgePopout(QWidget):
 
     def piece(self):
         """(inicio, fin, fondo, esquina) de la pieza ya abierta, en u/v. `esquina` = apoyada en el marco de abajo."""
+        if self.edge == "bottom":
+            return self._along - self.length, self._along, self.depth, False  # a ras del borde derecho
         center = self._along / 2
         return center - self.length / 2, center + self.length / 2, self.depth, False
 
     def _to_widget(self):
         if self.edge == "top":
             return QTransform()  # ya cuelga del borde de arriba
+        if self.edge == "bottom":
+            return QTransform(1, 0, 0, -1, 0, self.height())  # (u, v) -> (u, alto - v): crece hacia arriba
         if self.edge == "bar":
             return QTransform(0, 1, 1, 0, 0, 0)  # (u, v) -> (v, u)
         return QTransform(0, 1, -1, 0, self.width(), 0)  # (u, v) -> (ancho - v, u)
@@ -120,6 +128,14 @@ class EdgePopout(QWidget):
         """Coloca la ventana: `anchor` es la y (lógica, de pantalla) del centro para "bar"; para "right", None (centro)."""
         g = self.map.geometry
         t = self.theme
+        if self.free:  # sin marco: centrada en el borde de la pantalla al que pertenece
+            if self.edge == "bottom":  # abajo a la derecha
+                self.move(g.x() + g.width() - self._along, g.y() + g.height() - self._thick)
+            elif self.edge == "top":
+                self.move(round(g.x() + (g.width() - self._along) / 2), g.y())
+            else:
+                self.move(g.x(), round(g.y() + (g.height() - self._along) / 2))
+            return
         lo, hi = g.y() + t.frame_width, g.y() + g.height() - t.frame_width - self._along
         if self.edge == "top":
             hole_center = g.x() + t.bar_width + (g.width() - t.bar_width - t.frame_width) / 2
@@ -271,6 +287,15 @@ class EdgePopout(QWidget):
     def _paths(self, start, end, depth, corner):
         """(relleno, contorno, zona donde se pinta) en coordenadas de la ventana."""
         t = self.theme
+        if self.free:  # panel suelto: se pinta el borde entero (con su sombra) en toda la ventana
+            fill, outline = hanging_paths(start, end, depth, t.dock_corner, joint=self._joint,
+                                          square_end=self.edge == "bottom")
+            if self.edge == "bar":
+                fill, outline = transpose(fill), transpose(outline)
+            elif self.edge == "bottom":
+                flip = self._to_widget()
+                fill, outline = flip.map(fill), flip.map(outline)
+            return fill, outline, QRectF(self.rect())
         if corner:
             fill, outline = corner_popout_paths(self._along, self._root, start, end, depth, self._joint, t.corner_radius)
             span_uv = QRectF(start - self._joint, 0, self._along - start + self._joint, self._root + depth + self._joint)
@@ -293,8 +318,11 @@ class EdgePopout(QWidget):
     def paint_piece(self, p, start, end, depth, corner):
         fill, outline, span = self._paths(start, end, depth, corner)
         g = self.map.geometry
-        p.fillPath(fill, frame_gradient(self.theme, g.height(), self.y() - g.y()))
-        paint_raised_edge(p, fill, span, self.theme, contour=outline, shadow=True)
+        p.fillPath(fill, frame_gradient(self.theme, g.height(), self.y() - g.y(), self.x() - g.x()))
+        if self.free:  # minimalista: sin relieve en el borde, solo una sombra sutil alrededor
+            paint_soft_shadow(p, fill, span, self.theme, contour=outline)
+        else:
+            paint_raised_edge(p, fill, span, self.theme, contour=outline, shadow=True)
         return fill
 
     def paint_shot(self, p, shot, piece, slide, opacity, clip):
