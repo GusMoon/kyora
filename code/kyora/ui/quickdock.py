@@ -24,8 +24,8 @@ from kyora.ui.bar import font as base_font
 from kyora.ui.configpage import ConfigPage
 from kyora.ui.dock import DockPage, PageDock
 from kyora.ui.hub.cards import paint_glass, paint_well
+from kyora.ui.musicpill import MIN_H as MUSIC_MIN
 from kyora.ui.musicpill import PILL_H as MUSIC_H
-from kyora.ui.musicpill import RADIUS as BODY_R  # las esquinas del cuerpo, las mismas que las del reproductor
 from kyora.ui.musicpill import Covers, MusicPill
 from kyora.ui.panels import BluetoothPage, ClockPage
 from kyora.ui.topdock import _button_down
@@ -42,6 +42,7 @@ PILL_W, PILL_H = 50, 50  # cuadrados con las esquinas redondeadas
 PILL_R = 14
 DOCK_ICON = 26  # los iconos de abajo, más grandes que el resto
 BIG, MEDIUM, TEXT = 40, 28, 14  # la hora, la temperatura y los porcentajes; el texto de lo demás
+INFO_R = 30  # las esquinas de la tarjeta de la información (el reproductor, más alto, las tiene más grandes)
 GAP = 8  # entre las dos tarjetas
 GROW_MS = 220  # lo que tarda el panel en crecer (o encogerse) al empezar (o acabar) la música
 MARQUEE_MS = 33  # el nombre de lo que suena, cuando no cabe, se desliza
@@ -67,7 +68,7 @@ class QuickMain(DockPage):
     """La página principal: la hora y el clima, las fichas de ajustes rápidos y los medidores de RAM y batería."""
 
     go = Signal(str)  # "clock", "wifi", "bluetooth" o "config"
-    music_control = Signal(str)  # "toggle", "stop", "prev" o "next" de lo que suena
+    music_control = Signal(str)  # "toggle", "download", "stop", "prev" o "next" de lo que suena
     size = (INFO_H + DOCK_H + GAP + 2 * PAD, WIDTH + 2 * PAD)  # con música, más alto (ver `set_music`)
 
     def __init__(self, theme):
@@ -76,6 +77,7 @@ class QuickMain(DockPage):
         self.pill = MusicPill(theme)
         self.covers = Covers(self)  # las carátulas llegan solas y la cápsula se repinta
         self.covers.ready.connect(self._cover_ready)
+        self.pill_h = MUSIC_H  # lo que mide la tarjeta de lo que suena (el panel la encoge si no cabe: ver `QuickDock`)
         self._music_on = False  # suena (o está en pausa) algo: el panel es más alto
         self._shown = False  # la cápsula se pinta (sigue un momento tras parar, mientras el panel se encoge)
         self._second = -1
@@ -88,7 +90,7 @@ class QuickMain(DockPage):
         self._ram = None
         self._battery = None  # (porcentaje, enchufada)
         self._hover = None
-        self._over_pill = False  # el cursor está sobre la tarjeta de lo que suena (sale su ✕)
+        self._over_screen = False  # el cursor está sobre la pantalla del reproductor (salen anterior y siguiente)
         self._hits = []
         self.refresh = None  # lo que pide el estado del Bluetooth (lo pone el panel)
         self.setMouseTracking(True)
@@ -120,12 +122,13 @@ class QuickMain(DockPage):
         """`info` = {title, playing} o None. Devuelve True si la cápsula apareció o se fue: el panel cambia de alto."""
         on = info is not None
         if on:
-            if self.pill.set_state(info["title"], info["playing"], info.get("id", ""), bool(info.get("next"))):
+            if self.pill.set_state(info["title"], info["playing"], info.get("id", ""), bool(info.get("next")),
+                                   info.get("download", "")):
                 self._set_cover(self.covers.get(info.get("id", "")))
             self._shown = True
         changed = on != self._music_on
         self._music_on = on
-        extra = MUSIC_H + GAP if on else 0
+        extra = self.pill_h + GAP if on else 0
         self.size = (INFO_H + DOCK_H + GAP + 2 * PAD + extra, WIDTH + 2 * PAD)
         self._sync_marquee()
         self.update()
@@ -157,8 +160,8 @@ class QuickMain(DockPage):
         self._repaint_pill()
 
     def _pill_rect(self):
-        top = self.height() - (INFO_H + GAP + DOCK_H) - GAP - MUSIC_H
-        return QRectF(0, top, self.width(), MUSIC_H)
+        top = self.height() - (INFO_H + GAP + DOCK_H) - GAP - self.pill_h
+        return QRectF(0, top, self.width(), self.pill_h)
 
     def _repaint_pill(self):
         if self._shown and self.isVisible():
@@ -197,9 +200,9 @@ class QuickMain(DockPage):
 
     def mouseMoveEvent(self, event):
         name = self._name_at(event.position())
-        over = self._shown and self._pill_rect().contains(event.position())
-        if name != self._hover or over != self._over_pill:
-            self._hover, self._over_pill = name, over
+        over = self._shown and self.pill.layout(self._pill_rect())["screen"].contains(event.position())
+        if name != self._hover or over != self._over_screen:
+            self._hover, self._over_screen = name, over
             self.setCursor(Qt.PointingHandCursor if name else Qt.ArrowCursor)
             self.setToolTip(self._tip(name))
             self.update()
@@ -209,11 +212,14 @@ class QuickMain(DockPage):
             return f"Wi-Fi: {self._wifi['ssid']}" if self._wifi.get("connected") else "Wi-Fi: sin conexión"
         if name == "music_toggle":
             return "Pausa" if self.pill.playing else "Seguir"
+        if name == "music_download":
+            return {"done": "Ya está en tu carpeta Música (pulsa para mandarla otra vez al móvil)",
+                    "queued": "En cola para descargar", "doing": "Descargando…"}.get(self.pill.download, "Descargar esta canción")
         return {"bluetooth": "Bluetooth", "config": "Configuración", "clock": "Calendario", "music_stop": "Detener y cerrar",
                 "music_prev": "Anterior", "music_next": "Siguiente"}.get(name, "")
 
     def leaveEvent(self, _):
-        self._hover, self._over_pill = None, False
+        self._hover, self._over_screen = None, False
         self.update()
 
     def mouseReleaseEvent(self, event):
@@ -233,13 +239,13 @@ class QuickMain(DockPage):
         w = self.width()
         y = self.height() - (INFO_H + GAP + DOCK_H)  # lo de siempre queda pegado abajo: al crecer, la cápsula sale arriba
         if self._shown:
-            box = QRectF(0, y - GAP - MUSIC_H, w, MUSIC_H)
-            self.pill.paint(p, box, self._hover, self._over_pill)
+            box = QRectF(0, y - GAP - self.pill_h, w, self.pill_h)
+            self.pill.paint(p, box, self._hover, self._over_screen)
             self._hits.extend(self.pill.hits(box))
         for paint, height in ((self._paint_info, INFO_H), (self._paint_dock, DOCK_H)):
             card = QRectF(0, y, w, height)
             if paint == self._paint_info:  # la tarjeta de la información, con el cuerpo del reproductor; los iconos de abajo van sin fondo
-                paint_glass(p, self.theme, card, BODY_R, fill=QColor(self.theme.plate_bottom), shadow=False)
+                paint_glass(p, self.theme, card, INFO_R, fill=QColor(self.theme.plate_bottom), shadow=False)
             paint(p, card)
             y += height + GAP
 
@@ -469,8 +475,17 @@ class QuickDock(PageDock):
 
     def on_playing(self, info):
         """`info` = {title, playing} o None (nada suena). Al empezar o acabar, el panel crece o se encoge."""
+        if info is not None:
+            self.main.pill_h = self._pill_fit()
         if self.main.set_music(info):
             self._fit_main()
+
+    def _pill_fit(self):
+        """Lo que puede medir la tarjeta de lo que suena para que el panel entero quepa: el alto de la pieza (el de su página
+        más alta) y de la pantalla, menos lo de siempre (información e iconos). Nunca más que su alto normal ni menos que
+        el mínimo con el que aún se ve todo."""
+        room = min(self.depth, self.map.geometry.height() - self._shadow - PAD)
+        return max(min(room - (INFO_H + DOCK_H + GAP + 2 * PAD) - GAP, MUSIC_H), MUSIC_MIN)
 
     def on_progress(self, pos, dur):
         self.main.on_progress(pos, dur)

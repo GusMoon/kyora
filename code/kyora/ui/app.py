@@ -183,6 +183,7 @@ def build_ui(kyora, app, theme=THEME):
     top.music.progress_changed.connect(quick.on_progress)
     top.music.level_changed.connect(quick.on_level)
     music_controls = {"toggle": top.music.toggle_playback, "stop": top.music.stop_playback,
+                      "download": top.music.download_current,
                       "prev": top.music.previous_track, "next": top.music.next_track}
     quick.main.music_control.connect(lambda what: music_controls[what]())
     bridge.state_changed.connect(quick.on_state)

@@ -88,7 +88,7 @@ def test_the_panel_grows_with_music_and_has_its_buttons():
     assert main.set_music({"title": "Una canción", "playing": True}) is True
     assert main.size[0] == base + musicpill.PILL_H + quickdock.GAP
     assert main.set_music({"title": "Una canción", "playing": False}) is False       # pausa: mismo alto
-    main.resize(380, main.size[0] - 2 * quickdock.PAD)
+    main.setFixedSize(380, main.size[0] - 2 * quickdock.PAD)
     main.grab()
     names = {name for name, _ in main._hits}
     assert {"music_toggle", "music_stop", "clock", "wifi"} <= names
@@ -114,7 +114,7 @@ def test_closed_panel_is_resized_at_once_and_open_one_animates():
     dock = make()
     base = dock.pages["main"].size[0]
     dock.on_playing({"title": "x", "playing": True})
-    assert dock._target("main")[2] == base + musicpill.PILL_H + quickdock.GAP and not dock._grow.running()
+    assert dock._target("main")[2] == base + dock.main.pill_h + quickdock.GAP and not dock._grow.running()
     dock.on_playing(None)
     assert not dock.main._shown                                # cerrado: no hay nada que animar
     dock.opened, dock.name = True, "main"                      # como si estuviera abierto
@@ -122,7 +122,7 @@ def test_closed_panel_is_resized_at_once_and_open_one_animates():
     dock.on_playing({"title": "x", "playing": True})
     assert dock._grow.running()
     pump(quickdock.GROW_MS + 150)
-    assert dock._piece == dock._target("main") and dock._piece[2] == base + musicpill.PILL_H + quickdock.GAP
+    assert dock._piece == dock._target("main") and dock._piece[2] == base + dock.main.pill_h + quickdock.GAP
     dock.on_playing(None)
     pump(quickdock.GROW_MS + 150)
     assert dock._piece[2] == base and not dock.main._shown
@@ -229,36 +229,63 @@ def test_a_cover_only_lands_on_the_song_that_asked_for_it(monkeypatch):
     assert main.pill.cover is None
 
 
-def test_three_equal_keys_under_the_screen_and_a_close_button_inside_it():
+def test_the_whole_panel_fits_in_the_piece_with_music():
+    """Con música, la página principal no puede pedir más alto que la pieza (si no, arriba se corta)."""
+    dock = make()
+    dock.main.pill_h = dock._pill_fit()
+    base = quickdock.INFO_H + quickdock.DOCK_H + quickdock.GAP + 2 * quickdock.PAD
+    assert dock.main.pill_h == musicpill.PILL_H                                    # en esta pantalla cabe con su alto normal
+    assert base + dock.main.pill_h + quickdock.GAP <= dock.depth
+
+
+def test_the_card_shrinks_when_the_piece_or_the_screen_is_short(monkeypatch):
+    dock = make()
+    base = quickdock.INFO_H + quickdock.DOCK_H + quickdock.GAP + 2 * quickdock.PAD
+    monkeypatch.setattr(dock, "depth", base + quickdock.GAP + 300)
+    assert dock._pill_fit() == 300
+    monkeypatch.setattr(dock, "depth", base)                                       # ni de broma cabe: el mínimo
+    assert dock._pill_fit() == musicpill.MIN_H
+    dock.on_playing({"title": "x", "playing": True, "id": "i"})
+    assert dock.main.pill_h == musicpill.MIN_H
+    box = quickdock.QRectF(0, 0, 380, musicpill.MIN_H)                              # y con el mínimo todo sigue dentro de la pantalla
     pill = musicpill.MusicPill(THEME)
     pill.set_state("x", True, "id", has_next=True)
-    box = quickdock.QRectF(0, 0, 380, musicpill.PILL_H)
-    assert [n for n, _ in pill.hits(box)] == ["music_toggle", "music_prev", "music_next", "music_stop"]
-    rects = dict(pill.hits(box))
-    order = [rects[n] for n in ("music_toggle", "music_prev", "music_next")]
-    assert all(a.right() < b.left() for a, b in pairwise(order))                    # en fila, de izquierda a derecha
-    assert len({round(r.center().y(), 1) for r in order}) == 1                           # todas a la misma altura
-    assert len({round(r.width(), 1) for r in order}) == 1                                # y del mismo tamaño
-    assert order[0].left() >= 0 and order[-1].right() <= 380
-    screen = pill.layout(box)["screen"]
-    assert all(r.top() > screen.bottom() for r in order) and order[-1].bottom() <= musicpill.PILL_H
-    close = rects["music_stop"]                                                          # la ✕: arriba a la derecha de la pantalla
-    assert screen.contains(close) and close.right() > screen.center().x() and close.top() - screen.top() < 20
+    rects = pill.layout(box)
+    assert all(rects["screen"].contains(rects[n]) for n in ("title", "time", "wave"))
+    assert rects["title"].bottom() <= rects["time"].top() and rects["screen"].bottom() <= musicpill.MIN_H
+
+
+def test_every_button_is_on_the_screen_keys_in_the_middle_and_arrows_at_the_sides():
+    pill = musicpill.MusicPill(THEME)
+    pill.set_state("x", True, "id", has_next=True)
+    for height in (musicpill.PILL_H, musicpill.MIN_H):
+        box = quickdock.QRectF(0, 0, 380, height)
+        assert [n for n, _ in pill.hits(box)] == ["music_toggle", "music_download", "music_stop", "music_prev", "music_next"]
+        rects = dict(pill.hits(box))
+        layout = pill.layout(box)
+        screen = layout["screen"]
+        assert all(screen.contains(r) for r in rects.values())                           # todo cae dentro de la carátula
+        keys = [rects[n] for n in ("music_toggle", "music_download", "music_stop")]
+        assert all(a.right() < b.left() for a, b in pairwise(keys))                      # en fila, de izquierda a derecha
+        assert len({round(r.center().y(), 1) for r in keys}) == 1 and len({round(r.width(), 1) for r in keys}) == 1
+        prev, nxt = rects["music_prev"], rects["music_next"]                             # las flechas, a cada lado de las teclas
+        assert prev.right() < keys[0].left() and keys[-1].right() < nxt.left()
+        assert abs(prev.center().y() - keys[0].center().y()) < 1
+        for button in [*keys, prev, nxt]:                                                # y sin pisar el nombre, el tiempo ni las ondas
+            assert not any(button.intersects(layout[n]) for n in ("title", "time", "wave")), height
     pill.set_state("x", True, "id", has_next=False)
     assert "music_next" not in [n for n, _ in pill.hits(box)]
 
 
-def test_screen_holds_waves_time_and_title_without_touching_the_close_button():
+def test_screen_holds_waves_time_and_title_with_no_frame_of_its_own():
     pill = musicpill.MusicPill(THEME)
     pill.set_state("Una canción", True, "id")
     rects = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))
-    glass = rects["glass"]
-    assert rects["screen"].contains(glass)
-    for name in ("wave", "time", "title", "close"):
-        assert glass.contains(rects[name]), name
+    for name in ("wave", "time", "title"):
+        assert rects["screen"].contains(rects[name]), name
     assert rects["title"].top() < rects["time"].top() and rects["time"].bottom() <= rects["wave"].top()
-    assert rects["title"].right() < rects["close"].left()                                # el nombre no pisa la ✕
     assert rects["title"].width() == musicpill.title_width()
+    assert rects["screen"].left() == musicpill.SIDE                                      # pegada al borde del cuerpo: sin marco negro
 
 
 def paint_pill(pill, over, hover=None):
@@ -272,31 +299,50 @@ def paint_pill(pill, over, hover=None):
     return image.toImage()
 
 
-def test_the_close_button_only_shows_while_the_cursor_is_over_the_card():
+def test_the_arrows_only_show_while_the_cursor_is_over_the_screen():
     pill = musicpill.MusicPill(THEME)
     pill.set_state("x", True, "id", has_next=True)
-    close = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))["close"].center().toPoint()
+    layout = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))
+    left, right = layout["prev"].center().toPoint(), layout["next"].center().toPoint()
     hidden, shown = paint_pill(pill, over=False), paint_pill(pill, over=True)
-    assert hidden.pixelColor(close) != shown.pixelColor(close)
-    assert paint_pill(pill, over=False, hover="music_stop") != hidden                   # bajo la ✕ siempre se ve
+    assert hidden.pixelColor(left) != shown.pixelColor(left) and hidden.pixelColor(right) != shown.pixelColor(right)
+    assert paint_pill(pill, over=False, hover="music_next") != hidden                   # bajo una flecha siempre se ve
+    pill.set_state("x", True, "id", has_next=False)
+    assert paint_pill(pill, over=True).pixelColor(right) == hidden.pixelColor(right)    # sin siguiente, no hay flecha
 
 
-def test_the_card_tracks_the_cursor_and_forgets_it_on_leave():
+def test_the_download_key_shows_how_the_download_goes():
+    pill = musicpill.MusicPill(THEME)
+    pill.set_state("x", True, "id", has_next=True)
+    key = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))["download"].center().toPoint()
+    seen = {}
+    for state in ("", "doing", "done", "error"):
+        pill.set_state("x", True, "id", has_next=True, download=state)
+        seen[state] = paint_pill(pill, over=True).copy(key.x() - 16, key.y() - 16, 32, 32)
+    assert len({image for image in map(lambda i: i.constBits().tobytes(), seen.values())}) == 4     # los cuatro se ven distintos
+
+
+def test_the_screen_follows_the_cursor_and_forgets_it_on_leave():
     dock = make()
     main = dock.main
     main.set_music({"title": "x", "playing": True, "id": "i", "next": True})
-    main.resize(380, main.size[0] - 2 * quickdock.PAD)
+    main.setFixedSize(380, main.size[0] - 2 * quickdock.PAD)
     main.grab()
-    inside = dict(main._hits)["music_toggle"].center()
-    move = QMouseEvent(QEvent.MouseMove, QPointF(inside), QPointF(inside), Qt.NoButton, Qt.NoButton, Qt.NoModifier)
+    screen = main.pill.layout(main._pill_rect())["screen"]
+    spot = QPointF(screen.center().x(), screen.top() + 20)                              # el nombre: en la pantalla, pero no es un botón
+    move = QMouseEvent(QEvent.MouseMove, spot, spot, Qt.NoButton, Qt.NoButton, Qt.NoModifier)
     main.mouseMoveEvent(move)
-    assert main._over_pill
+    assert main._over_screen
+    assert main._hover is None                                                           # el centro de la pantalla no es ningún botón
+    key = dict(main._hits)["music_toggle"].center()                                      # sobre una tecla (que está en la pantalla)
+    main.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPointF(key), QPointF(key), Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    assert main._over_screen and main._hover == "music_toggle"
     away = QPointF(5, main.height() - 5)                                                 # abajo: los iconos, no la tarjeta
     main.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, away, away, Qt.NoButton, Qt.NoButton, Qt.NoModifier))
-    assert not main._over_pill
+    assert not main._over_screen
     main.mouseMoveEvent(move)
     main.leaveEvent(None)
-    assert not main._over_pill
+    assert not main._over_screen
 
 
 def test_the_screen_is_painted_once_and_reused_until_something_changes():
@@ -317,7 +363,7 @@ def test_main_page_sends_prev_and_next():
     dock = make()
     main = dock.main
     main.set_music({"title": "x", "playing": True, "id": "i", "next": True})
-    main.resize(380, main.size[0] - 2 * quickdock.PAD)
+    main.setFixedSize(380, main.size[0] - 2 * quickdock.PAD)
     main.grab()
     sent = []
     main.music_control.connect(sent.append)
@@ -380,7 +426,7 @@ def test_announce_carries_the_id_and_whether_there_is_a_next_song():
     seen = []
     page.playing_changed.connect(seen.append)
     page._announce()
-    assert seen[-1] == {"title": "t2", "playing": True, "id": "s2", "next": False}
+    assert seen[-1] == {"title": "t2", "playing": True, "id": "s2", "next": False, "download": ""}
     page.at = 0
     page._announce()
     assert seen[-1]["next"] is True

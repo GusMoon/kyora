@@ -364,6 +364,7 @@ class MusicPage(DockPage):
         self.running = False
         self.player = None  # se crea al reproducir la primera canción
         self.queue = []  # las canciones de la lista que suena, en orden
+        self.queue_playlist = None  # de qué lista son (puede que ya estés mirando otra)
         self.at = -1  # cuál de ellas
         self.want = None  # la que se está pidiendo (por si el usuario cambia antes de que llegue)
         self.sound = ""  # "loading", "playing" o "paused" de la que va en `self.at`
@@ -487,6 +488,7 @@ class MusicPage(DockPage):
         if not 0 <= index < len(self.songs):
             return
         self.queue, self.at = list(self.songs), index
+        self.queue_playlist = self.playlist["id"] if self.playlist else None
         self._start()
 
     def _start(self):
@@ -526,7 +528,7 @@ class MusicPage(DockPage):
         else:
             song = self.queue[self.at]
             self.playing_changed.emit({"title": song["title"], "playing": self.sound != "paused", "id": song["id"],
-                                       "next": self.at + 1 < len(self.queue)})
+                                       "next": self.at + 1 < len(self.queue), "download": song.get("state", "")})
 
     def toggle_playback(self):
         self._toggle()
@@ -541,6 +543,12 @@ class MusicPage(DockPage):
     def _toggle(self):
         if self.player is not None and self.sound in ("playing", "paused"):
             self.player.toggle()
+
+    def download_current(self):
+        """La tecla de descargar de la cápsula de abajo: baja la canción que suena (y, con la sincronización, la manda al
+        móvil). Si ya estaba bajada, solo se vuelve a mandar al móvil."""
+        if self.sound and 0 <= self.at < len(self.queue) and self.queue_playlist is not None:
+            self._invoke("music.download", playlist=self.queue_playlist, ids=[self.queue[self.at]["id"]])
 
     def next_track(self):
         """La cápsula de abajo: la canción siguiente de la lista (si hay)."""
@@ -630,6 +638,11 @@ class MusicPage(DockPage):
         for song in self.songs:
             if song["id"] == result["id"]:
                 song.update(fields)
+        playing = self.queue[self.at] if 0 <= self.at < len(self.queue) else None
+        if playing is not None and playing["id"] == result["id"]:
+            if all(s is not playing for s in self.songs):  # la lista que suena ya no es la que se ve: se sigue su descarga igual
+                playing.update(fields)
+            self._announce()  # la tecla de descargar de la cápsula enseña cómo va
         self.list.update_song(result["id"], **fields)
         if result["state"] == "error":
             self._say(result["error"], warn=True)
