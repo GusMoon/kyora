@@ -195,14 +195,17 @@ def jpeg_bytes(width, height):
     return buf.data()
 
 
-def test_covers_are_cropped_to_a_square_cached_and_announced():
+def test_covers_keep_their_shape_cached_and_announced():
     covers = musicpill.Covers()
     seen = []
     covers.ready.connect(lambda vid, image: seen.append((vid, image.width(), image.height())))
     covers._asked.add("abc")
     covers._done(FakeReply(jpeg_bytes(320, 180)), "abc")
-    assert seen == [("abc", musicpill.COVER_PX, musicpill.COVER_PX)]
-    assert covers.get("abc").width() == musicpill.COVER_PX and "abc" not in covers._asked      # ya está: no vuelve a pedirla
+    assert seen == [("abc", 320, 180)]                                                         # tal cual: ni recorte ni estirón
+    assert covers.get("abc").width() == 320 and "abc" not in covers._asked                     # ya está: no vuelve a pedirla
+    covers._done(FakeReply(jpeg_bytes(1000, 500)), "big")                                      # una enorme se reduce, sin deformarse
+    assert seen[-1] == ("big", musicpill.COVER_PX, musicpill.COVER_PX // 2)
+    seen.pop()
     covers._done(FakeReply(b"", ok=False), "zzz")                                              # sin red: nada, sin fallar
     assert len(seen) == 1 and covers.get("") is None
 
@@ -241,8 +244,8 @@ def test_the_whole_panel_fits_in_the_piece_with_music():
 def test_the_card_shrinks_when_the_piece_or_the_screen_is_short(monkeypatch):
     dock = make()
     base = quickdock.INFO_H + quickdock.DOCK_H + quickdock.GAP + 2 * quickdock.PAD
-    monkeypatch.setattr(dock, "depth", base + quickdock.GAP + 300)
-    assert dock._pill_fit() == 300
+    monkeypatch.setattr(dock, "depth", base + quickdock.GAP + 150)
+    assert dock._pill_fit() == 150
     monkeypatch.setattr(dock, "depth", base)                                       # ni de broma cabe: el mínimo
     assert dock._pill_fit() == musicpill.MIN_H
     dock.on_playing({"title": "x", "playing": True, "id": "i"})
@@ -252,7 +255,7 @@ def test_the_card_shrinks_when_the_piece_or_the_screen_is_short(monkeypatch):
     pill.set_state("x", True, "id", has_next=True)
     rects = pill.layout(box)
     assert all(rects["screen"].contains(rects[n]) for n in ("title", "time", "wave"))
-    assert rects["title"].bottom() <= rects["time"].top() and rects["screen"].bottom() <= musicpill.MIN_H
+    assert rects["title"].right() <= rects["time"].left() and rects["screen"].bottom() <= musicpill.MIN_H
 
 
 def test_every_button_is_on_the_screen_keys_in_the_middle_and_arrows_at_the_sides():
@@ -283,8 +286,8 @@ def test_screen_holds_waves_time_and_title_with_no_frame_of_its_own():
     rects = pill.layout(quickdock.QRectF(0, 0, 380, musicpill.PILL_H))
     for name in ("wave", "time", "title"):
         assert rects["screen"].contains(rects[name]), name
-    assert rects["title"].top() < rects["time"].top() and rects["time"].bottom() <= rects["wave"].top()
-    assert rects["title"].width() == musicpill.title_width()
+    assert rects["title"].top() == rects["time"].top() and rects["title"].right() <= rects["time"].left()   # una sola fila
+    assert rects["time"].bottom() < rects["wave"].top() and rects["title"].width() == musicpill.title_width()
     assert rects["screen"].left() == musicpill.SIDE                                      # pegada al borde del cuerpo: sin marco negro
 
 

@@ -1,14 +1,13 @@
-"""La tarjeta de lo que suena, en el panel de la esquina de abajo a la derecha (el diseño de la referencia de Gustavo: un
-reproductor de bolsillo cuadrado, oscuro, con una pantallita).
+"""La tarjeta de lo que suena, en el panel de la esquina de abajo a la derecha: baja y minimalista, una pantalla sobre una
+placa oscura.
 
-- El **cuerpo** es una placa oscura, casi cuadrada y de esquinas muy redondas (`paint_glass`), con un grano fino.
-- La **pantalla** no tiene marco aparte: es la carátula del vídeo vuelta pixeles, con rayas de monitor antiguo y motas,
-  teñida con los colores del fondo de pantalla (sin carátula, solo esa luz de colores), y una **sombra interior** en sus
-  bordes. Encima van el nombre (arriba, si no cabe se desliza), el tiempo y las ondas de la canción (abajo) con la línea de
-  reproducción en el acento.
+- El **cuerpo** es una placa oscura de esquinas redondas (`paint_glass`), sin adornos.
+- La **pantalla** no tiene marco aparte: es la carátula del vídeo, nítida y algo oscurecida, con una **sombra interior** en
+  los bordes (sin carátula, una luz con los colores del fondo de pantalla). Encima van, en una fila, el nombre (si no cabe se
+  desliza) y el tiempo, y abajo las ondas de la canción con la línea de reproducción en el acento.
 - Los botones solo salen **al pasar el cursor por la pantalla**: a cada lado, **‹** (anterior) y **›** (siguiente) y, en el
-  medio, **tres botones**, todos planos y redondos, con el icono dibujado a línea: pausa o seguir, descargar la canción que suena y cerrar
-  (detiene la música y cierra la tarjeta).
+  medio, **tres botones**, todos planos y redondos, con el icono dibujado a línea: pausa o seguir, descargar la canción que
+  suena y cerrar (detiene la música y cierra la tarjeta).
 
 La carátula es la miniatura de YouTube del vídeo (se baja sin bloquear nada y se guarda en memoria). Las ondas son de
 verdad: cada barra es un trozo de la canción y su alto, lo fuerte que sonó ahí (se mide con el audio que sale del
@@ -16,7 +15,6 @@ reproductor de Kyora). Lo que ya sonó son barras claras; lo que falta, puntitos
 `QuickMain` (todo el panel se pinta a mano) y le pregunta dónde están los botones con `hits()`.
 """
 import math
-import random
 from collections import OrderedDict
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QUrl, Signal
@@ -38,42 +36,41 @@ from kyora.ui.bar import font as base_font
 from kyora.ui.hub.cards import paint_glass
 
 WIDTH = 380  # el ancho del contenido del panel
-PILL_H = 340  # casi cuadrada, como el icono de la referencia; el panel la encoge si no cabe en la pantalla
-MIN_H = 250  # menos que esto no cabrían el nombre, los botones, el tiempo y las ondas dentro de la pantalla
-RADIUS = 44  # las esquinas del cuerpo
-SIDE = 14  # el aire de la pantalla con el borde de la tarjeta
-SCREEN_R = 26
-SHADOW_W = 18  # lo que entra la sombra interior de la pantalla
+PILL_H = 156  # baja: la pantalla, y nada más; el panel la encoge si no cabe en la pantalla del equipo
+MIN_H = 146  # menos que esto no cabrían el nombre, los botones y las ondas dentro de la pantalla
+RADIUS = 32  # las esquinas del cuerpo (las de la pantalla más el aire de alrededor)
+SIDE = 10  # el aire de la pantalla con el borde de la tarjeta
+SCREEN_R = RADIUS - SIDE
+SHADOW_W = 14  # lo que entra la sombra interior de la pantalla
+DARKEN = 85  # cuánto se oscurece la carátula (0 a 255)
 TEXT_PAD = 14  # el aire del texto con el borde de la pantalla
-ARROW = 44  # los botones (todos son círculos de este tamaño)
+ARROW = 40  # los botones (todos son círculos de este tamaño)
 ARROW_PAD = 10
-BTN_GAP = 12  # entre los tres botones del medio
-WAVE_H = 30
+BTN_GAP = 10  # entre los tres botones del medio
+ICON = 26  # lo que mide el icono dentro del botón
+WAVE_H = 20
 HEAD_OVER = 7  # lo que la línea de reproducción sobresale de las ondas, arriba y abajo
-TIME_PX = 24
+TIME_PX = 15
+TIME_W = 52  # el hueco del tiempo, a la derecha de la fila de arriba
 TITLE_PX = 15
 BARS = 60  # barras de la canción entera
 BAR_GAP = 2.2
 DOT_H = 3.0
-MIN_BAR = 5.0
+MIN_BAR = 4.0
 STEP_PX = 1
 GAP = 36  # el hueco entre el final del nombre y su repetición al deslizar
 FADE_W = 18
-CELL = 3  # el tamaño de los "píxeles" de la carátula
-LINE_STEP = 3  # una raya oscura de monitor cada tantos px
-DOTS = 110  # motas de ruido en la pantalla
-GRAIN = 900  # granitos del cuerpo
 LEVEL_FLOOR = 0.08  # por debajo de esto no se estira la escala: el silencio no se ve como ruido
 COVER_URL = "https://i.ytimg.com/vi/{id}/mqdefault.jpg"
 COVER_CACHE = 12  # carátulas en memoria como mucho
-COVER_PX = 160  # se guardan al doble de lo que se ven (pantallas con escala)
+COVER_PX = 480  # ancho máximo con el que se guardan (la miniatura mide 320: se ve tal cual, sin recortar a cuadrado)
 KEYS = ("toggle", "download", "close")  # de izquierda a derecha
 BUSY = ("queued", "doing")  # estados de la descarga de la canción que suena
 
 
 def title_width():
-    """Lo que mide el hueco del nombre (toda la fila de arriba de la pantalla)."""
-    return WIDTH - 2 * (SIDE + TEXT_PAD)
+    """Lo que mide el hueco del nombre (la fila de arriba de la pantalla, menos el tiempo)."""
+    return WIDTH - 2 * (SIDE + TEXT_PAD) - TIME_W
 
 
 def clock(ms):
@@ -82,7 +79,7 @@ def clock(ms):
 
 
 class Covers(QObject):
-    """Las carátulas: se piden a YouTube de una en una, sin bloquear, y se guardan las últimas ya recortadas a cuadrado."""
+    """Las carátulas: se piden a YouTube de una en una, sin bloquear, y se guardan las últimas."""
 
     ready = Signal(str, QImage)
 
@@ -117,13 +114,12 @@ class Covers(QObject):
         self._asked.discard(video_id)
         if image.isNull():
             return
-        side = min(image.width(), image.height())  # el centro, en cuadrado
-        square = image.copy((image.width() - side) // 2, (image.height() - side) // 2, side, side)
-        square = square.scaled(COVER_PX, COVER_PX, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-        self._cache[video_id] = square
+        if image.width() > COVER_PX:  # solo se reduce si es enorme: tal cual, para que se vea nítida
+            image = image.scaledToWidth(COVER_PX, Qt.SmoothTransformation)
+        self._cache[video_id] = image
         while len(self._cache) > COVER_CACHE:
             self._cache.popitem(last=False)
-        self.ready.emit(video_id, square)
+        self.ready.emit(video_id, image)
 
 
 class Wave:
@@ -165,12 +161,11 @@ class MusicPill:
         self.title, self.track_id, self.playing = "", "", False
         self.has_next = False  # hay otra canción después de esta
         self.download = ""  # cómo va la descarga de la que suena: "", "pending", "queued", "doing", "done" o "error"
-        self.cover = None  # QPixmap cuadrado, o None mientras llega (o si no hay)
+        self.cover = None  # QPixmap de la miniatura, o None mientras llega (o si no hay)
         self.wave = Wave()
         self.offset = 0  # lo que se ha deslizado el nombre
         self._rects = {}
         self._baked = None  # (clave, QPixmap): la pantalla ya pintada, para no rehacerla con cada barra de las ondas
-        self._grain = None  # (clave, QPixmap): el grano del cuerpo
 
     # ---------- estado ----------
 
@@ -202,14 +197,14 @@ class MusicPill:
     # ---------- dónde están las cosas ----------
 
     def layout(self, box):
-        """Las zonas de la tarjeta dentro de `box`: la pantalla, que ocupa casi toda la tarjeta, con el nombre arriba, el
-        tiempo y las ondas abajo y, en el hueco del medio, los tres botones entre los dos de los lados."""
+        """Las zonas de la tarjeta dentro de `box`: la pantalla, que ocupa casi toda la tarjeta, con el nombre y el tiempo en
+        la fila de arriba, las ondas abajo y, en el hueco del medio, los tres botones entre los dos de los lados."""
         screen = QRectF(box.left() + SIDE, box.top() + SIDE, box.width() - 2 * SIDE, box.height() - 2 * SIDE)
         left, right = screen.left() + TEXT_PAD, screen.right() - TEXT_PAD
-        title = QRectF(left, screen.top() + 10, right - left, 26)
+        title = QRectF(left, screen.top() + 8, right - left - TIME_W, 24)
+        time = QRectF(right - TIME_W, title.top(), TIME_W, title.height())
         wave = QRectF(left, screen.bottom() - 12 - HEAD_OVER - WAVE_H, right - left, WAVE_H)
-        time = QRectF(left, wave.top() - HEAD_OVER - 4 - 30, 160, 30)
-        mid = (title.bottom() + time.top()) / 2  # el medio del hueco entre el nombre y el tiempo
+        mid = (title.bottom() + wave.top() - HEAD_OVER) / 2  # el medio del hueco entre la fila de arriba y las ondas
         self._rects = {
             "screen": screen,
             "title": title,
@@ -245,10 +240,9 @@ class MusicPill:
         t = self.theme
         rects = self.layout(box)
         paint_glass(p, t, box, RADIUS, fill=QColor(t.plate_bottom), shadow=False)
-        self._paint_grain(p, box)
         self._paint_screen(p, rects["screen"])
         self._paint_wave(p, rects["wave"])
-        self._paint_text(p, rects["time"], clock(self.wave.pos), TIME_PX)
+        self._paint_text(p, rects["time"], clock(self.wave.pos), TIME_PX, Qt.AlignVCenter | Qt.AlignRight)
         self._paint_title(p, rects["title"])
         if not over and not (hover or "").startswith("music_"):
             return  # los botones solo salen con el cursor sobre la pantalla
@@ -275,35 +269,11 @@ class MusicPill:
                 return QColor(t.warn)
         return None
 
-    # ---- el cuerpo ----
-
-    def _paint_grain(self, p, box):
-        """Un grano fino sobre el cuerpo, como el de la referencia (se pinta una vez y se reusa)."""
-        dpr = p.device().devicePixelRatioF()
-        key = (round(box.width()), round(box.height()), dpr)
-        if self._grain is None or self._grain[0] != key:
-            pix = QPixmap(round(box.width() * dpr), round(box.height() * dpr))
-            pix.setDevicePixelRatio(dpr)
-            pix.fill(Qt.transparent)
-            q = QPainter(pix)
-            q.setRenderHint(QPainter.Antialiasing)
-            shape = QPainterPath()
-            shape.addRoundedRect(QRectF(1, 1, box.width() - 2, box.height() - 2), RADIUS - 1, RADIUS - 1)
-            q.setClipPath(shape)
-            rnd = random.Random(7)
-            for _ in range(GRAIN):
-                light = rnd.random() < 0.5
-                c = QColor(255, 255, 255, rnd.randint(6, 16)) if light else QColor(0, 0, 0, rnd.randint(18, 40))
-                q.fillRect(QRectF(int(rnd.uniform(0, box.width())), int(rnd.uniform(0, box.height())), 1, 1), c)
-            q.end()
-            self._grain = (key, pix)
-        p.drawPixmap(box.topLeft(), self._grain[1])
-
     # ---- la pantalla ----
 
     def _paint_screen(self, p, screen):
-        """La carátula pixelada con sus rayas, motas y sombra interior, o solo la luz de colores. Se pinta una vez en un
-        pixmap y se reusa; alrededor, solo un filo oscuro fino (sin marco aparte) y un destello claro debajo."""
+        """La carátula oscurecida con su sombra interior, o solo la luz de colores. Se pinta una vez en un pixmap y se
+        reusa; alrededor, solo un filo oscuro fino (sin marco aparte) y un destello claro debajo."""
         dpr = p.device().devicePixelRatioF()
         t = self.theme
         key = (round(screen.width()), round(screen.height()), dpr, self.cover.cacheKey() if self.cover else 0,
@@ -334,45 +304,26 @@ class MusicPill:
         shape.addRoundedRect(QRectF(0, 0, w, h), SCREEN_R, SCREEN_R)
         q.setClipPath(shape)
         area = QRectF(0, 0, w, h)
-        light = QLinearGradient(0, 0, 0, h)
-        stops = self._stops()
         if self.cover is not None:
-            self._draw_pixels(q, area)
-            for i, color in enumerate(stops):  # la luz de colores sobre la imagen
-                color.setAlpha(85)
-                light.setColorAt(i / (len(stops) - 1), color)
-            q.fillRect(area, light)
+            self._draw_cover(q, area, dpr)
+            q.fillRect(area, QColor(0, 0, 0, DARKEN))  # algo más oscura: el texto y los botones se leen sobre ella
         else:
+            light = QLinearGradient(0, 0, 0, h)
+            stops = self._stops()
             for i, color in enumerate(stops):
-                light.setColorAt(i / (len(stops) - 1), color.darker(150))
+                light.setColorAt(i / (len(stops) - 1), color.darker(170))
             q.fillRect(area, light)
-            glow = QLinearGradient(0, h * 0.35, 0, h * 0.75)  # una franja de luz, como el horizonte de la referencia
-            for pos, alpha in ((0, 0), (0.5, 70), (1, 0)):
-                c = QColor(t.ink)
-                c.setAlpha(alpha)
-                glow.setColorAt(pos, c)
-            q.fillRect(area, glow)
             q.setPen(glyphs.pen(QColor(t.ink), 1.6))
             q.setBrush(Qt.NoBrush)
-            side = min(w, h) * 0.3
-            glyphs.music(q, QRectF((w - side) / 2, (h - side) / 2 - 8, side, side))
-        rnd = random.Random(self.track_id or "kyora")
-        palette = [QColor(t.ink), QColor(t.gold), QColor(t.second), QColor(t.third)]
-        q.setPen(Qt.NoPen)
-        for _ in range(DOTS):  # motas de ruido
-            c = QColor(rnd.choice(palette))
-            c.setAlpha(rnd.randint(70, 150))
-            side = rnd.choice((1, 2, 2, 3))
-            q.fillRect(QRectF(int(rnd.uniform(0, w)), int(rnd.uniform(0, h)), side, side), c)
-        for y in range(0, int(h), LINE_STEP):  # las rayas del monitor
-            q.fillRect(QRectF(0, y, w, 1), QColor(0, 0, 0, 55))
-        top = QLinearGradient(0, 0, 0, h * 0.3)  # el nombre y el tiempo se leen sobre sombra
-        top.setColorAt(0, QColor(0, 0, 0, 130))
+            side = min(w, h) * 0.34
+            glyphs.music(q, QRectF((w - side) / 2, (h - side) / 2, side, side))
+        top = QLinearGradient(0, 0, 0, h * 0.4)  # el nombre se lee sobre una sombra suave
+        top.setColorAt(0, QColor(0, 0, 0, 110))
         top.setColorAt(1, QColor(0, 0, 0, 0))
         q.fillRect(area, top)
-        bottom = QLinearGradient(0, h * 0.45, 0, h)
+        bottom = QLinearGradient(0, h * 0.45, 0, h)  # y las ondas, también
         bottom.setColorAt(0, QColor(0, 0, 0, 0))
-        bottom.setColorAt(1, QColor(0, 0, 0, 215))
+        bottom.setColorAt(1, QColor(0, 0, 0, 170))
         q.fillRect(area, bottom)
         self._inner_shadow(q, area)
         q.end()
@@ -391,16 +342,14 @@ class MusicPill:
         down.setColorAt(1, QColor(0, 0, 0, 0))
         q.fillRect(QRectF(area.left(), area.top(), area.width(), SHADOW_W * 1.6), down)
 
-    def _draw_pixels(self, q, area):
-        """La franja central de la carátula, hecha pixeles gordos (se reduce y se amplía sin suavizar)."""
-        image = self.cover.toImage()
-        w, h = area.width(), area.height()
-        band = min(image.height(), max(round(image.width() * h / w), 1))
-        image = image.copy(0, (image.height() - band) // 2, image.width(), band)
-        small = image.scaled(max(int(w / CELL), 1), max(int(h / CELL), 1), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+    def _draw_cover(self, q, area, dpr):
+        """La carátula llenando la pantalla (se recorta del centro lo que sobra), reducida con suavizado para que quede nítida."""
+        image = self.cover.toImage().scaled(round(area.width() * dpr), round(area.height() * dpr),
+                                            Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        x, y = (image.width() - round(area.width() * dpr)) // 2, (image.height() - round(area.height() * dpr)) // 2
         q.save()
-        q.setRenderHint(QPainter.SmoothPixmapTransform, False)
-        q.drawImage(area, small)
+        q.setRenderHint(QPainter.SmoothPixmapTransform)
+        q.drawImage(area, image.copy(x, y, round(area.width() * dpr), round(area.height() * dpr)))
         q.restore()
 
     # ---- texto ----
@@ -486,7 +435,7 @@ class MusicPill:
         pen.setJoinStyle(Qt.RoundJoin)
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
-        self._glyph(p, shape, QRectF(rect.center().x() - 15, rect.center().y() - 15, 30, 30))
+        self._glyph(p, shape, QRectF(rect.center().x() - ICON / 2, rect.center().y() - ICON / 2, ICON, ICON))
         p.restore()
 
     @staticmethod
