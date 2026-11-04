@@ -9,11 +9,11 @@ import 'data/audio_levels.dart';
 import 'data/background_playback.dart';
 import 'data/chat_repository.dart';
 import 'data/cover_store.dart';
-import 'data/device_info.dart';
 import 'data/duration_cache.dart';
 import 'data/favorites_store.dart';
 import 'data/just_audio_engine.dart';
 import 'data/music_store.dart';
+import 'data/nav_hint_store.dart';
 import 'data/reminder_scheduler.dart';
 import 'data/reminder_store.dart';
 import 'data/role_cache.dart';
@@ -34,24 +34,32 @@ Future<void> main() async {
     runApp(const _MissingConfigApp());
     return;
   }
+  // Todo lo que no depende de lo demás arranca a la vez (antes iba una cosa tras otra y la primera pantalla tardaba la suma de todas).
   // La sesión de audio: música (así Android sabe qué es, baja el volumen ante un aviso y la respeta en segundo plano).
-  await (await AudioSession.instance).configure(const AudioSessionConfiguration.music());
+  final audioReady = AudioSession.instance.then((session) => session.configure(const AudioSessionConfiguration.music()));
   // La notificación y los controles de la pantalla de bloqueo del reproductor. El servicio sigue en primer plano también en pausa
   // (si no, al pausar —una llamada, quitar los auriculares— Android lo trata como una app cualquiera y puede detenerlo).
-  await JustAudioBackground.init(
+  final backgroundReady = JustAudioBackground.init(
     androidNotificationChannelId: 'com.kyora.kyora_chat.audio',
     androidNotificationChannelName: 'Música de Kyra',
     androidNotificationOngoing: false,
     androidStopForegroundOnPause: false,
   );
-  await Supabase.initialize(url: AppConfig.supabaseUrl, publishableKey: AppConfig.supabaseAnonKey);
-  final store = await PrefsMusicStore.open();
-  final roles = await PrefsRoleCache.open();
-  final durations = await PrefsDurationCache.open();
-  final favorites = FavoritesController(await PrefsFavoritesStore.open());
-  final covers = await PrefsCoverStore.open();
-  final wallpaper = WallpaperController(await PrefsWallpaperStore.open());
-  final weather = WeatherController(OpenMeteoWeather(), await PrefsWeatherStore.open());
+  final supabaseReady = Supabase.initialize(url: AppConfig.supabaseUrl, publishableKey: AppConfig.supabaseAnonKey);
+  final (store, roles, durations, favoritesStore, covers, wallpaperStore, weatherStore, navHint) = await (
+    PrefsMusicStore.open(),
+    PrefsRoleCache.open(),
+    PrefsDurationCache.open(),
+    PrefsFavoritesStore.open(),
+    PrefsCoverStore.open(),
+    PrefsWallpaperStore.open(),
+    PrefsWeatherStore.open(),
+    PrefsNavHintStore.open(),
+  ).wait;
+  await Future.wait([audioReady, backgroundReady, supabaseReady]);
+  final favorites = FavoritesController(favoritesStore);
+  final wallpaper = WallpaperController(wallpaperStore);
+  final weather = WeatherController(OpenMeteoWeather(), weatherStore);
   runApp(
     KyoraChatApp(
       repository: ChatRepository(Supabase.instance.client),
@@ -63,7 +71,7 @@ Future<void> main() async {
       covers: covers,
       wallpaper: wallpaper,
       weather: weather,
-      device: AndroidDeviceInfo(),
+      navHint: navHint,
     ),
   );
 }
@@ -80,7 +88,7 @@ class KyoraChatApp extends StatefulWidget {
     this.covers,
     this.wallpaper,
     this.weather,
-    this.device,
+    this.navHint,
   });
 
   final ChatRepository repository;
@@ -94,7 +102,9 @@ class KyoraChatApp extends StatefulWidget {
   /// El fondo de pantalla y sus 5 colores; con uno puesto, mandan sobre el color de la carátula.
   final WallpaperController? wallpaper;
   final WeatherController? weather;
-  final DeviceInfo? device;
+
+  /// Si ya se enseñó el menú circular.
+  final NavHintStore? navHint;
 
   @override
   State<KyoraChatApp> createState() => _KyoraChatAppState();
@@ -129,7 +139,7 @@ class _KyoraChatAppState extends State<KyoraChatApp> {
         coverTheme: _cover,
         wallpaper: widget.wallpaper,
         weather: widget.weather,
-        device: widget.device,
+        navHint: widget.navHint,
         background: AndroidBackgroundPlayback(),
         levels: AndroidAudioLevels(),
         tasks: widget.repository,
@@ -140,10 +150,11 @@ class _KyoraChatAppState extends State<KyoraChatApp> {
       builder: (context, home) => MaterialApp(
         title: 'Kyra',
         debugShowCheckedModeBanner: false,
+        scrollBehavior: const KyraScrollBehavior(),
         // con un fondo de pantalla puesto mandan sus colores; sin él, el de la carátula que suena (o los de siempre)
         theme: buildCoverTheme(widget.wallpaper?.seed ?? _cover.value),
         themeMode: ThemeMode.dark,
-        themeAnimationDuration: const Duration(milliseconds: 600),
+        themeAnimationDuration: const Duration(milliseconds: 220),
         themeAnimationCurve: Curves.easeInOut,
         builder: (context, child) => AppBackdrop(wallpaper: widget.wallpaper, child: child ?? const SizedBox.shrink()),
         home: home,

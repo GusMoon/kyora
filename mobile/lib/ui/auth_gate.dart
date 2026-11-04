@@ -8,11 +8,11 @@ import '../data/audio_levels.dart';
 import '../data/background_playback.dart';
 import '../data/chat_backend.dart';
 import '../data/cover_store.dart';
-import '../data/device_info.dart';
 import '../data/duration_cache.dart';
 import '../data/favorites_store.dart';
 import '../data/music_backend.dart';
 import '../data/music_store.dart';
+import '../data/nav_hint_store.dart';
 import '../data/reminder_scheduler.dart';
 import '../data/reminder_store.dart';
 import '../data/task_backend.dart';
@@ -30,18 +30,18 @@ import '../theme.dart';
 import '../util/picker.dart';
 import 'chat_page.dart';
 import 'home_page.dart';
-import 'home_shell.dart';
 import 'login_page.dart';
 import 'music_page.dart';
 import 'reminders_page.dart';
-import 'settings_page.dart';
+import 'settings_sheet.dart';
 import 'tasks_page.dart';
-import 'widgets/app_backdrop.dart';
-import 'widgets/section_rail.dart';
+import 'section_host.dart';
+import 'widgets/app_section.dart';
+import 'widgets/section_motion.dart';
 
 /// La puerta de entrada: sin sesión pide el acceso (o crear una cuenta); con sesión mira qué rol tiene la cuenta y abre
-/// las secciones de la app, que se recorren deslizando de lado (`HomeShell`): el administrador, Inicio · Chat · Música · Tareas ·
-/// Recordatorios; el pasante, lo mismo sin el chat. La configuración se abre con el botón de Inicio. Con sesión también arranca la música: las canciones que lleguen se guardan solas
+/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Tareas ·
+/// Recordatorios; el pasante, lo mismo sin el chat. La configuración se abre con el botón de Inicio o desde el menú circular. Con sesión también arranca la música: las canciones que lleguen se guardan solas
 /// aunque estés en otra sección.
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -65,8 +65,8 @@ class AuthGate extends StatefulWidget {
     this.background,
     this.wallpaper,
     this.weather,
-    this.device,
     this.pickImage,
+    this.navHint,
     this.now,
   });
 
@@ -116,11 +116,11 @@ class AuthGate extends StatefulWidget {
   /// El clima de Inicio y su ciudad. Sin esto no hay tarjeta del clima ni grupo «Clima».
   final WeatherController? weather;
 
-  /// El espacio del teléfono, para la tarjeta de almacenamiento de Inicio. Sin esto no sale la tarjeta.
-  final DeviceInfo? device;
-
   /// Elige la imagen del fondo (en las pruebas, una falsa). Sin esto, el selector del teléfono.
   final Future<String?> Function()? pickImage;
+
+  /// Si ya se enseñó el menú circular (la pista de Inicio). Sin esto no hay pista.
+  final NavHintStore? navHint;
 
   /// El reloj de Inicio (en las pruebas, uno fijo).
   final DateTime Function()? now;
@@ -185,7 +185,7 @@ class _AuthGateState extends State<AuthGate> {
   /// La pantalla de una sección que depende de un controlador que se abre en segundo plano: un círculo de carga hasta que esté listo.
   Widget _whenReady<T>(Future<T> future, Widget Function(T controller) page) => FutureBuilder<T>(
         future: future,
-        builder: (context, snapshot) => snapshot.hasData ? page(snapshot.data as T) : const Scaffold(body: Center(child: CircularProgressIndicator(strokeWidth: 2.4))),
+        builder: (context, snapshot) => snapshot.hasData ? page(snapshot.data as T) : const Scaffold(body: Center(child: FlyIn(edge: MotionEdge.bottom, order: 1, child: CircularProgressIndicator(strokeWidth: 2.4)))),
       );
 
   MusicController _musicController() {
@@ -257,9 +257,9 @@ class _AuthGateState extends State<AuthGate> {
             final tasks = _taskController(userId);
             final reminders = _reminderController(userId);
             final admin = role == Role.admin;
-            // Las secciones, de izquierda a derecha: se pasa de una a otra deslizando. Se abre en Inicio; Configuración se abre con su botón.
+            // Las secciones, en el orden del menú circular. Se abre en Inicio; Configuración es una opción más del menú (abre su hoja).
             // El pasante no tiene chat.
-            Widget settingsPage() => SettingsPage(
+            Widget settingsSheet() => SettingsSheet(
                   music: music,
                   role: role,
                   username: username,
@@ -269,20 +269,22 @@ class _AuthGateState extends State<AuthGate> {
                   weather: widget.weather,
                   pickImage: widget.pickImage ?? pickCoverImage,
                 );
-            return HomeShell(
+            return SectionHost(
               key: ValueKey('home-${account.userId}'),
               initial: 0,
+              hint: widget.navHint,
+              actions: [
+                NavAction(id: 'settings', icon: Icons.settings_outlined, label: 'Configuración', run: (context) => unawaited(showSettingsSheet(context, settingsSheet()))),
+              ],
               sections: [
                 AppSection(
                   id: 'home',
                   icon: Icons.home_outlined,
                   label: 'Inicio',
                   builder: (context) => HomePage(
-                    onOpenSettings: () => Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => settingsPage())),
+                    onOpenSettings: () => unawaited(showSettingsSheet(context, settingsSheet())),
                     tasks: tasks,
                     weather: widget.weather,
-                    device: widget.device,
-                    wallpaper: widget.wallpaper,
                     now: widget.now,
                   ),
                 ),

@@ -197,12 +197,13 @@ class _Backdrop extends StatelessWidget {
 
   /// La carátula, de internet o del teléfono. `null` si no hay. Al cambiar de canción la anterior sigue a la vista hasta que la nueva
   /// está lista.
-  Widget? _picture({Key? key}) {
+  Widget? _picture({Key? key, required int width}) {
     final url = coverUrl;
     if (coverFile != null) {
       return Image.file(
         File(coverFile!),
         key: key,
+        cacheWidth: width,
         gaplessPlayback: true,
         fit: BoxFit.cover,
         filterQuality: FilterQuality.high,
@@ -213,12 +214,13 @@ class _Backdrop extends StatelessWidget {
     return Image.network(
       sharperCover(url),
       key: key,
+      cacheWidth: width,
       gaplessPlayback: true,
       fit: BoxFit.cover,
       filterQuality: FilterQuality.high,
       // no todos los videos tienen la versión grande: entonces, la normal
       errorBuilder: (context, error, stack) =>
-          Image.network(url, fit: BoxFit.cover, filterQuality: FilterQuality.high, errorBuilder: (context, error, stack) => const SizedBox.shrink()),
+          Image.network(url, cacheWidth: width, fit: BoxFit.cover, filterQuality: FilterQuality.high, errorBuilder: (context, error, stack) => const SizedBox.shrink()),
     );
   }
 
@@ -228,7 +230,9 @@ class _Backdrop extends StatelessWidget {
     final screen = MediaQuery.sizeOf(context);
     final discCenter = Offset(screen.width / 2, screen.height - discFromBottom);
     final reach = discRadius + haloReach;
-    final sharp = _picture(key: Key(coverFile != null ? 'cover-file-bg' : 'cover-image'));
+    // decodificada al ancho de la pantalla (en píxeles), no al de la imagen original
+    final width = (screen.width * MediaQuery.devicePixelRatioOf(context)).round().clamp(200, 1080);
+    final sharp = _picture(key: Key(coverFile != null ? 'cover-file-bg' : 'cover-image'), width: width);
     final top = Color.lerp(c.background, tint ?? c.accent, tint == null ? 0.18 : 0.55)!;
     return Stack(
       fit: StackFit.expand,
@@ -298,7 +302,6 @@ class MiniPlayer extends StatelessWidget {
         final track = player.current;
         if (track == null) return const SizedBox.shrink();
         final total = player.duration.inMilliseconds;
-        final fraction = total > 0 ? (player.position.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
         return Material(
           color: context.colors.plate,
           child: InkWell(
@@ -309,7 +312,15 @@ class MiniPlayer extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  LinearProgressIndicator(value: fraction, minHeight: 2, backgroundColor: context.colors.field),
+                  // el avance se repinta solo, sin reconstruir el resto de la mini-barra
+                  ValueListenableBuilder<Duration>(
+                    valueListenable: player.positionListenable,
+                    builder: (context, position, _) => LinearProgressIndicator(
+                      value: total > 0 ? (position.inMilliseconds / total).clamp(0.0, 1.0) : 0.0,
+                      minHeight: 2,
+                      backgroundColor: context.colors.field,
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
                     child: Row(

@@ -8,8 +8,7 @@ import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/state/wallpaper_controller.dart';
 import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
-import 'package:kyora_chat/ui/settings_page.dart';
-import 'package:kyora_chat/util/format.dart';
+import 'package:kyora_chat/ui/settings_sheet.dart';
 import 'package:kyora_chat/util/palette.dart';
 
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
@@ -39,7 +38,7 @@ void main() {
     addTearDown(weather.dispose);
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(),
-      home: SettingsPage(
+      home: SettingsSheet(
         music: music,
         role: Role.admin,
         username: 'gustavo',
@@ -131,12 +130,28 @@ void main() {
     expect(find.text('No encontré esa ciudad. Prueba con otro nombre.'), findsOneWidget);
   });
 
-  testWidgets('las tarjetas de Configuración tienen las esquinas rectas', (tester) async {
+  testWidgets('la hoja es de gris oscuro semitransparente que difumina lo de detrás, con las esquinas de arriba redondeadas y su tirador', (tester) async {
     await open(tester);
-    for (final box in tester.widgetList<DecoratedBox>(find.byType(DecoratedBox))) {
-      final decoration = box.decoration;
-      if (decoration is BoxDecoration) expect(decoration.borderRadius, isNull);
-    }
+    final sheet = tester.widget<ClipRRect>(find.byKey(const Key('settings-sheet')));
+    expect((sheet.borderRadius as BorderRadius).topLeft.x, greaterThan(0));
+    expect((sheet.borderRadius as BorderRadius).bottomLeft.x, 0);
+    expect(find.descendant(of: find.byKey(const Key('settings-sheet')), matching: find.byType(BackdropFilter)), findsOneWidget);
+    // el relleno: un gris oscuro, algo transparente
+    final fill = tester.widget<ColoredBox>(find.descendant(of: find.byKey(const Key('settings-sheet')), matching: find.byType(ColoredBox)).first).color;
+    expect(fill.a, inExclusiveRange(0.4, 0.95));
+    expect(HSLColor.fromColor(fill).lightness, lessThan(0.2));
+    expect(HSLColor.fromColor(fill).saturation, lessThan(0.15));
+    expect(find.byKey(const Key('settings-handle')), findsOneWidget);
+    // dentro, los grupos van sin tarjetas de cristal propias (no se apilan desenfoques)
+    expect(find.byKey(const Key('glass-card')), findsNothing);
+  });
+
+  testWidgets('con el teclado abierto la lista se queda por encima de él', (tester) async {
+    await open(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(ListView)).bottom, lessThanOrEqualTo(1400 - 300));
   });
 
   group('el color de la app', () {
@@ -164,14 +179,5 @@ void main() {
         }
       }
     });
-  });
-
-  test('el día de la semana y la fecha salen en español', () {
-    final tuesday = DateTime(2026, 11, 3);
-    expect(weekdayName(tuesday), 'Martes');
-    expect(fullDate(tuesday), '3 de noviembre de 2026');
-    expect(weekdayName(DateTime(2026, 11, 8)), 'Domingo');
-    expect(weekdayName(DateTime(2026, 11, 9)), 'Lunes');
-    expect(fullDate(DateTime(2027, 1, 1)), '1 de enero de 2027');
   });
 }

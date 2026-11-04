@@ -247,8 +247,8 @@ void main() {
       ));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pump();
-      expect(find.byKey(const Key('section-tasks')), findsNothing); // sin Supabase de tareas no hay tareas
-      await swipeSections(tester, 3); // inicio → chat → música → recordatorios
+      expect(await menuOptions(tester), isNot(contains('tasks'))); // sin Supabase de tareas no hay tareas
+      await goToSection(tester, 'reminders');
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
       await tester.pumpAndSettle();
       expect(find.byType(RemindersPage), findsOneWidget);

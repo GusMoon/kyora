@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -11,11 +12,32 @@ import '../theme.dart';
 import '../util/picker.dart';
 import 'folder_settings.dart';
 import 'widgets/palette_strip.dart';
-import 'widgets/square_card.dart';
 
-/// Configuración de Kyra, en grupos con su explicación: Apariencia (fondo y colores), Clima, Música y Cuenta.
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({
+/// Lo alto que llega la hoja de Configuración, del alto de la pantalla.
+const settingsSheetHeight = 0.7;
+
+/// El gris oscuro semitransparente de la hoja: deja ver lo que hay detrás, difuminado.
+const settingsSheetColor = Color(0xB81C1C1E);
+
+/// Abre la configuración como una **hoja que sube desde el borde de abajo** hasta el 70 % de la pantalla, sin cambiar de ventana: lo de
+/// arriba sigue a la vista. Se cierra arrastrándola hacia abajo, tocando fuera o con «atrás».
+Future<void> showSettingsSheet(BuildContext context, Widget sheet) {
+  final height = MediaQuery.sizeOf(context).height;
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.transparent, // sin velo: se ve la pantalla de abajo tal cual
+    elevation: 0,
+    constraints: BoxConstraints(maxHeight: height * settingsSheetHeight),
+    builder: (_) => sheet,
+  );
+}
+
+/// Configuración de Kyra, en grupos con su explicación: Apariencia (fondo y colores), Clima, Música y Cuenta. Es el contenido de la hoja
+/// de [showSettingsSheet]: un gris oscuro semitransparente sobre el que se difumina lo de detrás.
+class SettingsSheet extends StatelessWidget {
+  const SettingsSheet({
     super.key,
     required this.music,
     required this.role,
@@ -50,71 +72,102 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Configuración', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700))),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-        children: [
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return ClipRRect(
+      key: const Key('settings-sheet'),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+      child: BackdropFilter(
+        // sin grupo: la hoja se solapa con las tarjetas de debajo, que llevan el suyo
+        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: ColoredBox(
+          color: settingsSheetColor,
+          child: Material(
+            type: MaterialType.transparency,
+            child: Padding(
+              // con el teclado abierto, el contenido sube para que el campo de la ciudad se vea
+              padding: EdgeInsets.only(bottom: keyboard),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // el tirador y el título: arrastrar desde aquí baja la hoja
+                  const SizedBox(height: 10),
+                  Center(child: Container(key: const Key('settings-handle'), width: 42, height: 4, decoration: BoxDecoration(color: Colors.white38, borderRadius: BorderRadius.circular(2)))),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 14, 20, 0),
+                    child: Text('Configuración', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                      children: [
           if (wallpaper != null)
-            _Group(
-              title: 'Apariencia',
-              about: 'El fondo de la app y los colores que salen de él.',
-              children: [_WallpaperRow(wallpaper: wallpaper!, pickImage: pickImage), _ColorsRow(wallpaper: wallpaper!)],
+                          _Group(
+                            title: 'Apariencia',
+                            about: 'El fondo de la app y los colores que salen de él.',
+                            children: [_WallpaperRow(wallpaper: wallpaper!, pickImage: pickImage), _ColorsRow(wallpaper: wallpaper!)],
+                          ),
+                        if (weather != null)
+                          _Group(
+                            title: 'Clima',
+                            about: 'La ciudad de la tarjeta de Inicio.',
+                            children: [_CityRow(weather: weather!)],
+                          ),
+                        _Group(
+                          title: 'Música',
+                          about: 'Dónde se guardan las canciones y cómo suenan.',
+                          children: [
+                            ListenableBuilder(
+                              listenable: music,
+                              builder: (context, _) => _Row(
+                                key: const Key('settings-folder'),
+                                icon: Icons.folder_open_outlined,
+                                title: 'Carpeta de las canciones',
+                                subtitle: music.settings.where,
+                                trailing: Icon(Icons.chevron_right, color: c.dim),
+                                onTap: () => showFolderSettings(context, music),
+                              ),
+                            ),
+                            if (background != null) _BackgroundRow(background: background!),
+                          ],
+                        ),
+                        _Group(
+                          title: 'Cuenta',
+                          about: 'Con quién has entrado.',
+                          children: [
+                            _Row(
+                              key: const Key('settings-account'),
+                              icon: Icons.person_outline,
+                              title: username ?? 'Tu cuenta',
+                              subtitle: role == Role.admin ? 'Administrador' : 'Pasante',
+                            ),
+                            _Row(
+                              key: const Key('settings-sign-out'),
+                              icon: Icons.logout,
+                              title: 'Cerrar sesión',
+                              danger: true,
+                              onTap: () async {
+                                // la pantalla de acceso aparece en la base de la pila: se cierra lo que haya encima
+                                Navigator.of(context).popUntil((route) => route.isFirst);
+                                await onSignOut();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          if (weather != null)
-            _Group(
-              title: 'Clima',
-              about: 'La ciudad de la tarjeta de Inicio.',
-              children: [_CityRow(weather: weather!)],
-            ),
-          _Group(
-            title: 'Música',
-            about: 'Dónde se guardan las canciones y cómo suenan.',
-            children: [
-              ListenableBuilder(
-                listenable: music,
-                builder: (context, _) => _Row(
-                  key: const Key('settings-folder'),
-                  icon: Icons.folder_open_outlined,
-                  title: 'Carpeta de las canciones',
-                  subtitle: music.settings.where,
-                  trailing: Icon(Icons.chevron_right, color: c.dim),
-                  onTap: () => showFolderSettings(context, music),
-                ),
-              ),
-              if (background != null) _BackgroundRow(background: background!),
-            ],
           ),
-          _Group(
-            title: 'Cuenta',
-            about: 'Con quién has entrado.',
-            children: [
-              _Row(
-                key: const Key('settings-account'),
-                icon: Icons.person_outline,
-                title: username ?? 'Tu cuenta',
-                subtitle: role == Role.admin ? 'Administrador' : 'Pasante',
-              ),
-              _Row(
-                key: const Key('settings-sign-out'),
-                icon: Icons.logout,
-                title: 'Cerrar sesión',
-                danger: true,
-                onTap: () async {
-                  // la pantalla de acceso aparece en la base de la pila: se cierra lo que haya encima
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                  await onSignOut();
-                },
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Un grupo: su título en el acento, una línea que explica para qué sirve y, debajo, las filas en una tarjeta cuadrada.
+/// Un grupo: su título en el acento, una línea que explica para qué sirve y, debajo, las filas separadas por filetes finos. Sin tarjeta
+/// de cristal propia: dentro de la hoja eso apilaría desenfoques.
 class _Group extends StatelessWidget {
   const _Group({required this.title, required this.about, required this.children});
 
@@ -133,19 +186,12 @@ class _Group extends StatelessWidget {
           Text(title, style: TextStyle(color: c.accent, fontSize: 15, fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
           Text(about, style: TextStyle(color: c.dim, fontSize: 14)),
-          const SizedBox(height: 10),
-          SquareCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < children.length; i++) ...[
-                  if (i > 0) Divider(height: 1, thickness: 1, color: c.edge),
-                  children[i],
-                ],
-              ],
-            ),
-          ),
+          const SizedBox(height: 6),
+          for (var i = 0; i < children.length; i++) ...[
+            Divider(height: 1, thickness: 1, color: c.edge),
+            children[i],
+          ],
+          Divider(height: 1, thickness: 1, color: c.edge),
         ],
       ),
     );
@@ -175,7 +221,7 @@ class _Row extends StatelessWidget {
     final c = context.colors;
     final tint = danger ? c.warn : c.ink;
     final content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -204,18 +250,27 @@ class _Row extends StatelessWidget {
 }
 
 /// El fondo de pantalla: una miniatura, elegir o cambiar la imagen y, con una puesta, quitarla.
-class _WallpaperRow extends StatelessWidget {
+class _WallpaperRow extends StatefulWidget {
   const _WallpaperRow({required this.wallpaper, required this.pickImage});
 
   final WallpaperController wallpaper;
   final Future<String?> Function() pickImage;
 
-  Future<void> _choose(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final path = await pickImage();
+  @override
+  State<_WallpaperRow> createState() => _WallpaperRowState();
+}
+
+class _WallpaperRowState extends State<_WallpaperRow> {
+  /// La última imagen elegida no se pudo leer: se dice en la propia fila (un aviso emergente quedaría detrás de la hoja).
+  bool _failed = false;
+
+  WallpaperController get wallpaper => widget.wallpaper;
+
+  Future<void> _choose() async {
+    final path = await widget.pickImage();
     if (path == null) return;
     final done = await wallpaper.set(path);
-    if (!done) messenger.showSnackBar(const SnackBar(content: Text('No se pudo usar esa imagen.')));
+    if (mounted) setState(() => _failed = !done);
   }
 
   @override
@@ -242,9 +297,14 @@ class _WallpaperRow extends StatelessWidget {
               key: const Key('settings-wallpaper'),
               leading: thumb,
               title: 'Fondo de pantalla',
-              subtitle: wallpaper.busy ? 'Leyendo la imagen…' : (path == null ? 'Gris oscuro. Toca para elegir una imagen.' : 'Toca para cambiar la imagen.'),
+              subtitle: wallpaper.busy
+                  ? 'Leyendo la imagen…'
+                  : _failed
+                      ? 'No se pudo usar esa imagen. Prueba con otra.'
+                      : (path == null ? 'Gris oscuro. Toca para elegir una imagen.' : 'Toca para cambiar la imagen.'),
+              subtitleColor: _failed && !wallpaper.busy ? c.warn : null,
               trailing: wallpaper.busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2)) : Icon(Icons.chevron_right, color: c.dim),
-              onTap: wallpaper.busy ? null : () => _choose(context),
+              onTap: wallpaper.busy ? null : _choose,
             ),
             if (path != null) ...[
               Divider(height: 1, thickness: 1, color: c.edge),

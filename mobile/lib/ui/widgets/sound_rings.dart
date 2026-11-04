@@ -44,19 +44,17 @@ class _SoundRingsState extends State<SoundRings> with SingleTickerProviderStateM
     final levels = _p.levels;
     if (levels != null) {
       _sound = levels.levels.listen(_onSound, onError: (Object _) {});
-      unawaited(levels.start());
+      _p.listenToSound();
     }
   }
 
   /// En segundo plano el sonido no se puede leer (Android lo calla) y medirlo solo gasta batería: se apaga y al volver se enciende.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final levels = _p.levels;
-    if (levels == null) return;
     if (state == AppLifecycleState.resumed) {
-      unawaited(levels.start());
+      _p.resumeSound();
     } else {
-      unawaited(levels.stop());
+      _p.pauseSound();
     }
   }
 
@@ -81,7 +79,12 @@ class _SoundRingsState extends State<SoundRings> with SingleTickerProviderStateM
     _target = _peak < _silent ? 0 : (value / math.max(_peak, 0.04)).clamp(0.0, 1.0);
   }
 
+  /// Se actualiza un tick de cada dos (~30 por segundo): a la vista no se nota y se repinta, con su desenfoque, la mitad de veces.
+  bool _skip = false;
+
   void _onTick() {
+    _skip = !_skip;
+    if (_skip && _level.value > 0.01) return;
     final double goal;
     if (!_p.playing) {
       goal = 0;
@@ -91,7 +94,7 @@ class _SoundRingsState extends State<SoundRings> with SingleTickerProviderStateM
       goal = 0.28 + 0.16 * math.sin(_ticker.value * 2 * math.pi); // sin sonido que leer: un latido suave
     }
     final now = _level.value;
-    _level.value = now + (goal - now) * (goal > now ? 0.45 : 0.12); // sube rápido y baja despacio
+    _level.value = now + (goal - now) * (goal > now ? 0.70 : 0.23); // sube rápido y baja despacio (con un tick de cada dos, el doble por tick)
     if (!_p.playing && _level.value <= 0.01) {
       _level.value = 0;
       _ticker.stop();
@@ -103,7 +106,7 @@ class _SoundRingsState extends State<SoundRings> with SingleTickerProviderStateM
     WidgetsBinding.instance.removeObserver(this);
     _p.removeListener(_apply);
     unawaited(_sound?.cancel());
-    unawaited(_p.levels?.stop());
+    if (_p.levels != null) _p.stopListeningToSound();
     _ticker.dispose();
     _level.dispose();
     super.dispose();

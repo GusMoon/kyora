@@ -47,12 +47,6 @@ class FavoritesController extends ChangeNotifier {
 
   int get count => _keys.length;
 
-  /// La misma canción con otra clave (su archivo cambió): sigue siendo favorita.
-  Future<void> rename(String from, String to) async {
-    if (from == to || !_keys.remove(from)) return;
-    await toggle(to);
-  }
-
   Future<void> toggle(String key) async {
     if (!_keys.remove(key)) _keys.add(key);
     notifyListeners();

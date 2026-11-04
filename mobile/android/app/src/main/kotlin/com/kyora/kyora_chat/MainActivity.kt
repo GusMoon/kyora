@@ -19,7 +19,6 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
-import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
@@ -40,7 +39,6 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         configureAudioLevels(flutterEngine)
         configureBackground(flutterEngine)
-        configureDevice(flutterEngine)
         // Guarda una canción (MP3): en la carpeta que la persona eligió con el selector de Android, o si no hay, en Música o
         // Descargas dentro de una subcarpeta. Lo usa la pantalla de música.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/music_saver").setMethodCallHandler { call, result ->
@@ -145,28 +143,53 @@ class MainActivity : AudioServiceActivity() {
         result.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && startVisualizer())
     }
 
-    /// Escucha la salida de audio (sesión 0: el reproductor en segundo plano no da la suya) y manda la fuerza del sonido, de 0 a 1.
+    /// Escucha la salida de audio (sesión 0: el reproductor en segundo plano no da la suya) y manda `[fuerza, bajos, ...onda]`: la fuerza del
+    /// sonido de 0 a 1, la de los bajos sin normalizar y la forma de la onda de -1 a 1 en 48 puntos.
     private fun startVisualizer(): Boolean {
         if (visualizer != null) return true
         return try {
             val created = Visualizer(0)
             val range = Visualizer.getCaptureSizeRange()
-            created.captureSize = 256.coerceIn(range[0], range[1])
+            // con 1024 muestras cada banda de la FFT mide unos 45 Hz: alcanza para separar los bajos
+            created.captureSize = 1024.coerceIn(range[0], range[1])
+            var bass = 0.0
             created.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                 override fun onWaveFormDataCapture(source: Visualizer?, waveform: ByteArray?, samplingRate: Int) {
                     val samples = waveform ?: return
                     if (samples.isEmpty()) return
+                    val points = 48
+                    val frame = DoubleArray(points + 2)
                     var sum = 0.0
-                    for (sample in samples) {
+                    for ((i, sample) in samples.withIndex()) {
                         val centered = ((sample.toInt() and 0xff) - 128) / 128.0
                         sum += centered * centered
+                        frame[2 + i * points / samples.size] += centered
                     }
-                    val level = Math.sqrt(sum / samples.size)
-                    runOnUiThread { levelSink?.success(level) }
+                    // cada punto de la onda es la media de sus muestras
+                    val perPoint = maxOf(samples.size.toDouble() / points, 1.0)
+                    for (i in 2 until frame.size) frame[i] /= perPoint
+                    frame[0] = Math.sqrt(sum / samples.size)
+                    frame[1] = bass
+                    runOnUiThread { levelSink?.success(frame) }
                 }
 
-                override fun onFftDataCapture(source: Visualizer?, fft: ByteArray?, samplingRate: Int) {}
-            }, minOf(Visualizer.getMaxCaptureRate(), 20000), true, false)
+                override fun onFftDataCapture(source: Visualizer?, fft: ByteArray?, samplingRate: Int) {
+                    val data = fft ?: return
+                    if (data.size < 4) return
+                    // `samplingRate` viene en milihercios; la banda k mide k * muestreo / tamaño. Los pares de bytes (2k, 2k+1) son su parte real e imaginaria
+                    val hzPerBand = samplingRate / 1000.0 / data.size
+                    val last = (data.size / 2) - 1
+                    val from = Math.ceil(45.0 / hzPerBand).toInt().coerceIn(1, last)
+                    val to = Math.floor(190.0 / hzPerBand).toInt().coerceIn(from, last)
+                    var total = 0.0
+                    for (k in from..to) {
+                        val real = data[2 * k].toDouble()
+                        val imaginary = data[2 * k + 1].toDouble()
+                        total += Math.sqrt(real * real + imaginary * imaginary) / 128.0
+                    }
+                    bass = total / (to - from + 1)
+                }
+            }, minOf(Visualizer.getMaxCaptureRate(), 20000), true, true)
             created.enabled = true
             visualizer = created
             true
@@ -247,21 +270,6 @@ class MainActivity : AudioServiceActivity() {
                         } catch (_: Exception) {
                         }
                     }
-                    result.success(null)
-                }
-                else -> result.notImplemented()
-            }
-        }
-    }
-
-    // El espacio del almacenamiento interno, para la tarjeta de Inicio.
-    private fun configureDevice(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/device").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "storage" -> try {
-                    val stat = StatFs(Environment.getDataDirectory().path)
-                    result.success(mapOf("total" to stat.totalBytes, "free" to stat.availableBytes))
-                } catch (e: Exception) {
                     result.success(null)
                 }
                 else -> result.notImplemented()

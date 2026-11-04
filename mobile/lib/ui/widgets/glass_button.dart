@@ -16,7 +16,7 @@ class GlassCircle extends StatelessWidget {
       width: size,
       height: size,
       child: ClipOval(
-        child: BackdropFilter(
+        child: BackdropFilter.grouped(
           filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: DecoratedBox(
             key: const Key('glass-circle'),

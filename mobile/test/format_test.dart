@@ -21,6 +21,28 @@ void main() {
     expect(humanSize(3 * 1024 * 1024 * 1024), '3,0 GB');
   });
 
+  test('shortDate escribe «Mes Día, año» con el mes en mayúscula', () {
+    expect(shortDate(DateTime(2026, 11, 3)), 'Noviembre 3, 2026');
+    expect(shortDate(DateTime(2027, 1, 1)), 'Enero 1, 2027');
+    expect(shortDate(DateTime(2026, 12, 31, 23, 59)), 'Diciembre 31, 2026');
+  });
+
+  test('greetingFor: días hasta las 11:59, tardes hasta las 18:59 y noches el resto', () {
+    expect(greetingFor(DateTime(2026, 11, 3, 5, 0)), 'Buenos días');
+    expect(greetingFor(DateTime(2026, 11, 3, 11, 59)), 'Buenos días');
+    expect(greetingFor(DateTime(2026, 11, 3, 12, 0)), 'Buenas tardes');
+    expect(greetingFor(DateTime(2026, 11, 3, 18, 59)), 'Buenas tardes');
+    expect(greetingFor(DateTime(2026, 11, 3, 19, 0)), 'Buenas noches');
+    expect(greetingFor(DateTime(2026, 11, 3, 0, 0)), 'Buenas noches');
+    expect(greetingFor(DateTime(2026, 11, 3, 4, 59)), 'Buenas noches');
+  });
+
+  test('weekdayLetters va de lunes a domingo: L M M J V S D', () {
+    expect(weekdayLetters, ['L', 'M', 'M', 'J', 'V', 'S', 'D']);
+    expect(weekdayLetters[DateTime(2026, 11, 3).weekday - 1], 'M'); // martes
+    expect(weekdayLetters[DateTime(2026, 11, 8).weekday - 1], 'D'); // domingo
+  });
+
   test('dayLabel dice Hoy, Ayer o la fecha (con año si no es el actual)', () {
     final now = DateTime(2026, 10, 30, 12);
     expect(dayLabel(DateTime(2026, 10, 30, 1), now: now), 'Hoy');

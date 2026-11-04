@@ -127,7 +127,8 @@ class _MoveSheetState extends State<_MoveSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final folders = [...?_listing?.folders]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    // solo la raíz y sus carpetas de primer nivel: son los álbumes. Una canción movida más adentro desaparecería de la app
+    final folders = _trail.isNotEmpty ? const <LocalFolder>[] : ([...?_listing?.folders]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())));
     final sameFolder = _here == widget.local.currentUri;
     return SafeArea(
       child: ConstrainedBox(
@@ -181,8 +182,6 @@ class _MoveSheetState extends State<_MoveSheet> {
                                   unawaited(_load());
                                 },
                               ),
-                            if (folders.isEmpty && _trail.isNotEmpty)
-                              Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 8), child: Text('No hay más álbumes aquí.', style: TextStyle(color: c.dim))),
                           ],
                         ),
             ),
@@ -196,7 +195,7 @@ class _MoveSheetState extends State<_MoveSheet> {
                       child: TextButton.icon(
                         key: const Key('move-new-folder'),
                         style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-                        onPressed: _loading || _error != null ? null : _newFolder,
+                        onPressed: _loading || _error != null || _trail.isNotEmpty ? null : _newFolder,
                         icon: const Icon(Icons.create_new_folder_outlined),
                         label: const Text('Nuevo álbum'),
                       ),

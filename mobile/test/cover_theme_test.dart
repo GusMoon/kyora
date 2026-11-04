@@ -265,4 +265,18 @@ void main() {
       expect(cover.value, isNull);
     });
   });
+
+  group('similarColors', () {
+    test('un color casi igual no cambia el tema; uno distinto, sí', () {
+      const red = Color(0xFFD62828);
+      expect(similarColors(red, const Color(0xFFD72A2A)), isTrue);
+      expect(similarColors(red, const Color(0xFF2A9D4F)), isFalse); // otro tono
+      expect(similarColors(red, const Color(0xFF7A1010)), isFalse); // mucho más oscuro
+      expect(similarColors(null, null), isTrue);
+      expect(similarColors(red, null), isFalse);
+      expect(similarColors(null, red), isFalse);
+      // el rojo está a los dos lados de los 0°: 358° y 2° son casi el mismo tono
+      expect(similarColors(HSLColor.fromAHSL(1, 358, 0.7, 0.5).toColor(), HSLColor.fromAHSL(1, 2, 0.7, 0.5).toColor()), isTrue);
+    });
+  });
 }

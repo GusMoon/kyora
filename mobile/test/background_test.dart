@@ -7,7 +7,7 @@ import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/state/player_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
-import 'package:kyora_chat/ui/settings_page.dart';
+import 'package:kyora_chat/ui/settings_sheet.dart';
 import 'package:kyora_chat/ui/widgets/sound_rings.dart';
 
 import 'auth_gate_test.dart' show FakeAccount, MemoryRoleCache;
@@ -114,7 +114,7 @@ void main() {
       await tester.runAsync(music.start);
       await tester.pumpWidget(MaterialApp(
         theme: buildTheme(),
-        home: SettingsPage(music: music, role: Role.admin, onSignOut: () async {}, background: background),
+        home: SettingsSheet(music: music, role: Role.admin, onSignOut: () async {}, background: background),
       ));
       await tester.pumpAndSettle();
     }
@@ -142,7 +142,7 @@ void main() {
     testWidgets('sin el servicio no sale la fila', (tester) async {
       await tester.pumpWidget(MaterialApp(
         theme: buildTheme(),
-        home: SettingsPage(
+        home: SettingsSheet(
           music: MusicController(FakeMusicBackend(), MemoryMusicStore(since: DateTime.utc(2026, 10, 1)), FakeSaver()),
           role: Role.admin,
           onSignOut: () async {},
@@ -199,7 +199,7 @@ void main() {
       account.restore('u2');
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('home-weekday')), findsOneWidget); // otra vez Inicio
+      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // otra vez Inicio
       expect(engines.length, 1);
       expect(engines.single.disposed, isFalse);
     });

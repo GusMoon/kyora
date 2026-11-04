@@ -6,6 +6,7 @@ import '../models/reminder.dart';
 import '../state/reminder_controller.dart';
 import '../theme.dart';
 import '../util/task_format.dart';
+import 'widgets/section_motion.dart';
 
 /// Los recordatorios: una lista por hora, con la casilla para marcarlos como hechos. Cada uno avisa con una notificación a su hora,
 /// aunque la app esté cerrada. Por ahora solo viven en este teléfono.
@@ -22,48 +23,60 @@ class RemindersPage extends StatelessWidget {
         final c = context.colors;
         final items = controller.items;
         return Scaffold(
-          appBar: AppBar(title: const Text('Recordatorios', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700))),
-          floatingActionButton: FloatingActionButton.extended(
-            key: const Key('reminder-new'),
-            backgroundColor: c.accent,
-            foregroundColor: c.onAccent,
-            onPressed: () => unawaited(showReminderEditor(context, controller)),
-            icon: const Icon(Icons.add_alert_outlined),
-            label: const Text('Nuevo'),
+          appBar: FlyInBar(child: AppBar(title: const Text('Recordatorios', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)))),
+          floatingActionButton: FlyIn(
+            edge: MotionEdge.bottom,
+            order: 2,
+            child: FloatingActionButton.extended(
+              key: const Key('reminder-new'),
+              backgroundColor: c.accent,
+              foregroundColor: c.onAccent,
+              onPressed: () => unawaited(showReminderEditor(context, controller)),
+              icon: const Icon(Icons.add_alert_outlined),
+              label: const Text('Nuevo'),
+            ),
           ),
           body: Column(
             children: [
               if (controller.notificationsBlocked)
-                Container(
-                  key: const Key('reminders-blocked'),
-                  width: double.infinity,
-                  margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: c.plate, borderRadius: BorderRadius.circular(14), border: Border.all(color: c.warn.withValues(alpha: 0.6))),
-                  child: Text(
-                    'Las notificaciones están desactivadas: los recordatorios se guardan pero no sonarán. Actívalas para esta app en los ajustes del teléfono.',
-                    style: TextStyle(color: c.warn, fontSize: 13.5),
+                FlyIn(
+                  edge: MotionEdge.left,
+                  order: 1,
+                  child: Container(
+                    key: const Key('reminders-blocked'),
+                    width: double.infinity,
+                    margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: c.plate, borderRadius: BorderRadius.circular(14), border: Border.all(color: c.warn.withValues(alpha: 0.6))),
+                    child: Text(
+                      'Las notificaciones están desactivadas: los recordatorios se guardan pero no sonarán. Actívalas para esta app en los ajustes del teléfono.',
+                      style: TextStyle(color: c.warn, fontSize: 13.5),
+                    ),
                   ),
                 ),
               Expanded(
-                child: items.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Text(
-                            controller.loaded ? 'No tienes recordatorios.\nCrea uno con «Nuevo».' : 'Cargando…',
-                            key: const Key('reminders-empty'),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: c.dim),
+                child: FlyIn(
+                  edge: MotionEdge.right,
+                  order: 1,
+                  child: items.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Text(
+                              controller.loaded ? 'No tienes recordatorios.\nCrea uno con «Nuevo».' : 'Cargando…',
+                              key: const Key('reminders-empty'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: c.dim),
+                            ),
                           ),
+                        )
+                      : ListView.builder(
+                          key: const Key('reminder-list'),
+                          padding: const EdgeInsets.only(bottom: 88),
+                          itemCount: items.length,
+                          itemBuilder: (context, i) => _ReminderTile(reminder: items[i], controller: controller),
                         ),
-                      )
-                    : ListView.builder(
-                        key: const Key('reminder-list'),
-                        padding: const EdgeInsets.only(bottom: 88),
-                        itemCount: items.length,
-                        itemBuilder: (context, i) => _ReminderTile(reminder: items[i], controller: controller),
-                      ),
+                ),
               ),
             ],
           ),

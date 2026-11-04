@@ -36,10 +36,9 @@ class PlayerController extends ChangeNotifier {
         _tell();
         _notifyHooks(value);
       }),
-      _engine.position.listen((value) {
-        position = value;
-        _tell();
-      }),
+      // el avance llega unas 5 veces por segundo: va a su propio aviso (`positionListenable`), no al de todo el reproductor, para que no se
+      // reconstruyan a ese ritmo las listas, el anillo, el fondo… Solo la barra de avance y la mini-barra lo escuchan
+      _engine.position.listen((value) => position = value),
       _engine.duration.listen((value) {
         duration = value ?? Duration.zero;
         _tell();
@@ -71,6 +70,29 @@ class PlayerController extends ChangeNotifier {
   /// Lo que se mantiene despierto (la red) mientras suena, y el permiso de las notificaciones la primera vez.
   final PlaybackHooks? hooks;
 
+  /// Cuántas pantallas están leyendo el sonido (el disco del álbum y los aros del reproductor pueden estar a la vez, una debajo de la otra).
+  int _soundUsers = 0;
+
+  /// Empieza a leer el sonido para una pantalla más.
+  void listenToSound() {
+    if (_soundUsers++ == 0) unawaited(levels?.start());
+  }
+
+  /// Esa pantalla ya no lo lee; con la última, se apaga.
+  void stopListeningToSound() {
+    if (_soundUsers > 0 && --_soundUsers == 0) unawaited(levels?.stop());
+  }
+
+  /// La app pasa a segundo plano: ahí Android calla el sonido y medirlo solo gasta batería.
+  void pauseSound() {
+    if (_soundUsers > 0) unawaited(levels?.stop());
+  }
+
+  /// La app vuelve a estar a la vista.
+  void resumeSound() {
+    if (_soundUsers > 0) unawaited(levels?.start());
+  }
+
   void _notifyHooks(bool playing) {
     final h = hooks;
     if (h == null) return;
@@ -92,7 +114,11 @@ class PlayerController extends ChangeNotifier {
   bool loading = false;
   bool shuffle = false;
   RepeatKind repeat = RepeatKind.off;
-  Duration position = Duration.zero;
+
+  /// El avance de la canción. Avisa por separado (ver `positionListenable`).
+  final ValueNotifier<Duration> positionListenable = ValueNotifier(Duration.zero);
+  Duration get position => positionListenable.value;
+  set position(Duration value) => positionListenable.value = value;
   Duration duration = Duration.zero;
   String? error;
   bool _disposed = false;
@@ -141,28 +167,6 @@ class PlayerController extends ChangeNotifier {
   List<QueueItem> _items(List<Track> tracks, String? Function(Track) addressOf) => [
         for (final t in tracks) QueueItem(id: t.id, title: t.title, url: addressOf(t)!, subtitle: t.playlist, artUrl: t.coverUrl),
       ];
-
-  /// Hace `work`, que reescribe el archivo de `track`, sin que el motor lo esté leyendo a la vez: si es la que suena o la que va a sonar,
-  /// lo suelta y después sigue por donde iba. Si no, el motor ni se entera.
-  Future<T> whileRewriting<T>(Track track, Future<T> Function() work) async {
-    final at = queue.indexWhere((t) => t.id == track.id);
-    final now = queue.indexWhere((t) => t.id == current?.id);
-    if (!track.isLocal || at < 0 || (at != now && at != now + 1 && !shuffle)) return work();
-    final wasPlaying = playing;
-    final resumeAt = position;
-    await _engine.stop();
-    try {
-      return await work();
-    } finally {
-      final remote = [for (final t in queue) if (!t.isLocal) t];
-      final signed = remote.isEmpty ? const <String, String>{} : await _signedUrls(remote);
-      await _engine.setQueue(_items(queue, (t) => t.isLocal ? t.localUri : signed[t.storagePath]), now < 0 ? 0 : now);
-      if (shuffle) await _engine.setShuffle(true);
-      if (repeat != RepeatKind.off) await _engine.setRepeat(repeat);
-      await seek(resumeAt);
-      if (wasPlaying) await _engine.play();
-    }
-  }
 
   Future<void> toggle() => _playing && _status != EngineStatus.completed ? _engine.pause() : _engine.play();
 
@@ -274,6 +278,7 @@ class PlayerController extends ChangeNotifier {
     }
     if (_playing) _notifyHooks(false); // al soltar el reproductor, lo que mantenía despierto también se suelta
     unawaited(_engine.dispose());
+    positionListenable.dispose();
     super.dispose();
   }
 }

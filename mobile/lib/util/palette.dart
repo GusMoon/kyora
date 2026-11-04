@@ -12,9 +12,14 @@ const paletteSize = 5;
 
 /// Los 5 colores principales de un fondo de pantalla, del que más ocupa al que menos. Se analiza una miniatura (96 px de ancho).
 /// Devuelve `null` si la imagen no se puede leer.
-Future<List<Color>?> paletteOfFile(String path) async {
+Future<List<Color>?> paletteOfFile(String path) => paletteOf(file: path);
+
+/// Lo mismo para una imagen del teléfono (`file`, que manda si están las dos) o de internet (`url`). Sin ninguna, `null`.
+Future<List<Color>?> paletteOf({String? file, String? url}) async {
+  if (file == null && url == null) return null;
   try {
-    final image = await loadImage(ResizeImage(FileImage(File(path)), width: 96));
+    final ImageProvider source = file != null ? FileImage(File(file)) : NetworkImage(url!);
+    final image = await loadImage(ResizeImage(source, width: 96));
     final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     if (data == null) return null;
     final colors = extractPalette(data.buffer.asUint8List());

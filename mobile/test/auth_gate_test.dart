@@ -137,13 +137,11 @@ void main() {
     testWidgets('el administrador entra a Inicio, y tiene inicio, chat y música para deslizar', (tester) async {
       final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
       await openGate(tester, account);
-      for (final id in ['home', 'chat', 'music']) {
-        expect(find.byKey(Key('section-$id')), findsOneWidget);
-      }
-      expect(find.byKey(const Key('section-settings')), findsNothing); // la configuración se abre con el botón de Inicio
-      expect(find.byKey(const Key('home-weekday')), findsOneWidget); // empieza en Inicio
+      expect(await menuOptions(tester), containsAll(['home', 'chat', 'music', 'settings'])); // en el menú circular (y Configuración es una opción más)
+      expect(find.byKey(const Key('radial-menu')), findsNothing); // que se cierra al soltar sin elegir
+      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // empieza en Inicio
       expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsNothing);
-      await swipeSections(tester, 1);
+      await goToSection(tester, 'chat');
       expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsOneWidget);
       expect(chat.calls, contains('ensure'));
       expect(cache.roles['user-1'], Role.admin);
@@ -152,21 +150,21 @@ void main() {
     testWidgets('el pasante entra a Inicio, la música está al lado y no toca el chat', (tester) async {
       final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
       await openGate(tester, account);
-      expect(find.byKey(const Key('home-weekday')), findsOneWidget); // empieza en Inicio
-      expect(find.byKey(const Key('section-chat')), findsNothing); // sin chat
-      expect(find.byKey(const Key('section-home')), findsOneWidget);
-      expect(find.byKey(const Key('section-music')), findsOneWidget);
-      await swipeSections(tester, 1);
-      expect(find.byKey(const Key('album-tabs')), findsOneWidget); // la pantalla de música
+      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // empieza en Inicio
+      final options = await menuOptions(tester);
+      expect(options, isNot(contains('chat'))); // sin chat
+      expect(options, containsAll(['home', 'music']));
+      await goToSection(tester, 'music');
+      expect(find.byKey(const Key('album-deck')), findsOneWidget); // la pantalla de música
       expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsNothing);
       expect(chat.calls, isEmpty); // ni conversación, ni mensajes, ni Realtime del chat
     });
 
     testWidgets('una cuenta sin perfil se trata como pasante (la vista con menos permisos)', (tester) async {
       await openGate(tester, FakeAccount(uid: 'user-3'));
-      expect(find.byKey(const Key('section-chat')), findsNothing);
-      await swipeSections(tester, 1);
-      expect(find.byKey(const Key('album-tabs')), findsOneWidget); // la pantalla de música
+      expect(await menuOptions(tester), isNot(contains('chat')));
+      await goToSection(tester, 'music');
+      expect(find.byKey(const Key('album-deck')), findsOneWidget); // la pantalla de música
       expect(chat.calls, isEmpty);
     });
 
@@ -174,7 +172,7 @@ void main() {
       cache.roles['user-1'] = Role.admin;
       final account = FakeAccount(uid: 'user-1')..profileError = const ChatException('Sin conexión con Supabase', retryable: true, code: 'offline');
       await openGate(tester, account);
-      expect(find.byKey(const Key('section-chat')), findsOneWidget);
+      expect(await menuOptions(tester), contains('chat'));
     });
 
     testWidgets('sin internet y sin rol guardado lo dice y deja reintentar', (tester) async {
@@ -190,7 +188,7 @@ void main() {
       await settle(tester);
       await tester.pump();
       expect(find.byKey(const Key('role-error')), findsNothing);
-      expect(find.byKey(const Key('section-chat')), findsOneWidget);
+      expect(await menuOptions(tester), contains('chat'));
     });
 
     testWidgets('el rol guardado de otra cuenta no se usa', (tester) async {
@@ -326,8 +324,8 @@ void main() {
       await tester.pumpAndSettle(); // termina la animación de cerrar la pantalla
       expect(find.byType(RegisterPage), findsNothing);
       expect(find.byType(LoginPage), findsNothing);
-      expect(find.byKey(const Key('home-weekday')), findsOneWidget); // entra en Inicio
-      expect(find.byKey(const Key('section-chat')), findsNothing);
+      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // entra en Inicio
+      expect(await menuOptions(tester), isNot(contains('chat')));
     });
 
     testWidgets('un usuario repetido se explica en la propia pantalla y no cierra nada', (tester) async {

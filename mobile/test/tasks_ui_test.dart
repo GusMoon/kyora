@@ -241,11 +241,12 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('el administrador llega a las tareas deslizando y lo anotado sube a Supabase', (tester) async {
+    testWidgets('el administrador llega a las tareas con el menú circular y lo anotado sube a Supabase', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)));
-      expect(find.byKey(const Key('section-tasks')), findsOneWidget);
-      expect(find.byKey(const Key('section-reminders')), findsNothing); // sin programador de avisos no hay recordatorios
-      await swipeSections(tester, 3); // inicio → chat → música → tareas
+      final options = await menuOptions(tester);
+      expect(options, contains('tasks'));
+      expect(options, isNot(contains('reminders'))); // sin programador de avisos no hay recordatorios
+      await goToSection(tester, 'tasks');
       await settle(tester);
       expect(find.byType(TasksPage), findsOneWidget);
       await tester.enterText(find.byKey(const Key('task-input')), 'Desde el móvil');
@@ -254,16 +255,16 @@ void main() {
       expect(backend.tasks.values.single.name, 'Desde el móvil');
     });
 
-    testWidgets('el pasante las alcanza deslizando desde la música', (tester) async {
+    testWidgets('el pasante también las alcanza con el menú circular', (tester) async {
       await gate(tester, FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern)));
-      await swipeSections(tester, 2); // inicio → música → tareas
+      await goToSection(tester, 'tasks');
       await settle(tester);
       expect(find.byType(TasksPage), findsOneWidget);
     });
 
     testWidgets('sin el servicio de tareas no hay sección de tareas', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)), withTasks: false);
-      expect(find.byKey(const Key('section-tasks')), findsNothing);
+      expect(await menuOptions(tester), isNot(contains('tasks')));
     });
   });
 }

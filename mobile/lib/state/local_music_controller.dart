@@ -8,7 +8,6 @@ import '../data/cover_store.dart';
 import '../data/duration_cache.dart';
 import '../data/music_store.dart';
 import '../models/track.dart';
-import '../util/id3_cover.dart';
 import 'music_controller.dart';
 
 /// Los .mp3 y las subcarpetas que hay en la carpeta que elegiste en el teléfono, para verlos, reproducirlos y organizarlos: se entra
@@ -19,7 +18,6 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
       : _durations = durations ?? MemoryDurationCache(),
         _coverStore = covers ?? MemoryCoverStore(),
         _covers = (covers ?? MemoryCoverStore()).load() {
-    _music.prepareForSaving = _withChosenCover;
     _music.addListener(_onMusicChanged);
     _signature = _signatureNow();
   }
@@ -32,11 +30,8 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
   final DurationCache _durations;
   final CoverStore _coverStore;
 
-  /// La imagen elegida para cada canción enviada, por su id.
+  /// La imagen elegida para cada álbum (`album:<id>`), recordada en este teléfono.
   final Map<String, String> _covers;
-
-  /// Las canciones a las que se les está cambiando la imagen ahora mismo.
-  final Set<String> _changingCover = {};
 
   /// Las canciones y las subcarpetas de la carpeta en que se está (la raíz elegida o una de las que se entró).
   List<Track> songs = const [];
@@ -76,6 +71,10 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
   int _round = 0;
   final Map<String, String> _art = {};
 
+  /// A qué álbum pertenece cada .mp3 leído (por su dirección) y la imagen de cada álbum ya calculada (se borra con cada cambio).
+  final Map<String, String> _albumByUri = {};
+  final Map<String, String?> _albumArt = {};
+
   bool get hasFolder => _music.settings.hasTree;
 
   bool get atRoot => path.isEmpty;
@@ -103,6 +102,7 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
       path.clear(); // otra carpeta elegida: se vuelve a la raíz
       _selected.clear();
       _listings.clear();
+      _albumByUri.clear();
       _shown = null;
       rootFolders = const [];
       rootSongCount = 0;
@@ -228,6 +228,7 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
       path.clear();
       _selected.clear();
       _listings.clear();
+      _albumByUri.clear();
       _shown = null;
       rootFolders = const [];
       rootSongCount = 0;
@@ -248,7 +249,7 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
     FolderListing? found;
     try {
       found = await _saver.listDir(tree, dirUri: currentUri);
-      _listings[key] = found;
+      _store(key, found);
       if (key == (currentUri ?? '')) {
         _apply(found, key);
         error = null;
@@ -274,6 +275,15 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
     } else {
       unawaited(_fillDurations());
       if (found != null) unawaited(_prefetch(tree, found.folders));
+    }
+  }
+
+  /// Guarda lo leído de una carpeta y recuerda a qué álbum pertenece cada una de sus canciones.
+  void _store(String key, FolderListing listing) {
+    _listings[key] = listing;
+    final album = key.isEmpty ? 'root' : key;
+    for (final song in listing.songs) {
+      _albumByUri[song.uri] = album;
     }
   }
 
@@ -344,22 +354,46 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
       try {
         final read = await _saver.listDir(tree, dirUri: f.uri);
         if (token != _prefetchRound) return;
-        _listings[f.uri] = read;
+        _store(f.uri, read);
       } catch (_) {
         return;
       }
     }
   }
 
-  /// La ruta de la carátula incrustada de una canción de la carpeta, si ya se leyó y trae.
+  /// La carátula que se ve en una canción: **la de su álbum** (ya no hay una por canción). Es la imagen que elegiste para el álbum o, si
+  /// no le pusiste ninguna, la incrustada de la primera de sus canciones que la traiga. `null` si el álbum no tiene ninguna (las canciones
+  /// enviadas entonces enseñan la suya de internet).
   @override
   String? artOf(Track track) {
-    if (!track.isLocal) return _covers[track.id];
-    final path = _art[track.localUri];
-    return path == null || path.isEmpty ? null : path;
+    final album = albumArt(albumIdOf(track));
+    if (album != null || !track.isLocal) return album;
+    final own = _art[track.localUri]; // el álbum aún no se leyó: la suya
+    return own == null || own.isEmpty ? null : own;
   }
 
-  bool isChangingCover(Track track) => _changingCover.contains(track.id);
+  /// El álbum al que pertenece una canción: `received` (las enviadas), `root` (la carpeta elegida) o la dirección de su carpeta.
+  String albumIdOf(Track track) {
+    if (!track.isLocal) return 'received';
+    return _albumByUri[track.localUri] ?? 'root';
+  }
+
+  /// La imagen de un álbum (ver [artOf]); `albumId` es `received`, `root` o la dirección de la carpeta.
+  String? albumArt(String albumId) {
+    if (_albumArt.containsKey(albumId)) return _albumArt[albumId];
+    final own = albumCoverOf(albumId);
+    String? found = own;
+    if (found == null && albumId != 'received') {
+      for (final song in tracksIn(albumId == 'root' ? null : albumId) ?? const <Track>[]) {
+        final art = _art[song.localUri];
+        if (art != null && art.isNotEmpty) {
+          found = art;
+          break;
+        }
+      }
+    }
+    return _albumArt[albumId] = found;
+  }
 
   // ---------- la portada de un álbum (solo en este teléfono) ----------
 
@@ -395,55 +429,6 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
       await _coverStore.save(_covers);
     } catch (_) {
       // sin poder recordarla, la imagen vale mientras la app siga abierta
-    }
-  }
-
-  /// Le pone a la canción la imagen de `imagePath`. A una del teléfono se le escribe dentro de su .mp3 (el cambio es real y se queda
-  /// aunque se borre la app); a una enviada, que vive en Supabase, se le recuerda solo en este teléfono. Devuelve la canción ya al día (el
-  /// archivo cambió de tamaño). Lanza `TrackSaveException` con el motivo, y entonces la canción se queda como estaba.
-  Future<Track> changeCover(Track track, String imagePath) async {
-    _changingCover.add(track.id);
-    _tell();
-    try {
-      final image = await _saver.prepareCover(imagePath);
-      if (!track.isLocal) {
-        _covers[track.id] = await _saver.storeCover(track.id, image, keep: true);
-        await _rememberCovers();
-        return track;
-      }
-      final uri = track.localUri!;
-      final original = await _saver.readFile(uri);
-      final Uint8List updated;
-      try {
-        updated = await compute(_embed, (original, image));
-      } on FormatException {
-        throw const TrackSaveException('Este .mp3 tiene dañados sus datos y no se le puede cambiar la imagen.');
-      }
-      await _saver.writeFile(uri, updated);
-      try {
-        _art[uri] = await _saver.storeCover(uri, image, keep: false);
-      } on TrackSaveException {
-        _art.remove(uri); // la imagen ya está en el .mp3: se volverá a leer de ahí
-      }
-      _listings.remove(currentUri ?? '');
-      await refresh();
-      return songs.firstWhere((t) => t.localUri == uri, orElse: () => track);
-    } finally {
-      _changingCover.remove(track.id);
-      _tell();
-    }
-  }
-
-  /// Si elegiste una imagen para esta canción enviada, va también en la copia que se guarda en el teléfono.
-  Future<Uint8List> _withChosenCover(Track track, Uint8List bytes) async {
-    final path = _covers[track.id];
-    if (path == null) return bytes;
-    try {
-      return await compute(_embed, (bytes, await File(path).readAsBytes()));
-    } on FormatException {
-      return bytes;
-    } on FileSystemException {
-      return bytes;
     }
   }
 
@@ -514,6 +499,7 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
   }
 
   void _tell() {
+    _albumArt.clear();
     if (!_disposed) notifyListeners();
   }
 
@@ -521,9 +507,6 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
   void dispose() {
     _disposed = true;
     _music.removeListener(_onMusicChanged);
-    _music.prepareForSaving = null;
     super.dispose();
   }
 }
-
-Uint8List _embed((Uint8List, Uint8List) job) => withCover(job.$1, job.$2);

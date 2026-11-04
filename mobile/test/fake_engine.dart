@@ -6,13 +6,26 @@ import 'package:kyora_chat/data/audio_levels.dart';
 /// La fuerza del sonido de mentira: las pruebas dicen cuánto suena.
 class FakeLevels implements AudioLevels {
   final _levels = StreamController<double>.broadcast();
+  final _frames = StreamController<SoundFrame>.broadcast();
   int started = 0;
   int stopped = 0;
 
-  void emit(double value) => _levels.add(value);
+  void emit(double value) {
+    _levels.add(value);
+    _frames.add(SoundFrame(level: value));
+  }
+
+  /// Un trozo de sonido completo: fuerza, bajos y onda.
+  void emitFrame(SoundFrame frame) {
+    _levels.add(frame.level);
+    _frames.add(frame);
+  }
 
   @override
   Stream<double> get levels => _levels.stream;
+
+  @override
+  Stream<SoundFrame> get frames => _frames.stream;
 
   @override
   Future<bool> start() async {

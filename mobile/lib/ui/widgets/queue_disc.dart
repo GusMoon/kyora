@@ -66,8 +66,6 @@ class _QueueDiscState extends State<QueueDisc> {
     final named = splitArtistTitle(track?.title ?? 'Nada suena');
     final artist = named.artist ?? track?.playlist;
     final totalMs = p.duration.inMilliseconds;
-    final fraction = totalMs > 0 ? (_dragging ?? p.position.inMilliseconds / totalMs).clamp(0.0, 1.0) : 0.0;
-    final shown = Duration(milliseconds: (fraction * totalMs).round());
     const timeStyle = TextStyle(color: Colors.white70, fontSize: 12.5, fontFeatures: [FontFeature.tabularFigures()]);
     final tint = widget.tint ?? c.accent;
     final glow = Color.lerp(tint, Colors.white, 0.12)!;
@@ -164,7 +162,13 @@ class _QueueDiscState extends State<QueueDisc> {
               left: 18,
               right: 18,
               bottom: 14 + widget.bottomInset,
-              child: Row(
+              // solo esta barra se reconstruye con el avance (unas 5 veces por segundo), no todo el disco
+              child: ValueListenableBuilder<Duration>(
+                valueListenable: p.positionListenable,
+                builder: (context, position, _) {
+                  final fraction = totalMs > 0 ? (_dragging ?? position.inMilliseconds / totalMs).clamp(0.0, 1.0) : 0.0;
+                  final shown = Duration(milliseconds: (fraction * totalMs).round());
+                  return Row(
                 children: [
                   Text(clock(shown), key: const Key('player-position'), style: timeStyle),
                   Expanded(
@@ -190,6 +194,8 @@ class _QueueDiscState extends State<QueueDisc> {
                   ),
                   Text(clock(p.duration), key: const Key('player-duration'), style: timeStyle),
                 ],
+                  );
+                },
               ),
             ),
           ],

@@ -232,11 +232,11 @@ ThemeData buildTheme([KyoraColors? colors]) {
       scrolledUnderElevation: 0,
     ),
     pageTransitionsTheme: const PageTransitionsTheme(builders: {
-      TargetPlatform.android: FadePageTransitions(),
-      TargetPlatform.iOS: FadePageTransitions(),
-      TargetPlatform.windows: FadePageTransitions(),
-      TargetPlatform.macOS: FadePageTransitions(),
-      TargetPlatform.linux: FadePageTransitions(),
+      TargetPlatform.android: LayerPageTransitions(),
+      TargetPlatform.iOS: LayerPageTransitions(),
+      TargetPlatform.windows: LayerPageTransitions(),
+      TargetPlatform.macOS: LayerPageTransitions(),
+      TargetPlatform.linux: LayerPageTransitions(),
     }),
     textTheme: TextTheme(
       bodyLarge: base,
@@ -275,6 +275,18 @@ ThemeData buildTheme([KyoraColors? colors]) {
       trackColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? c.accent : c.pick),
     ),
   );
+}
+
+/// Cómo se comportan los desplazamientos: sin el estiramiento en los extremos. Ese efecto de Material 3 pinta la lista a través de un
+/// filtro de imagen, y mientras dura todas las tarjetas de cristal que lleva dentro pierden lo que tienen detrás (se quita el desenfoque).
+class KyraScrollBehavior extends MaterialScrollBehavior {
+  const KyraScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(BuildContext context, Widget child, ScrollableDetails details) => child;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) => const ClampingScrollPhysics();
 }
 
 final _coverThemes = <int, ThemeData>{};

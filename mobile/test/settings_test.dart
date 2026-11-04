@@ -5,7 +5,7 @@ import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/widgets/app_backdrop.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
-import 'package:kyora_chat/ui/settings_page.dart';
+import 'package:kyora_chat/ui/settings_sheet.dart';
 
 import 'auth_gate_test.dart' show FakeAccount, MemoryRoleCache;
 import 'fake_backend.dart';
@@ -89,9 +89,7 @@ void main() {
             body: Center(
               child: TextButton(
                 key: const Key('open'),
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => SettingsPage(music: music, role: role, username: username, onSignOut: signOut ?? () async {}),
-                )),
+                onPressed: () => showSettingsSheet(context, SettingsSheet(music: music, role: role, username: username, onSignOut: signOut ?? () async {})),
                 child: const Text('abrir'),
               ),
             ),
@@ -133,7 +131,84 @@ void main() {
       await tester.tap(find.byKey(const Key('settings-sign-out')));
       await tester.pumpAndSettle();
       expect(out, 1);
-      expect(find.byType(SettingsPage), findsNothing);
+      expect(find.byType(SettingsSheet), findsNothing);
+    });
+  });
+
+  group('la hoja de Configuración', () {
+    late MusicController music;
+
+    Future<void> openSheet(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 850);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      music = MusicController(FakeMusicBackend(), MemoryMusicStore(since: DateTime.utc(2026, 10, 1)), FakeSaver());
+      addTearDown(music.dispose);
+      await tester.runAsync(music.start);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Stack(
+              children: [
+                const Align(alignment: Alignment.topCenter, child: Padding(padding: EdgeInsets.only(top: 80), child: Text('lo de arriba', key: Key('behind')))),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: TextButton(key: const Key('open'), onPressed: () => showSettingsSheet(context, SettingsSheet(music: music, role: Role.admin, onSignOut: () async {})), child: const Text('abrir')),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('open')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('sube desde el borde de abajo y llega al 70 % de la pantalla, dejando ver lo de arriba', (tester) async {
+      await openSheet(tester);
+      final rect = tester.getRect(find.byKey(const Key('settings-sheet')));
+      expect(rect.bottom, 850);
+      expect(rect.height, closeTo(850 * 0.7, 1));
+      expect(rect.top, closeTo(850 * 0.3, 1));
+      expect(find.byKey(const Key('behind')), findsOneWidget); // la pantalla de abajo sigue ahí
+      expect(tester.getTopLeft(find.byKey(const Key('behind'))).dy, lessThan(rect.top)); // y lo de arriba se ve
+    });
+
+    testWidgets('no oscurece lo de abajo: la barrera es transparente', (tester) async {
+      await openSheet(tester);
+      expect(find.byType(AnimatedModalBarrier), findsNothing);
+      for (final barrier in tester.widgetList<ModalBarrier>(find.byType(ModalBarrier))) {
+        expect(barrier.color == null || barrier.color!.a == 0, isTrue);
+      }
+    });
+
+    testWidgets('se cierra tocando fuera', (tester) async {
+      await openSheet(tester);
+      await tester.tapAt(const Offset(200, 60));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsSheet), findsNothing);
+    });
+
+    testWidgets('se cierra arrastrándola hacia abajo desde el tirador', (tester) async {
+      await openSheet(tester);
+      await tester.drag(find.byKey(const Key('settings-handle')), const Offset(0, 500));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsSheet), findsNothing);
+    });
+
+    testWidgets('el contenido se desplaza dentro de la hoja sin cerrarla', (tester) async {
+      await openSheet(tester);
+      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsSheet), findsOneWidget);
+    });
+
+    testWidgets('«atrás» la cierra', (tester) async {
+      await openSheet(tester);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsSheet), findsNothing);
     });
   });
 
@@ -165,11 +240,13 @@ void main() {
 
     testWidgets('el administrador llega a Configuración con el botón de Inicio', (tester) async {
       await openGate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)));
-      expect(find.byType(SettingsPage), findsNothing);
+      expect(find.byType(SettingsSheet), findsNothing);
       await tester.tap(find.byKey(const Key('home-settings')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // Inicio sigue a la vista detrás de la hoja
+      expect(tester.getRect(find.byKey(const Key('settings-sheet'))).top, closeTo(850 * 0.3, 1));
       expect(find.text('Cerrar sesión'), findsOneWidget);
-      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(find.byType(SettingsSheet), findsOneWidget);
       expect(find.text('gustavo'), findsOneWidget);
       expect(find.text('Administrador'), findsOneWidget);
     });
@@ -185,7 +262,7 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pumpAndSettle();
       expect(account.signedIn, isFalse);
-      expect(find.byType(SettingsPage), findsNothing);
+      expect(find.byType(SettingsSheet), findsNothing);
       expect(find.byKey(const Key('login-button')), findsOneWidget); // volvió al acceso
     });
   });

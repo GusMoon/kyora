@@ -36,6 +36,7 @@ class Cover extends StatelessWidget {
         key: const Key('cover-image'),
         width: size,
         height: size,
+        cacheWidth: (size * 3).round(), // decodificada al tamaño que se ve, no al de la imagen original
         fit: BoxFit.cover,
         errorBuilder: (context, error, stack) => placeholder,
         loadingBuilder: (context, child, progress) => progress == null ? child : placeholder,

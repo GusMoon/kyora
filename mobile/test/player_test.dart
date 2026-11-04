@@ -81,6 +81,25 @@ void main() {
       expect(player.position, Duration.zero);
     });
 
+    test('el avance avisa por su propio canal: el reproductor no notifica a todos a cada tick (unas 5 veces por segundo)', () async {
+      await player.play(tracks[0], tracks);
+      await settle();
+      var whole = 0, progress = 0;
+      player.addListener(() => whole++);
+      player.positionListenable.addListener(() => progress++);
+      for (var i = 1; i <= 20; i++) {
+        engine.emitPosition(Duration(milliseconds: 200 * i));
+      }
+      await settle();
+      expect(progress, 20); // la barra de avance sí se entera de todos
+      expect(whole, 0); // las listas, el anillo y el fondo no se reconstruyen por esto
+      expect(player.position, const Duration(seconds: 4));
+      // y lo demás sigue avisando a todos
+      await player.toggle();
+      await settle();
+      expect(whole, greaterThan(0));
+    });
+
     test('pausa y reanuda', () async {
       await player.play(tracks[0], tracks);
       await settle();
@@ -395,6 +414,26 @@ void main() {
       await openPlayer(tester, 'b');
       expect(find.byKey(const Key('disc-spin')), findsNothing);
       expect(find.descendant(of: find.byKey(const Key('player-seek')), matching: find.byType(RotationTransition)), findsNothing);
+    });
+
+    test('la lectura del sonido se comparte: solo se apaga cuando la suelta la última pantalla', () async {
+      final levels = FakeLevels();
+      final own = PlayerController(backend, engine, clock: () => now, noteAfter: Duration.zero, levels: levels);
+      own.listenToSound(); // el disco
+      own.listenToSound(); // y los aros del reproductor, encima
+      expect(levels.started, 1);
+      own.stopListeningToSound(); // se cierra el reproductor
+      expect(levels.stopped, 0); // el disco sigue leyendo
+      own.pauseSound(); // la app pasa a segundo plano
+      expect(levels.stopped, 1);
+      own.resumeSound(); // y vuelve
+      expect(levels.started, 2);
+      own.stopListeningToSound();
+      expect(levels.stopped, 2);
+      own.stopListeningToSound(); // de más: no hace nada
+      own.resumeSound(); // sin nadie leyendo: tampoco
+      expect(levels.stopped, 2);
+      expect(levels.started, 2);
     });
 
     group('aros que siguen al sonido', () {

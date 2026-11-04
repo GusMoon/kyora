@@ -8,6 +8,15 @@ import 'player_controller.dart';
 /// Cómo se saca el color de una carátula (en las pruebas, uno falso: analizar una imagen de verdad lleva tiempo).
 typedef CoverLookup = Future<Color?> Function({String? url, String? file});
 
+/// ¿Son casi el mismo color? (tono a menos de 5°, y saturación y claridad a menos de 0,03). Cambiar el tema de toda la app por una
+/// diferencia así no se ve y cuesta reconstruirla entera.
+bool similarColors(Color? a, Color? b) {
+  if (a == null || b == null) return a == b;
+  final x = HSLColor.fromColor(a), y = HSLColor.fromColor(b);
+  final hue = (x.hue - y.hue).abs();
+  return (hue < 5 || 360 - hue < 5) && (x.saturation - y.saturation).abs() < 0.03 && (x.lightness - y.lightness).abs() < 0.03;
+}
+
 /// El color de la carátula de la canción que suena, para que **toda la app** se vista con él (`buildCoverTheme`). `null` mientras nada
 /// ha sonado: los colores de siempre. Cuando cambia la canción (o llega su carátula, que en las del teléfono se lee después) se recalcula;
 /// una canción sin carátula deja el color de la anterior, y al cerrar sesión se vuelve a los de siempre.
@@ -46,7 +55,7 @@ class CoverTheme extends ValueNotifier<Color?> {
     if (key == _key) return;
     _key = key;
     final color = await _lookup(url: url, file: file);
-    if (key == _key && _player == player) value = color;
+    if (key == _key && _player == player && !similarColors(value, color)) value = color; // un color casi igual no cambia el tema (cambiarlo reconstruye toda la app)
   }
 
   @override

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../util/palette.dart';
 
-/// Los 5 colores del fondo de pantalla en fila: cuadrados, sin esquinas redondeadas. Con [showHex], el código de cada uno debajo.
+/// Los 5 colores del fondo de pantalla en fila: cuadraditos de esquina suave. Con [showHex], el código de cada uno debajo.
 class PaletteStrip extends StatelessWidget {
   const PaletteStrip({super.key, required this.colors, this.height = 28, this.showHex = false});
 
@@ -26,7 +26,7 @@ class PaletteStrip extends StatelessWidget {
                 Container(
                   key: Key('palette-$i'),
                   height: height,
-                  decoration: BoxDecoration(color: colors[i], border: Border.all(color: c.edge)),
+                  decoration: BoxDecoration(color: colors[i], borderRadius: BorderRadius.circular(10), border: Border.all(color: c.edge)),
                 ),
                 if (showHex)
                   Padding(

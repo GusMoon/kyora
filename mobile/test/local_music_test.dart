@@ -10,6 +10,7 @@ import 'package:kyora_chat/ui/music_page.dart';
 
 import 'fake_engine.dart';
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
+import 'music_ui.dart';
 
 LocalSong song(String name, {int size = 3 * 1024 * 1024, int at = 1000}) => LocalSong(
   uri: 'content://tree/musica/document/$name',
@@ -40,11 +41,8 @@ void main() {
 
   Future<void> settle() => pumpEventQueue();
 
-  /// El título de la canción de enfrente en la pantalla de un álbum.
-  String ringTitle(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('ring-title'))).data!;
-
-  /// La portada de una canción del teléfono en el anillo.
-  Finder ringCard(String file) => find.byKey(Key('local-local:content://tree/musica/document/$file'));
+  /// La fila de una canción del teléfono en la lista del álbum.
+  Finder songRow(String file) => find.byKey(Key('local-local:content://tree/musica/document/$file'));
 
   group('modelo', () {
     test('el título es el nombre sin «.mp3» y el archivo se vuelve una canción reproducible', () {
@@ -159,52 +157,53 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildTheme(),
+          // el disco no gira: si no, `pumpAndSettle` no terminaría nunca mientras suene algo
+          builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(disableAnimations: true), child: child!),
           home: MusicPage(controller: music, player: player, local: local),
         ),
       );
       await tester.pump();
     }
 
-    Future<void> openPhoneTab(WidgetTester tester) async {
-      await tester.tap(find.byKey(const ValueKey('card-root')));
-      await tester.pumpAndSettle();
-    }
+    Future<void> openPhoneTab(WidgetTester tester) => openAlbum(tester, 1, 'card-root');
 
-    testWidgets('sin pestañas: «Canciones enviadas» es la primera tarjeta y abre su lista', (tester) async {
+    testWidgets('«Canciones enviadas» es la primera tarjeta y abre su álbum', (tester) async {
       backend.add('r', title: 'Recibida', at: DateTime.utc(2026, 9, 1));
       await open(tester);
       expect(find.byType(TabBar), findsNothing);
-      expect(find.byKey(const ValueKey('card-received')), findsOneWidget);
-      expect(find.byKey(const Key('track-r')), findsNothing); // aún no: primero las tarjetas
-      await tester.tap(find.byKey(const ValueKey('card-received')));
+      expect(card('card-received'), findsOneWidget);
+      expect(find.byKey(const Key('track-r')), findsNothing); // aún no: primero los álbumes
+      await tester.tap(card('card-received'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('track-r')), findsOneWidget); // su portada en el anillo
-      expect(ringTitle(tester), 'Recibida r');
+      expect(songTitle(tester), 'Recibida r'); // la primera, en el disco
+      await openList(tester);
+      expect(find.byKey(const Key('track-r')), findsOneWidget); // y en la lista
     });
 
     testWidgets('sin carpeta, la tarjeta «Elegir carpeta» abre los ajustes', (tester) async {
       await open(tester);
-      await tester.tap(find.byKey(const ValueKey('card-choose')));
+      await deckTo(tester, 1);
+      await tester.tap(card('card-choose'));
       await tester.pumpAndSettle();
       expect(find.text('Carpeta de las canciones'), findsOneWidget);
     });
 
-    testWidgets('con carpeta enseña sus .mp3 en el anillo, con la carpeta como línea de abajo', (tester) async {
+    testWidgets('con carpeta enseña sus .mp3 en la lista, con la carpeta como línea de abajo', (tester) async {
       store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
       saver.files = [song('Bohemian.mp3', size: 5 * 1024 * 1024), song('Alfa.mp3', size: 1024 * 1024)];
       await open(tester);
       await openPhoneTab(tester);
-      expect(ringCard('Alfa.mp3'), findsOneWidget);
-      expect(ringCard('Bohemian.mp3'), findsOneWidget);
-      expect(ringTitle(tester), 'Alfa'); // la de enfrente es la primera
+      expect(songTitle(tester), 'Alfa'); // la que se enseña es la primera
       expect(
-        tester.widget<Text>(find.byKey(const Key('ring-subtitle'))).data,
+        tester.widget<Text>(find.byKey(const Key('album-song-subtitle'))).data,
         'Mi música',
       ); // sin « - » en el nombre: la línea de abajo es la carpeta
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música'); // y el nombre del álbum, arriba
-      expect(find.text('01'), findsNothing); // sin numeración
-      // por orden alfabético: Alfa antes que Bohemian (de izquierda a derecha)
-      expect(tester.getCenter(ringCard('Alfa.mp3')).dx, lessThan(tester.getCenter(ringCard('Bohemian.mp3')).dx));
+      await openList(tester);
+      expect(songRow('Alfa.mp3'), findsOneWidget);
+      expect(songRow('Bohemian.mp3'), findsOneWidget);
+      // por orden alfabético: Alfa antes que Bohemian (de arriba abajo)
+      expect(tester.getTopLeft(songRow('Alfa.mp3')).dy, lessThan(tester.getTopLeft(songRow('Bohemian.mp3')).dy));
     });
 
     testWidgets('tocar uno de la carpeta lo reproduce, con toda la carpeta como cola', (tester) async {
@@ -212,15 +211,16 @@ void main() {
       saver.files = [song('Alfa.mp3'), song('Beta.mp3'), song('Gamma.mp3')];
       await open(tester);
       await openPhoneTab(tester);
-      await tester.tap(ringCard('Beta.mp3')); // una de los lados: gira al frente y suena
+      await openList(tester);
+      await playRow(tester, songRow('Beta.mp3'), 'local:content://tree/musica/document/Beta.mp3');
       await tester.runAsync(settle);
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(engine.queue.map((q) => q.title), ['Alfa', 'Beta', 'Gamma']);
       expect(engine.startIndex, 1);
       expect(engine.queue[1].url, 'content://tree/musica/document/Beta.mp3'); // directo del archivo, sin internet
       expect(backend.signed, isEmpty); // no pide nada a Supabase
-      expect(find.byKey(const Key('mini-player')), findsOneWidget);
-      expect(find.byKey(const Key('ring-playing')), findsOneWidget); // la que suena lleva su marca en el anillo
+      await openList(tester); // se cierra: debajo del disco, la que suena
+      expect(songTitle(tester), 'Beta');
     });
 
     testWidgets('una carpeta sin .mp3 lo dice', (tester) async {
@@ -238,24 +238,27 @@ void main() {
       expect(find.text('Elegir carpeta'), findsOneWidget);
     });
 
-    testWidgets('lo guardado desde «Recibidas» aparece en «En el teléfono»', (tester) async {
+    testWidgets('lo guardado desde «Recibidas» aparece en el álbum del teléfono', (tester) async {
       store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
       backend.add('v', title: 'Vieja', at: DateTime.utc(2026, 9, 1));
       await open(tester);
       saver.files = [song('Vieja v.mp3')];
-      await tester.tap(find.byKey(const ValueKey('card-received')));
+      await tester.tap(card('card-received'));
       await tester.pumpAndSettle();
+      await openList(tester);
       await tester.tap(find.byKey(const Key('more-v')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('save-v')));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
-      await tester.pageBack();
+      await tester.pageBack(); // cierra la lista
+      await tester.pumpAndSettle();
+      await tester.pageBack(); // y sale del álbum
       await tester.pumpAndSettle();
       await tester.runAsync(settle);
       await tester.pump();
       await openPhoneTab(tester);
-      expect(ringTitle(tester), 'Vieja v');
+      expect(songTitle(tester), 'Vieja v');
     });
   });
 }

@@ -11,6 +11,7 @@ import '../util/format.dart';
 import '../util/picker.dart';
 import 'widgets/composer.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/section_motion.dart';
 
 /// El chat: los mensajes de la PC y los de este móvil, con la conexión arriba y el campo para escribir abajo.
 class ChatPage extends StatefulWidget {
@@ -119,20 +120,22 @@ class _ChatPageState extends State<ChatPage> {
       listenable: _controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(
-            titleSpacing: 16,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Chat', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-                _Status(controller: _controller),
-              ],
+          appBar: FlyInBar(
+            child: AppBar(
+              titleSpacing: 16,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Chat', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+                  _Status(controller: _controller),
+                ],
+              ),
             ),
           ),
           body: Column(
             children: [
-              Expanded(child: _list()),
-              Composer(onSend: _send, picker: widget.picker ?? pickOutgoing),
+              Expanded(child: FlyIn(edge: MotionEdge.left, order: 1, child: _list())),
+              FlyIn(edge: MotionEdge.bottom, order: 2, child: Composer(onSend: _send, picker: widget.picker ?? pickOutgoing)),
             ],
           ),
         );

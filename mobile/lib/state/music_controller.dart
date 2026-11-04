@@ -91,17 +91,13 @@ class MusicController extends ChangeNotifier {
   }
 
   /// Baja una canción y la deja en la carpeta elegida.
-  /// Lo que se le hace a una canción antes de dejarla en el teléfono (ponerle la imagen que le hayas elegido).
-  Future<Uint8List> Function(Track track, Uint8List bytes)? prepareForSaving;
-
   Future<void> save(Track track, {bool quiet = false}) async {
     if (_saving.contains(track.id) || _saved.contains(track.id)) return;
     _saving.add(track.id);
     _failed.remove(track.id);
     _tell();
     try {
-      final downloaded = await _backend.downloadTrack(track.storagePath);
-      final bytes = await prepareForSaving?.call(track, downloaded) ?? downloaded;
+      final bytes = await _backend.downloadTrack(track.storagePath);
       final where = await _saver.save(
         fileName: track.fileName,
         bytes: bytes,

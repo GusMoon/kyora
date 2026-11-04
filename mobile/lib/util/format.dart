@@ -6,15 +6,22 @@ const _months = [
   'diciembre',
 ];
 
-const _weekdays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+/// Las letras de los días de la semana, de lunes a domingo (el índice es `DateTime.weekday - 1`).
+const weekdayLetters = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
-/// El día de la semana en español: «Martes».
-String weekdayName(DateTime moment) => _weekdays[moment.toLocal().weekday - 1];
-
-/// La fecha completa, con el año: «3 de noviembre de 2026».
-String fullDate(DateTime moment) {
+/// La fecha corta de Inicio: mes (con mayúscula), día y año: «Noviembre 3, 2026».
+String shortDate(DateTime moment) {
   final local = moment.toLocal();
-  return '${local.day} de ${_months[local.month - 1]} de ${local.year}';
+  final month = _months[local.month - 1];
+  return '${month[0].toUpperCase()}${month.substring(1)} ${local.day}, ${local.year}';
+}
+
+/// El saludo según la hora local: de 05:00 a 11:59 «Buenos días», hasta las 18:59 «Buenas tardes» y el resto «Buenas noches».
+String greetingFor(DateTime moment) {
+  final hour = moment.toLocal().hour;
+  if (hour >= 5 && hour < 12) return 'Buenos días';
+  if (hour >= 12 && hour < 19) return 'Buenas tardes';
+  return 'Buenas noches';
 }
 
 /// La hora local de un instante: `09:05`.

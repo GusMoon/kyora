@@ -8,6 +8,7 @@ import '../theme.dart';
 import '../util/task_format.dart';
 import 'task_detail_page.dart';
 import 'widgets/app_backdrop.dart';
+import 'widgets/section_motion.dart';
 
 /// Las tareas: filtros por estado arriba, la lista y, abajo, el campo para anotar una nueva. Tocar una abre su detalle; la casilla de la
 /// izquierda la finaliza. Todo se guarda en el teléfono al instante y sube a Supabase cuando hay internet.
@@ -71,62 +72,72 @@ class _TasksPageState extends State<TasksPage> with WidgetsBindingObserver {
         final c = widget.controller;
         final tasks = c.roots(status: _status, active: _status == null);
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Tareas', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-            actions: [_SyncBadge(controller: c)],
+          appBar: FlyInBar(
+            child: AppBar(
+              title: const Text('Tareas', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+              actions: [_SyncBadge(controller: c)],
+            ),
           ),
           body: Column(
             children: [
-              _Filters(controller: c, selected: _status, onSelected: (s) => setState(() => _status = s)),
+              FlyIn(edge: MotionEdge.left, order: 1, child: _Filters(controller: c, selected: _status, onSelected: (s) => setState(() => _status = s))),
               Expanded(
-                child: tasks.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Text(
-                            !c.loaded
-                                ? 'Cargando…'
-                                : _status == null
-                                    ? 'No tienes tareas pendientes.\nAnota una abajo.'
-                                    : 'No hay tareas «${_status!.label}».',
-                            key: const Key('tasks-empty'),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: context.colors.dim),
+                child: FlyIn(
+                  edge: MotionEdge.right,
+                  order: 1,
+                  child: tasks.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Text(
+                              !c.loaded
+                                  ? 'Cargando…'
+                                  : _status == null
+                                      ? 'No tienes tareas pendientes.\nAnota una abajo.'
+                                      : 'No hay tareas «${_status!.label}».',
+                              key: const Key('tasks-empty'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: context.colors.dim),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          key: const Key('task-list'),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          itemCount: tasks.length,
+                          itemBuilder: (context, i) => _TaskTile(task: tasks[i], controller: c, onOpen: () => _open(tasks[i])),
+                        ),
+                ),
+              ),
+              FlyIn(
+                edge: MotionEdge.bottom,
+                order: 2,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const Key('task-input'),
+                            controller: _input,
+                            focusNode: _focus,
+                            textCapitalization: TextCapitalization.sentences,
+                            textInputAction: TextInputAction.done,
+                            decoration: const InputDecoration(hintText: 'Nueva tarea'),
+                            onSubmitted: (_) => _add(),
                           ),
                         ),
-                      )
-                    : ListView.builder(
-                        key: const Key('task-list'),
-                        padding: const EdgeInsets.only(bottom: 12),
-                        itemCount: tasks.length,
-                        itemBuilder: (context, i) => _TaskTile(task: tasks[i], controller: c, onOpen: () => _open(tasks[i])),
-                      ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const Key('task-input'),
-                          controller: _input,
-                          focusNode: _focus,
-                          textCapitalization: TextCapitalization.sentences,
-                          textInputAction: TextInputAction.done,
-                          decoration: const InputDecoration(hintText: 'Nueva tarea'),
-                          onSubmitted: (_) => _add(),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          key: const Key('task-add'),
+                          tooltip: 'Añadir',
+                          onPressed: _add,
+                          icon: const Icon(Icons.add_rounded),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        key: const Key('task-add'),
-                        tooltip: 'Añadir',
-                        onPressed: _add,
-                        icon: const Icon(Icons.add_rounded),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
