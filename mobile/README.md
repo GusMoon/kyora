@@ -1,9 +1,9 @@
-# Kyora Chat · la app del móvil (Android)
+# Kyra · la app del móvil (Android) de Kyora
 
 El chat de Kyora en tu teléfono: ves lo que mandas desde la PC (texto, fotos y archivos, con su hora y su estado) y también puedes escribir desde el móvil. Usa **tu misma cuenta de Supabase** que la PC; la PC se identifica como `pc` y el móvil como `movil`.
 
 ```
-Kyora (PC)  ──►  Supabase (base de datos + archivos + tiempo real)  ──►  Kyora Chat (móvil)
+Kyora (PC)  ──►  Supabase (base de datos + archivos + tiempo real)  ──►  Kyra (móvil)
             ◄──                                                     ◄──
 ```
 
@@ -11,7 +11,7 @@ Kyora (PC)  ──►  Supabase (base de datos + archivos + tiempo real)  ──
 1. En la PC, ejecuta **`scripts\compilar_movil.bat`**. Crea el archivo **`mobile\KyoraChat.apk`** (la primera vez tarda varios minutos).
 2. Pasa el APK al teléfono (cable USB, Google Drive, WhatsApp, correo…).
 3. En el teléfono, ábrelo. Android pedirá permiso para **instalar apps desconocidas** desde la app que usaste (Archivos, Drive…): actívalo solo para esa app.
-4. Abre **Kyora Chat** y entra con **el mismo correo y contraseña** que pusiste en `supabase\.env` (el usuario de Authentication > Users). La sesión queda guardada: no te la vuelve a pedir.
+4. Abre **Kyra** y entra con **el mismo correo y contraseña** que pusiste en `supabase\.env` (el usuario de Authentication > Users). La sesión queda guardada: no te la vuelve a pedir.
 
 La app no lleva tu correo ni tu contraseña: solo la URL de tu proyecto y su clave pública (que salen de `supabase\.env` al compilar).
 

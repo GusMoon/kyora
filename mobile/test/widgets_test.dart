@@ -32,7 +32,7 @@ Future<ChatController> openChat(
     maxFileBytes: maxFileBytes ?? 50 * 1000 * 1000,
   );
   addTearDown(controller.dispose);
-  await tester.pumpWidget(app(ChatPage(backend: backend, controller: controller, picker: picker, onSignOut: () async {})));
+  await tester.pumpWidget(app(ChatPage(backend: backend, controller: controller, picker: picker)));
   await tester.runAsync(controller.start);
   await tester.pump();
   return controller;

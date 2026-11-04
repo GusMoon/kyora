@@ -14,13 +14,9 @@ import 'widgets/message_bubble.dart';
 
 /// El chat: los mensajes de la PC y los de este móvil, con la conexión arriba y el campo para escribir abajo.
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.backend, this.onSignOut, this.controller, this.picker, this.onOpenMusic});
+  const ChatPage({super.key, required this.backend, this.controller, this.picker});
 
   final ChatBackend backend;
-  final Future<void> Function()? onSignOut;
-
-  /// Abre la pantalla de música (las canciones que baja la PC). Sin esto no sale el botón.
-  final VoidCallback? onOpenMusic;
 
   /// Para las pruebas: un controlador ya hecho (si no, la página crea el suyo y lo cierra).
   final ChatController? controller;
@@ -80,13 +76,13 @@ class _ChatPageState extends State<ChatPage> {
             if (message.hasText)
               ListTile(
                 key: const Key('menu-copy'),
-                leading: const Icon(Icons.copy, color: Palette.accent),
+                leading: Icon(Icons.copy, color: context.colors.accent),
                 title: const Text('Copiar texto'),
                 onTap: () => Navigator.pop(context, 'copy'),
               ),
             ListTile(
               key: const Key('menu-delete'),
-              leading: const Icon(Icons.delete_outline, color: Palette.warn),
+              leading: Icon(Icons.delete_outline, color: context.colors.warn),
               title: const Text('Borrar'),
               onTap: () => Navigator.pop(context, 'delete'),
             ),
@@ -108,7 +104,7 @@ class _ChatPageState extends State<ChatPage> {
             TextButton(
               key: const Key('confirm-delete'),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Borrar', style: TextStyle(color: Palette.warn)),
+              child: Text('Borrar', style: TextStyle(color: context.colors.warn)),
             ),
           ],
         ),
@@ -132,16 +128,6 @@ class _ChatPageState extends State<ChatPage> {
                 _Status(controller: _controller),
               ],
             ),
-            actions: [
-              if (widget.onOpenMusic != null)
-                IconButton(key: const Key('open-music'), tooltip: 'Música', onPressed: widget.onOpenMusic, icon: const Icon(Icons.music_note_outlined)),
-              if (widget.onSignOut != null)
-                PopupMenuButton<String>(
-                  key: const Key('account-menu'),
-                  onSelected: (_) => widget.onSignOut!(),
-                  itemBuilder: (_) => const [PopupMenuItem(value: 'out', child: Text('Cerrar sesión'))],
-                ),
-            ],
           ),
           body: Column(
             children: [
@@ -165,7 +151,7 @@ class _ChatPageState extends State<ChatPage> {
                 ? 'Cargando tus mensajes…'
                 : 'Aún no hay mensajes.\nLo que mandes desde la PC aparece aquí.',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Palette.dim),
+            style: TextStyle(color: context.colors.dim),
           ),
         ),
       );
@@ -214,7 +200,7 @@ class _DayChip extends StatelessWidget {
     // solo el texto atenuado en el centro, sin cápsula (como en la PC)
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(child: Text(label, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700))),
+      child: Center(child: Text(label, style: TextStyle(color: context.colors.dim, fontSize: 13, fontWeight: FontWeight.w700))),
     );
   }
 }
@@ -228,11 +214,11 @@ class _Status extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (text, color) = switch (controller.connection) {
-      Connection.online => ('En línea', Palette.accent),
-      Connection.connecting => ('Conectando…', Palette.dim),
+      Connection.online => ('En línea', context.colors.accent),
+      Connection.connecting => ('Conectando…', context.colors.dim),
       Connection.offline => (
           controller.hasPending ? 'Sin conexión · los mensajes saldrán al volver' : 'Sin conexión',
-          Palette.warn,
+          context.colors.warn,
         ),
     };
     return Row(

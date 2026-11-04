@@ -14,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -149,8 +150,9 @@ class Kyora:
         self.tasks = TaskService(config_module.data_dir())
         self.brain = BrainService(config_module.data_dir(), shell.recycle, documents=shell.known_folder("documents"))
         self.notes = NotesService(shell.known_folder("documents"), shell.recycle)
+        # «Descargar» ya no guarda en la carpeta Música: baja a una carpeta temporal y lo manda a quien elijas
         self.music = MusicService(
-            config_module.data_dir(), shell.known_folder("music") or Path.home() / "Music",
+            config_module.data_dir(), Path(tempfile.gettempdir()) / "Kyora" / "music",
             lambda: self.cfg.get("music"), lambda result: self._emit("music_result", result),
         )
         self.chat = ChatService(config_module.data_dir(), lambda event: self._emit("chat_event", event),
@@ -159,6 +161,11 @@ class Kyora:
         self.music_sync = MusicSync(config_module.data_dir(), self.chat, lambda result: self._emit("music_result", result),
                                     lambda: self.cfg.get("music"))
         self.music.on_done = self.music_sync.enqueue
+        self.music.can_send = self.music_sync.enabled
+        self.music.uploaded = self.music_sync.is_uploaded
+        self.music.fetch_recipients = self.music_sync.recipients
+        self.music_sync.on_sent = self.music.mark_sent
+        self.music_sync.on_failed = self.music.mark_failed
         self._register_actions()
 
     # ---------- acciones ----------

@@ -213,8 +213,9 @@ class QuickMain(DockPage):
         if name == "music_toggle":
             return "Pausa" if self.pill.playing else "Seguir"
         if name == "music_download":
-            return {"done": "Ya está en tu carpeta Música (pulsa para mandarla otra vez al móvil)",
-                    "queued": "En cola para descargar", "doing": "Descargando…"}.get(self.pill.download, "Descargar esta canción")
+            return {"done": "Ya enviada (pulsa para mandarla otra vez a la última persona elegida)",
+                    "queued": "En cola para descargar", "doing": "Descargando…",
+                    "sending": "Enviándola…"}.get(self.pill.download, "Mandar esta canción a la última persona elegida (por defecto, tú)")
         return {"bluetooth": "Bluetooth", "config": "Configuración", "clock": "Calendario", "music_stop": "Detener y cerrar",
                 "music_prev": "Anterior", "music_next": "Siguiente"}.get(name, "")
 

@@ -298,6 +298,7 @@ class FakeSupabase:
         self.uploads = {}
         self.calls = []
         self.sign_in_error = None
+        self.confirm_error = None
         self._n = 0
 
     def sign_in(self):
@@ -354,6 +355,16 @@ class FakeSupabase:
         if name == "delete_message":
             self.remote[payload["p_id"]]["deleted_at"] = "2026-10-30T11:00:00Z"
             return self.remote[payload["p_id"]]
+        if name == "confirm_messages_received":
+            if self.confirm_error:
+                raise self.confirm_error
+            marked = 0
+            for mid in payload["p_ids"]:
+                message = self.remote.get(mid)
+                if message and not message.get("received_at") and message["sender_device"] != payload["p_device"]:
+                    message["received_at"] = "2026-10-30T12:00:00Z"
+                    marked += 1
+            return marked
         raise AssertionError(name)
 
 
@@ -526,6 +537,55 @@ def test_a_message_deleted_elsewhere_disappears(chat):
                                            "record": {"id": saved["id"], "deleted_at": "2026-10-30T11:00:00Z"}})
     wait_for(events, "deleted", id=saved["id"])
     assert service.history()["messages"] == []
+
+
+def confirmed_ids(server):
+    return [i for n, p in server.calls if n == "confirm_messages_received" for i in p["p_ids"]]
+
+
+def test_messages_from_another_device_are_confirmed_as_received_once_saved_here(chat):
+    service, events, servers = chat(server_setup=lambda s: (s.add_remote("viejo", "del móvil"), s.add_remote("mio", "mío", device="pc")))
+    service.start()
+    wait_for(events, "history")
+    settled(servers)
+    assert servers[0].remote["viejo"]["received_at"] == "2026-10-30T12:00:00Z"   # el del móvil se confirmó
+    assert "received_at" not in servers[0].remote["mio"]                           # lo propio no se confirma
+    assert service.store.get("viejo")["body"] == "del móvil"                       # y ya estaba guardado aquí
+    wait_until(lambda: FakeRealtime.instances)
+    servers[0].add_remote("nuevo", "otro desde el móvil")
+    FakeRealtime.instances[-1].changes.put({"type": "INSERT", "table": "messages", "record": {"id": "nuevo"}})
+    wait_until(lambda: servers[0].remote["nuevo"].get("received_at"))
+    assert service.store.get("nuevo")["body"] == "otro desde el móvil"
+    assert confirmed_ids(servers[0]).count("viejo") == 1                           # no se vuelve a confirmar lo ya confirmado
+
+
+def test_a_failed_confirmation_is_remembered_and_retried_on_the_next_catch_up(chat):
+    service, events, servers = chat(server_setup=lambda s: (s.add_remote("a", "uno"), setattr(s, "confirm_error", ChatError("offline", "Sin conexión", retryable=True))))
+    service.start()
+    wait_for(events, "history")
+    settled(servers)
+    assert "received_at" not in servers[0].remote["a"]
+    assert json.loads(service.store.meta("unconfirmed")) == ["a"]                  # se recuerda
+    servers[0].confirm_error = None
+    wait_until(lambda: FakeRealtime.instances)
+    servers[0].add_remote("b", "dos")
+    FakeRealtime.instances[-1].changes.put({"type": "INSERT", "table": "messages", "record": {"id": "b"}})
+    wait_until(lambda: servers[0].remote["b"].get("received_at"))
+    assert servers[0].remote["a"]["received_at"]                                   # el pendiente también salió
+    assert json.loads(service.store.meta("unconfirmed")) == []
+
+
+def test_a_message_purged_by_supabase_stays_in_the_local_copy(chat):
+    service, events, servers = chat(server_setup=lambda s: s.add_remote("a", "uno"))
+    service.start()
+    wait_for(events, "history")
+    settled(servers)
+    wait_until(lambda: FakeRealtime.instances)
+    del servers[0].remote["a"]                                                       # la limpieza lo borró de Supabase
+    FakeRealtime.instances[-1].changes.put({"type": "DELETE", "table": "messages", "record": {}, "old_record": {"id": "a"}})
+    time.sleep(0.2)
+    assert [m["id"] for m in service.history()["messages"]] == ["a"]
+    assert not [e for e in events if e["kind"] == "deleted"]
 
 
 def test_start_catches_up_with_history_and_a_restart_only_asks_for_what_is_new(chat):

@@ -35,6 +35,18 @@ En el buscador, el contenido (resultados, tareas, Kanban, notas, árbol, fondos)
 
 Además, tareas y notas **se manejan solo desde el buscador de abajo**: nada abre ventanas aparte ni diálogos. Borrar se confirma pulsando dos veces (la primera avisa ahí mismo). En el Kanban (`Ctrl+K` en `>task`) y en `>notes` el buscador se ensancha.
 
+### Kyra, la app del móvil (2026-11-03)
+
+La app del móvil se llama **Kyra** (la del escritorio sigue siendo Kyora). Tiene su propio estilo, que no es el skeumorfismo del escritorio:
+
+| Pieza | Cómo es | En el código |
+|---|---|---|
+| Fondo | Sin fondo de pantalla, un gris **muy oscuro**. Con uno (se elige en Configuración), esa imagen **muy suavizada** (se decodifica a 96 px y se estira, sin filtros en vivo) y oscurecida con un velo del 50–65 %, para que el texto claro se lea sea cual sea la imagen | `AppBackdrop` en `mobile/lib/ui/widgets/app_backdrop.dart` |
+| Colores | Los **5 colores principales del fondo** (k-means sobre una miniatura; cada uno es la media del núcleo de su grupo, nunca un color que no esté en la imagen). Se enseñan en Configuración (con su código) y en Inicio, y con un fondo puesto **mandan** sobre el color de la carátula que suena | `mobile/lib/util/palette.dart`, `WallpaperController`, `buildCoverTheme` |
+| Tarjetas | **Esquinas rectas** (sin redondear), borde de 1 px y el color de la placa al 60 % para dejar ver el fondo; sin desenfoques en vivo | `SquareCard` en `mobile/lib/ui/widgets/square_card.dart` |
+| Inicio | Primera sección: arriba a la izquierda el día de la semana y la fecha con el año; arriba a la derecha el botón de configuración; debajo, tareas pendientes, clima y almacenamiento | `HomePage` en `mobile/lib/ui/home_page.dart` |
+| Configuración | Se abre con el botón de Inicio. Grupos (Apariencia, Clima, Música, Cuenta), cada uno con su título en el acento y una línea que explica para qué sirve | `SettingsPage` |
+
 ### La luz de la ventana activa
 
 Se dibuja **una sola vez** al pasar a una ventana: nace como un trazo corto que gira y se alarga hasta rodearla entera (~0,9 s) y se queda quieta. Nada gira sin parar: una animación continua cuesta trabajo a Kyora todo el rato.

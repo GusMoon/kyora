@@ -40,14 +40,39 @@ Errores: `empty_message` (ni texto ni adjuntos, 22023), `attachments_must_be_an_
 ```json
 {"p_conversation_id": "uuid", "p_before": null, "p_after": null, "p_limit": 50}
 ```
-Devuelve un arreglo de mensajes (como arriba) **del más antiguo al más nuevo**. `p_before`: solo los enviados antes de esa hora (cargar más hacia atrás). `p_after`: solo los que llegaron al servidor después de esa hora (ponerse al día tras una desconexión). `p_limit` entre 1 y 200.
+Devuelve un arreglo de mensajes (como arriba, con `received_at`) **del más antiguo al más nuevo**. `p_before`: solo los enviados antes de esa hora (cargar más hacia atrás). `p_after`: solo los que llegaron al servidor después de esa hora (ponerse al día tras una desconexión). `p_limit` entre 1 y 200.
 
 ### `delete_message`
 `{"p_id": "uuid"}` → el mensaje con `deleted_at` puesto (borrado suave).
 
+### `confirm_messages_received`
+`{"p_ids": ["uuid", ...], "p_device": "pc"}` → cuántos mensajes se marcaron ahora (`integer`). Lo llama el dispositivo de destino (la PC) cuando ya guardó los mensajes que llegaron de otro dispositivo: pone `received_at = now()` solo en mensajes de la cuenta cuyo `sender_device` es distinto de `p_device` y que aún no tenían confirmación. Repetirlo no cambia nada. **24 horas después** la limpieza automática (`functions/cleanup-expired`) borra el mensaje y sus archivos.
+
+### Cuentas y música
+
+| Función | Quién | Cuerpo → respuesta |
+|---|---|---|
+| `username_available` | cualquiera, **sin sesión** (solo `apikey`) | `{"p_username"}` → `true`/`false` |
+| `my_profile` | con sesión | `{}` → `{"id", "username", "email", "role": "admin" \| "intern", "created_at"}` (o `null`) |
+| `list_recipients` | solo admin | `{}` → `[{"id", "username", "role", "me"}]`, primero el propio (`me: true`, la PC lo muestra como «Yo») |
+| `add_music_track` | solo admin | `{"p_id", "p_title", "p_file_name", "p_storage_path", "p_mime_type", "p_size_bytes", "p_playlist", "p_recipient_id", "p_cover_url"}` → la fila de `music_tracks`. `p_recipient_id` vacío = quien llama. Repetir el mismo `p_id` no duplica. Error `file_missing` si el MP3 ya no está en Storage (la limpieza lo borró tras recibirse): hay que volver a subirlo. |
+| `list_music_tracks` | con sesión | `{"p_limit": 100}` → las canciones que **recibe** quien llama, de la más nueva a la más antigua; cada fila trae `received_at` (`null` hasta que se confirme) |
+| `confirm_track_received` | con sesión (el destinatario) | `{"p_id": "<uuid de la canción>"}` → la fila con `received_at` puesto. Es el botón «Recibido» de la app móvil: solo se llama cuando la canción ya está guardada en el teléfono. Solo el destinatario puede, sobre sus canciones; repetirlo no cambia la hora. Error `unknown_track` si no existe o no es suya. Nada se borra de Supabase mientras `received_at` sea `null`. |
+
+Registro de un pasante: `POST /auth/v1/signup` con `{"email", "password", "data": {"username"}}` (hace falta tener desactivado *Confirm email* en Supabase para que devuelva sesión). Un trigger crea su fila en `profiles` como `intern`.
+
 ## 3. Tablas (PostgREST), si hace falta algo suelto
 
 `GET /rest/v1/messages?conversation_id=eq.<uuid>&order=sent_at.desc&limit=50&select=*,attachments(*)` (solo lectura recomendada; para escribir, usa `send_message`).
+
+### Tareas: `tasks`, `tags`, `task_tags`
+
+Sin RPC: se usan directamente con PostgREST (cada cuenta solo ve y toca lo suyo; no hace falta ser administrador).
+
+- **Subir** (idempotente): `POST /rest/v1/tasks?on_conflict=id` con `Prefer: resolution=merge-duplicates` y un arreglo de filas `{"id", "parent_id", "position", "name", "description", "status", "expected_min", "real_s", "timer_started", "due", "finished", "created_at", "updated_at", "deleted_at"}`. `status`: `pending`, `doing`, `review`, `done`. Igual `tags` (`{"id","name","color","updated_at","deleted_at"}`, `on_conflict=id`) y `task_tags` (`{"task_id","tag_id","updated_at","deleted_at"}`, `on_conflict=task_id,tag_id`). Las horas van en UTC (ISO 8601).
+- **Bajar las novedades**: `GET /rest/v1/tasks?synced_at=gt.<última hora leída>&order=synced_at.asc&limit=500` (sin el filtro la primera vez). `synced_at` lo pone el servidor en cada escritura aceptada.
+- **Borrar**: no hay `DELETE`; se sube la fila con `deleted_at` puesto (y un `updated_at` más nuevo).
+- **Conflictos**: una escritura con `updated_at` igual o más viejo que el guardado se ignora en silencio (trigger `sync_guard`): gana el cambio más reciente.
 
 ## 4. Archivos (Storage), bucket privado `chat-files`
 

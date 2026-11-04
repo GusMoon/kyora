@@ -5,14 +5,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
 import '../models/message.dart';
+import '../models/profile.dart';
+import '../models/task.dart';
 import '../models/track.dart';
+import 'account_backend.dart';
 import 'chat_backend.dart';
 import 'music_backend.dart';
+import 'task_backend.dart';
 
 /// El chat sobre Supabase: el mismo contrato que usa la PC (supabase/endpoints.md). Sesión con correo y contraseña,
 /// funciones RPC para enviar y leer, Storage para los archivos y Realtime para lo que llega al instante. También sirve la
-/// música: las canciones que la PC sube con «Descargar» (`music_tracks` y sus MP3 en el mismo bucket).
-class ChatRepository implements ChatBackend, MusicBackend {
+/// música (las canciones que la PC manda con «Descargar»: `music_tracks` y sus MP3 en el mismo bucket) y las cuentas:
+/// el administrador (tú) y los pasantes, que se registran solos. Y las tareas (`tasks`, `tags`, `task_tags`).
+class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskBackend {
   ChatRepository(this._client);
 
   final SupabaseClient _client;
@@ -20,16 +25,36 @@ class ChatRepository implements ChatBackend, MusicBackend {
   @override
   String? get userId => _client.auth.currentUser?.id;
 
+  @override
   bool get signedIn => _client.auth.currentSession != null;
 
-  Stream<AuthState> get authChanges => _client.auth.onAuthStateChange;
+  @override
+  Stream<void> get authChanges => _client.auth.onAuthStateChange.map<void>((_) {});
 
   // ---------- sesión ----------
 
+  @override
   Future<void> signIn(String email, String password) =>
       _guard(() => _client.auth.signInWithPassword(email: email.trim(), password: password));
 
+  @override
+  Future<bool> signUp({required String username, required String email, required String password}) async {
+    final free = await _guard(() => _client.rpc('username_available', params: {'p_username': username.trim()}));
+    if (free == false) throw const ChatException('Ese nombre de usuario ya está en uso.', code: 'username_taken');
+    final response = await _guard(
+        () => _client.auth.signUp(email: email.trim(), password: password, data: {'username': username.trim()}));
+    return response.session != null;
+  }
+
+  @override
   Future<void> signOut() => _guard(() => _client.auth.signOut());
+
+  @override
+  Future<Profile?> myProfile() async {
+    final data = await _guard(() => _client.rpc('my_profile'));
+    if (data == null) return null;
+    return Profile.fromJson(Map<String, dynamic>.from(data as Map));
+  }
 
   // ---------- mensajes ----------
 
@@ -101,8 +126,26 @@ class ChatRepository implements ChatBackend, MusicBackend {
   }
 
   @override
+  Future<void> confirmReceived(String trackId) async {
+    await _guard(() => _client.rpc('confirm_track_received', params: {'p_id': trackId}));
+  }
+
+  @override
   Future<Uint8List> downloadTrack(String storagePath) =>
       _guard(() => _client.storage.from(AppConfig.bucket).download(storagePath));
+
+  @override
+  Future<Map<String, String>> signedUrls(List<String> storagePaths, int expiresIn) async {
+    if (storagePaths.isEmpty) return {};
+    final results = await _guard(() => _client.storage.from(AppConfig.bucket).createSignedUrlsResult(storagePaths, expiresIn));
+    return {
+      for (final result in results)
+        if (result is SignedUrlSuccess) result.path: _absolute(result.signedUrl),
+    };
+  }
+
+  /// Supabase puede devolver la dirección firmada sin el servidor delante; con él delante, se deja tal cual.
+  String _absolute(String url) => url.startsWith('http') ? url : '${AppConfig.supabaseUrl}/storage/v1$url';
 
   @override
   Stream<void> trackChanges() {
@@ -130,6 +173,48 @@ class ChatRepository implements ChatBackend, MusicBackend {
       },
     );
     return controller.stream;
+  }
+
+  // ---------- tareas ----------
+
+  static const _pushChunk = 200;
+  static const _pullPage = 500;
+
+  @override
+  Future<void> push(TaskData changes) async {
+    Future<void> up(String table, List<Map<String, Object?>> rows, String onConflict) async {
+      for (var i = 0; i < rows.length; i += _pushChunk) {
+        final chunk = rows.sublist(i, i + _pushChunk > rows.length ? rows.length : i + _pushChunk);
+        await _guard(() => _client.from(table).upsert(chunk, onConflict: onConflict));
+      }
+    }
+
+    // las subtareas después de sus tareas (la clave ajena las pide ya guardadas)
+    final tasks = [...changes.tasks]..sort((a, b) => (a.parentId == null ? 0 : 1).compareTo(b.parentId == null ? 0 : 1));
+    await up('tags', [for (final t in changes.tags) t.toJson()], 'id');
+    await up('tasks', [for (final t in tasks) t.toJson()], 'id');
+    await up('task_tags', [for (final l in changes.links) l.toJson()], 'task_id,tag_id');
+  }
+
+  @override
+  Future<TaskData> pull({String? tasksSince, String? tagsSince, String? linksSince}) async {
+    Future<List<Map<String, Object?>>> read(String table, String? since) async {
+      final all = <Map<String, Object?>>[];
+      var cursor = since;
+      while (true) {
+        final base = _client.from(table).select();
+        final rows = await _guard(() => (cursor == null ? base : base.gt('synced_at', cursor)).order('synced_at', ascending: true).limit(_pullPage));
+        all.addAll([for (final r in rows) Map<String, Object?>.from(r)]);
+        if (rows.length < _pullPage) return all;
+        cursor = DateTime.parse(rows.last['synced_at'] as String).toUtc().toIso8601String();
+      }
+    }
+
+    return TaskData(
+      tags: [for (final r in await read('tags', tagsSince)) Tag.fromJson(r)],
+      tasks: [for (final r in await read('tasks', tasksSince)) TaskItem.fromJson(r)],
+      links: [for (final r in await read('task_tags', linksSince)) TaskTag.fromJson(r)],
+    );
   }
 
   // ---------- tiempo real ----------
@@ -201,7 +286,19 @@ ChatException explainAuth(AuthException e) {
   if (code == 'email_not_confirmed' || text.contains('not confirmed')) {
     return ChatException('Ese usuario aún no está confirmado en Supabase.', code: 'email_not_confirmed');
   }
-  if (code == 'over_request_rate_limit' || e.statusCode == '429') {
+  if (code == 'user_already_exists' || text.contains('already registered')) {
+    return ChatException('Ese correo ya tiene una cuenta: entra con él.', code: 'user_already_exists');
+  }
+  if (code == 'weak_password' || text.contains('password should be')) {
+    return ChatException('La contraseña es muy débil: usa al menos 6 caracteres.', code: 'weak_password');
+  }
+  if (code == 'signup_disabled' || text.contains('signups not allowed')) {
+    return ChatException('El registro está desactivado en Supabase.', code: 'signup_disabled');
+  }
+  if (code == 'email_address_invalid' || text.contains('invalid format') || text.contains('is invalid')) {
+    return ChatException('Supabase no aceptó ese correo: prueba con otro.', code: 'email_address_invalid');
+  }
+  if (code == 'over_request_rate_limit' || code == 'over_email_send_rate_limit' || e.statusCode == '429') {
     return ChatException('Demasiados intentos: espera un momento.', retryable: true, code: code);
   }
   final status = int.tryParse(e.statusCode ?? '');
@@ -214,6 +311,9 @@ ChatException explainPostgrest(PostgrestException e) {
   if (code == 'PGRST202' || code == '42883' || text.contains('could not find the function')) {
     return ChatException('Falta crear la base de datos: ejecuta supabase/schema.sql en Supabase.', code: code);
   }
+  if ((code == 'PGRST205' || code == '42P01') && RegExp(r'\b(tasks|tags|task_tags)\b').hasMatch(text)) {
+    return ChatException('Falta la parte de tareas: vuelve a ejecutar supabase/schema.sql en Supabase.', code: code);
+  }
   if (code == 'PGRST205' || code == '42P01' || text.contains('music_tracks')) {
     return ChatException('Falta la parte de música: vuelve a ejecutar supabase/schema.sql en Supabase.', code: code);
   }
@@ -222,6 +322,7 @@ ChatException explainPostgrest(PostgrestException e) {
   }
   if (text.contains('empty_message')) return ChatException('El mensaje está vacío.', code: code);
   if (text.contains('message_id_taken')) return ChatException('Ese mensaje ya existe en otra cuenta.', code: code);
+  if (text.contains('unknown_track')) return ChatException('Esa canción ya no está en Supabase.', code: code);
   final status = int.tryParse(code);
   return ChatException(e.message, retryable: status != null && (status >= 500 || status == 408 || status == 429), code: code);
 }

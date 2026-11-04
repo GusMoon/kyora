@@ -12,7 +12,11 @@ Un mensaje se guarda al instante en `chat.sqlite` como **en espera** y el hilo d
 archivos primero, a Storage; luego la función `send_message`). Sin internet queda en espera y se reintenta solo; como su
 `id` lo crea este dispositivo, un reintento nunca lo duplica. Lo que llega de otros dispositivos entra por Realtime: cada
 aviso provoca una puesta al día con `list_messages(p_after=…)`, que también recupera lo perdido tras una desconexión.
+
+Lo que llega de otro dispositivo (el móvil) se confirma a Supabase con `confirm_messages_received` en cuanto queda guardado
+aquí; 24 horas después Supabase lo borra de su lado (limpieza automática) y esta copia local se conserva.
 """
+import json
 import logging
 import mimetypes
 import os
@@ -33,6 +37,8 @@ AUTH_CODES = {"invalid_credentials", "not_authenticated", "28000", "401", "bad_j
 PAGE = 50  # mensajes que se piden de golpe
 MAX_BACKOFF = 60
 DEFAULT_MAX_MB = 50  # el límite por archivo del plan gratuito de Supabase
+CONFIRM_BATCH = 100  # mensajes que se confirman de golpe
+MAX_UNCONFIRMED = 1000  # los pendientes de confirmar que se recuerdan (los más recientes)
 
 
 def now_iso():
@@ -218,7 +224,10 @@ class ChatService:
         if table == "messages":
             record = data.get("record") or {}
             old = data.get("old_record") or {}
-            if kind == "DELETE" or (kind == "UPDATE" and record.get("deleted_at")):
+            if kind == "DELETE":
+                # la limpieza automática de Supabase borra lo ya recibido para no saturar la base: aquí la copia se conserva
+                return
+            if kind == "UPDATE" and record.get("deleted_at"):
                 message_id = record.get("id") or old.get("id")
                 if message_id and (self.store.get(message_id) or {}).get("deleted") is False:
                     self.store.mark_deleted(message_id)
@@ -249,10 +258,32 @@ class ChatService:
                     saved = self.store.get(message["id"])
                     self._emit({"kind": "message", "message": saved,
                                 "incoming": saved["device"] != self.env.device})
+            self._confirm_received(remote)
             if len(remote) < page:
                 break
         if first:
             self._emit({"kind": "history", "messages": self.store.history(self._page())})
+
+    def _confirm_received(self, remote=()):
+        """Avisa a Supabase de los mensajes de otros dispositivos que ya están guardados aquí (`received_at`): 24 horas después
+        los borra de su lado. Lo que no se pudo avisar (sin red) se recuerda en `chat.sqlite` y se reintenta en la siguiente
+        puesta al día, también tras reiniciar."""
+        wanted = [m["id"] for m in remote if m.get("sender_device") != self.env.device and not m.get("received_at")]
+        try:
+            waiting = json.loads(self.store.meta("unconfirmed") or "[]")
+        except ValueError:
+            waiting = []
+        ids = list(dict.fromkeys([*waiting, *wanted]))[-MAX_UNCONFIRMED:]
+        if not ids:
+            return
+        try:
+            for start in range(0, len(ids), CONFIRM_BATCH):
+                batch = ids[start:start + CONFIRM_BATCH]
+                self.client.rpc("confirm_messages_received", {"p_ids": batch, "p_device": self.env.device})
+                ids = [i for i in ids if i not in batch]
+        except ChatError as err:
+            log.info("Chat: no se pudo confirmar la recepción (%s); se reintenta", err.message)
+        self.store.set_meta("unconfirmed", json.dumps(ids))
 
     # ---------- envío ----------
 

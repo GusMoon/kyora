@@ -60,19 +60,19 @@ class _ComposerState extends State<Composer> {
           children: [
             ListTile(
               key: const Key('pick-gallery'),
-              leading: const Icon(Icons.photo_library_outlined, color: Palette.accent),
+              leading: Icon(Icons.photo_library_outlined, color: context.colors.accent),
               title: const Text('Foto de la galería'),
               onTap: () => Navigator.pop(context, PickSource.gallery),
             ),
             ListTile(
               key: const Key('pick-camera'),
-              leading: const Icon(Icons.photo_camera_outlined, color: Palette.accent),
+              leading: Icon(Icons.photo_camera_outlined, color: context.colors.accent),
               title: const Text('Tomar una foto'),
               onTap: () => Navigator.pop(context, PickSource.camera),
             ),
             ListTile(
               key: const Key('pick-file'),
-              leading: const Icon(Icons.attach_file, color: Palette.accent),
+              leading: Icon(Icons.attach_file, color: context.colors.accent),
               title: const Text('Archivo'),
               onTap: () => Navigator.pop(context, PickSource.file),
             ),
@@ -100,7 +100,7 @@ class _ComposerState extends State<Composer> {
   Widget build(BuildContext context) {
     // un campo grande y redondeado, como el de Claude: «+» a la izquierda, lo escrito en medio y la flecha a la derecha
     return Material(
-      color: Palette.background,
+      color: context.colors.background,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -130,9 +130,9 @@ class _ComposerState extends State<Composer> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Palette.field,
+                  color: context.colors.field,
                   borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: Palette.edge),
+                  border: Border.all(color: context.colors.edge),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -143,10 +143,10 @@ class _ComposerState extends State<Composer> {
                       onPressed: _attach,
                       style: IconButton.styleFrom(
                         minimumSize: const Size(40, 40),
-                        shape: const CircleBorder(side: BorderSide(color: Palette.edge)),
+                        shape: CircleBorder(side: BorderSide(color: context.colors.edge)),
                         backgroundColor: const Color(0x0AFFFFFF),
                       ),
-                      icon: const Icon(Icons.add, color: Palette.ink, size: 24),
+                      icon: Icon(Icons.add, color: context.colors.ink, size: 24),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -174,10 +174,10 @@ class _ComposerState extends State<Composer> {
                       tooltip: 'Enviar',
                       onPressed: _canSend ? _send : null,
                       style: IconButton.styleFrom(
-                        backgroundColor: Palette.accent,
+                        backgroundColor: context.colors.accent,
                         disabledBackgroundColor: const Color(0x16FFFFFF),
-                        foregroundColor: const Color(0xFF141414),
-                        disabledForegroundColor: Palette.dim,
+                        foregroundColor: context.colors.onAccent,
+                        disabledForegroundColor: context.colors.dim,
                         minimumSize: const Size(40, 40),
                       ),
                       icon: const Icon(Icons.arrow_upward_rounded, size: 22),

@@ -24,6 +24,9 @@ Future<List<OutgoingFile>> pickOutgoing(PickSource source) async {
   }
 }
 
+/// Elige de la galería la imagen para una canción: su ruta, o `null` si se cancela.
+Future<String?> pickCoverImage() async => (await ImagePicker().pickImage(source: ImageSource.gallery))?.path;
+
 Future<OutgoingFile> _fromXFile(XFile file) async =>
     OutgoingFile(path: file.path, name: file.name, size: await file.length(), mime: file.mimeType);
 

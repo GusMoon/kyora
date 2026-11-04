@@ -6,6 +6,17 @@ const _months = [
   'diciembre',
 ];
 
+const _weekdays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+/// El día de la semana en español: «Martes».
+String weekdayName(DateTime moment) => _weekdays[moment.toLocal().weekday - 1];
+
+/// La fecha completa, con el año: «3 de noviembre de 2026».
+String fullDate(DateTime moment) {
+  final local = moment.toLocal();
+  return '${local.day} de ${_months[local.month - 1]} de ${local.year}';
+}
+
 /// La hora local de un instante: `09:05`.
 String clockText(DateTime moment) {
   final local = moment.toLocal();
@@ -50,6 +61,34 @@ String safeName(String name) {
   var cleaned = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_').replaceAll(RegExp(r'^[._]+|[._]+$'), '');
   if (cleaned.isEmpty) cleaned = 'archivo';
   return cleaned.length > 120 ? cleaned.substring(cleaned.length - 120) : cleaned;
+}
+
+/// «0:07», «3:42» o «1:02:10».
+String clock(Duration d) {
+  final total = d.inSeconds < 0 ? 0 : d.inSeconds;
+  final h = total ~/ 3600;
+  final m = (total % 3600) ~/ 60;
+  final s = total % 60;
+  final two = s.toString().padLeft(2, '0');
+  return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$two' : '$m:$two';
+}
+
+/// Parte «Artista - Título» (como se llaman los videos de YouTube) por el primer « - » (también con raya larga). Sin ese
+/// separador, o si un lado queda vacío, todo es el título y no hay artista.
+({String? artist, String title}) splitArtistTitle(String name) {
+  final text = name.trim();
+  final match = RegExp(r'\s[-–—]\s').firstMatch(text);
+  if (match == null) return (artist: null, title: text);
+  final artist = text.substring(0, match.start).trim();
+  final title = text.substring(match.end).trim();
+  if (artist.isEmpty || title.isEmpty) return (artist: null, title: text);
+  return (artist: artist, title: title);
+}
+
+/// La línea de abajo de una canción en la lista: «Artista • 4:21». Lo que no se sepa se omite.
+String songLine({String? artist, Duration? duration}) {
+  final a = artist?.trim() ?? '';
+  return [if (a.isNotEmpty) a, if (duration != null && duration > Duration.zero) clock(duration)].join(' • ');
 }
 
 /// La clase de mensaje según el tipo del primer adjunto (la misma regla que `send_message` en el SQL).

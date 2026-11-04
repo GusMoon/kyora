@@ -97,9 +97,9 @@ class _Loading extends StatelessWidget {
   const _Loading();
 
   @override
-  Widget build(BuildContext context) => const ColoredBox(
+  Widget build(BuildContext context) => ColoredBox(
         color: Color(0x14FFFFFF),
-        child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.2, color: Palette.dim))),
+        child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.2, color: context.colors.dim))),
       );
 }
 
@@ -108,7 +108,7 @@ class _Broken extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      const ColoredBox(color: Color(0x14FFFFFF), child: Center(child: Icon(Icons.broken_image_outlined, color: Palette.dim, size: 34)));
+      ColoredBox(color: Color(0x14FFFFFF), child: Center(child: Icon(Icons.broken_image_outlined, color: context.colors.dim, size: 34)));
 }
 
 IconData iconForMime(String mime) {
@@ -156,11 +156,11 @@ class _FileAttachment extends StatelessWidget {
           constraints: const BoxConstraints(minWidth: 240),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           // una tarjeta lisa con borde fino, como las de la PC
-          decoration: BoxDecoration(color: Palette.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.edge)),
+          decoration: BoxDecoration(color: context.colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: context.colors.edge)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(iconForMime(attachment.mimeType), color: Palette.accent, size: 30),
+              Icon(iconForMime(attachment.mimeType), color: context.colors.accent, size: 30),
               const SizedBox(width: 12),
               Flexible(
                 child: Column(
@@ -169,7 +169,7 @@ class _FileAttachment extends StatelessWidget {
                   children: [
                     Text(attachment.fileName, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
-                    Text(humanSize(attachment.sizeBytes), style: const TextStyle(color: Palette.dim, fontSize: 13)),
+                    Text(humanSize(attachment.sizeBytes), style: TextStyle(color: context.colors.dim, fontSize: 13)),
                   ],
                 ),
               ),

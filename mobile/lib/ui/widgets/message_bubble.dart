@@ -47,9 +47,9 @@ class MessageBubble extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('✦', style: TextStyle(color: Palette.accent, fontSize: 15)),
+                      Text('✦', style: TextStyle(color: context.colors.accent, fontSize: 15)),
                       const SizedBox(width: 6),
-                      Text(message.device, style: const TextStyle(color: Palette.dim, fontSize: 13, fontWeight: FontWeight.w700)),
+                      Text(message.device, style: TextStyle(color: context.colors.dim, fontSize: 13, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -59,9 +59,9 @@ class MessageBubble extends StatelessWidget {
                 child: Container(
                   padding: boxed || failed ? const EdgeInsets.fromLTRB(14, 10, 14, 8) : const EdgeInsets.symmetric(vertical: 2),
                   decoration: BoxDecoration(
-                    color: boxed ? Palette.mine : null,
+                    color: boxed ? context.colors.mine : null,
                     borderRadius: BorderRadius.circular(18),
-                    border: failed ? Border.all(color: Palette.warn) : null,
+                    border: failed ? Border.all(color: context.colors.warn) : null,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -92,21 +92,21 @@ class _Meta extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const small = TextStyle(color: Palette.dim, fontSize: 13);
+    final small = TextStyle(color: context.colors.dim, fontSize: 13);
     final state = message.state;
     if (state == SendState.failed) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('No se envió: ${message.error ?? 'error'}', style: const TextStyle(color: Palette.warn, fontSize: 13)),
+          Text('No se envió: ${message.error ?? 'error'}', style: TextStyle(color: context.colors.warn, fontSize: 13)),
           const SizedBox(height: 2),
           GestureDetector(
             key: Key('retry-${message.id}'),
             onTap: onRetry,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text('Reintentar', style: TextStyle(color: Palette.accent, fontWeight: FontWeight.w700, fontSize: 14)),
+              child: Text('Reintentar', style: TextStyle(color: context.colors.accent, fontWeight: FontWeight.w700, fontSize: 14)),
             ),
           ),
         ],
@@ -119,12 +119,12 @@ class _Meta extends StatelessWidget {
         Text(clockText(message.sentAt), style: small),
         if (state == SendState.pending) ...[
           const SizedBox(width: 6),
-          const Text('En espera', key: Key('waiting'), style: small),
+          Text('En espera', key: Key('waiting'), style: small),
           const SizedBox(width: 4),
-          const Icon(Icons.schedule, size: 14, color: Palette.dim),
+          Icon(Icons.schedule, size: 14, color: context.colors.dim),
         ] else if (mine) ...[
           const SizedBox(width: 6),
-          const Icon(Icons.check, key: Key('sent'), size: 15, color: Palette.accent),
+          Icon(Icons.check, key: Key('sent'), size: 15, color: context.colors.accent),
         ],
       ],
     );

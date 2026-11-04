@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../data/chat_backend.dart';
 import '../theme.dart';
+import 'register_page.dart';
 
-/// La pantalla de acceso: el mismo correo y contraseña que usa la PC (el usuario que creaste en Supabase). La sesión queda
-/// guardada en el teléfono; la contraseña no.
+/// La pantalla de acceso: tu correo y contraseña (el administrador usa los mismos que la PC). La sesión queda guardada en el
+/// teléfono; la contraseña no. Con `onSignUp`, quien aún no tiene cuenta puede crearla (pasantes).
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, required this.onSignIn});
+  const LoginPage({super.key, required this.onSignIn, this.onSignUp});
 
   final Future<void> Function(String email, String password) onSignIn;
+  final Future<bool> Function(String username, String email, String password)? onSignUp;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -48,6 +50,13 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _createAccount() async {
+    final notice = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => RegisterPage(onSignUp: widget.onSignUp!)),
+    );
+    if (notice != null && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -61,14 +70,14 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.forum_rounded, size: 56, color: Palette.accent),
+                  Icon(Icons.forum_rounded, size: 56, color: context.colors.accent),
                   const SizedBox(height: 14),
-                  Text('Kyora Chat', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 26)),
+                  Text('Kyra', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 26)),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Entra con el mismo correo y contraseña de tu Kyora en la PC.',
+                  Text(
+                    'Entra con tu correo y contraseña.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Palette.dim),
+                    style: TextStyle(color: context.colors.dim),
                   ),
                   const SizedBox(height: 30),
                   TextField(
@@ -91,14 +100,14 @@ class _LoginPageState extends State<LoginPage> {
                       hintText: 'Contraseña',
                       suffixIcon: IconButton(
                         tooltip: _hide ? 'Mostrar' : 'Ocultar',
-                        icon: Icon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Palette.dim),
+                        icon: Icon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: context.colors.dim),
                         onPressed: () => setState(() => _hide = !_hide),
                       ),
                     ),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
-                    Text(_error!, key: const Key('login-error'), textAlign: TextAlign.center, style: const TextStyle(color: Palette.warn)),
+                    Text(_error!, key: const Key('login-error'), textAlign: TextAlign.center, style: TextStyle(color: context.colors.warn)),
                   ],
                   const SizedBox(height: 22),
                   FilledButton(
@@ -108,6 +117,10 @@ class _LoginPageState extends State<LoginPage> {
                         ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4))
                         : const Text('Entrar'),
                   ),
+                  if (widget.onSignUp != null) ...[
+                    const SizedBox(height: 10),
+                    TextButton(key: const Key('create-account'), onPressed: _busy ? null : _createAccount, child: const Text('Crear cuenta')),
+                  ],
                 ],
               ),
             ),

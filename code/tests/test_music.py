@@ -1,6 +1,8 @@
+import json
 import threading
 import time
 
+from kyora.chat.client import ChatError
 from kyora.core.actions import ActionRegistry
 from kyora.music import ytdlp
 from kyora.music.service import MusicService
@@ -320,42 +322,154 @@ def test_pasted_cookies_are_saved_as_a_netscape_file(tmp_path):
         service.save_cookies("esto no son cookies")
 
 
-def test_each_finished_song_is_handed_to_the_phone_sync(tmp_path):
+# ---------- enviar a quien elijas (con la sincronización conectada) ----------
+
+
+def make_sending(tmp_path, uploaded=(), can_send=True):
+    """Un servicio con la sincronización «conectada»: `handed` recoge lo que le pasa a la cola de subida."""
     service, events = make(tmp_path)
     handed = []
     service.on_done = lambda *args: handed.append(args)
+    service.can_send = lambda: can_send
+    service.uploaded = lambda video_id: video_id in uploaded
     service.songs("PL1")
     wait_for(events, "songs")
-    service.download("PL1", ids=["v1"])
+    return service, events, handed
+
+
+def wait_until(condition, timeout=3):
+    end = time.time() + timeout
+    while time.time() < end and not condition():
+        time.sleep(0.01)
+    assert condition()
+
+
+def test_a_finished_song_goes_to_the_chosen_person_and_nothing_stays_in_the_music_folder(tmp_path):
+    service, events, handed = make_sending(tmp_path)
+    service.download("PL1", ids=["v1"], recipient="ana-id", recipient_name="ana")
     wait_for(events, "finished")
-    assert handed == [("v1", str(tmp_path / "v1.mp3"), "Titulo v1", "PL1")]
+    assert handed == [("v1", str(tmp_path / "v1.mp3"), "Titulo v1", "PL1", "ana-id", "ana")]
+    assert states(events) == {"v1": "sending"} and not service.is_done("v1")                # aún se está subiendo
+    service.mark_sent("v1", "ana-id", "PL1")
+    assert states(events) == {"v1": "done"} and service.is_done("v1")
+    assert json.loads((tmp_path / "music.json").read_text(encoding="utf-8"))["sent"] == {"v1": ["ana-id"]}
+    assert service._done == {}                                                              # no se anota como «guardada en una carpeta»
 
 
-def test_a_failing_sync_never_spoils_a_finished_download(tmp_path):
-    service, events = make(tmp_path)
+def test_no_recipient_means_me(tmp_path):
+    service, events, handed = make_sending(tmp_path)
+    service.download("PL1", ids=["v0"])
+    wait_for(events, "finished")
+    assert handed[0][4:] == (None, "Yo")
+    service.mark_sent("v0", None, "PL1")
+    assert json.loads((tmp_path / "music.json").read_text(encoding="utf-8"))["sent"] == {"v0": ["me"]}
+
+
+def test_a_song_still_uploading_shows_as_sending_in_the_list_and_a_failure_makes_it_retryable(tmp_path):
+    service, events, handed = make_sending(tmp_path)
+    service.download("PL1", ids=["v0"])
+    wait_for(events, "finished")
+    service.songs("PL1")
+    again = [e for e in events if e["kind"] == "songs"][-1]
+    wait_until(lambda: [e for e in events if e["kind"] == "songs"][-1]["songs"][0]["state"] == "sending")
+    service.mark_failed("v0", "Supabase rechazó el archivo", "PL1")
+    last = [e for e in events if e["kind"] == "progress" and e["id"] == "v0"][-1]
+    assert last["state"] == "error" and last["error"] == "Supabase rechazó el archivo" and not service.is_done("v0")
+    assert again["songs"][0]["id"] == "v0"
+
+
+def test_a_song_already_in_the_cloud_is_only_registered_for_the_new_person_without_downloading(tmp_path):
+    service, events, handed = make_sending(tmp_path, uploaded={"v2"})
+    service._runner = None                                                                  # no debe tocar yt-dlp
+    service.download("PL1", ids=["v2"], recipient="luis-id", recipient_name="Luis")
+    assert handed == [("v2", None, "Cancion 2", "PL1", "luis-id", "Luis")]
+    assert states(events) == {"v2": "sending"} and wait_for(events, "finished")["done"] == 0
+
+
+def test_a_song_already_sent_to_that_person_is_not_sent_again_but_can_go_to_someone_else(tmp_path):
+    service, events, handed = make_sending(tmp_path, uploaded={"v0"})
+    service.download("PL1", ids=["v0"], recipient="ana-id", recipient_name="ana")
+    service.mark_sent("v0", "ana-id", "PL1")
+    handed.clear()
+    service.download("PL1", ids=["v0"], recipient="ana-id", recipient_name="ana")          # misma persona: nada
+    assert handed == []
+    service.download("PL1", ids=["v0"], recipient="luis-id", recipient_name="Luis")        # otra persona: sí
+    assert [h[4] for h in handed] == ["luis-id"]
+
+
+def test_download_all_skips_what_is_already_sent_and_remembers_it_after_a_restart(tmp_path):
+    service, events, handed = make_sending(tmp_path, uploaded={"v0"})
+    service.download("PL1", ids=["v0"])
+    service.mark_sent("v0", None, "PL1")
+    other, _ = make(tmp_path)
+    assert other.is_done("v0") and not other.is_done("v1")
+    handed.clear()
+    service.download("PL1")                                                                 # «Descargar (n)»: todas las que faltan
+    wait_until(lambda: len(handed) == 2)
+    assert sorted(h[0] for h in handed) == ["v1", "v2"]
+
+
+def test_it_refuses_to_download_when_sending_is_not_possible(tmp_path):
+    service, events, handed = make_sending(tmp_path, can_send=False)
+    registry = ActionRegistry()
+    service.register(registry)
+    result = registry.invoke("music.download", {"playlist": "PL1", "ids": ["v0"]})
+    assert not result["ok"] and result["error"]["code"] == "no_sync" and not any(e["kind"] == "progress" for e in events)
+
+
+def test_a_failing_hand_over_marks_the_song_as_failed_and_counts_it(tmp_path):
+    service, events, handed = make_sending(tmp_path)
 
     def broken(*args):
         raise RuntimeError("sin cola")
 
     service.on_done = broken
-    service.songs("PL1")
-    wait_for(events, "songs")
     service.download("PL1", ids=["v0"])
     done = wait_for(events, "finished")
-    assert (done["done"], done["failed"]) == (1, 0) and service.is_done("v0")
+    assert (done["done"], done["failed"]) == (0, 1) and states(events) == {"v0": "error"}
 
 
-def test_asking_again_for_an_already_downloaded_song_sends_it_to_the_phone_but_download_all_does_not(tmp_path):
+def test_cancel_forgets_who_the_queued_songs_were_for(tmp_path):
+    gate = {"id": "v0", "started": threading.Event()}
+    service, events = make(tmp_path, gate=gate)
+    service.on_done = lambda *args: None
+    service.songs("PL1")
+    wait_for(events, "songs")
+    service.download("PL1", recipient="ana-id", recipient_name="ana")
+    assert gate["started"].wait(3)
+    service.cancel()
+    wait_for(events, "finished")
+    assert service._targets == {} or set(service._targets) <= {"v0"}
+
+
+def test_the_list_of_people_is_asked_through_an_action(tmp_path):
+    service, events = make(tmp_path)
+    service.fetch_recipients = lambda: [{"id": None, "name": "Yo", "me": True}, {"id": "ana-id", "name": "ana", "me": False}]
+    registry = ActionRegistry()
+    service.register(registry)
+    assert registry.invoke("music.recipients", {})["ok"]
+    assert [p["name"] for p in wait_for(events, "recipients")["recipients"]] == ["Yo", "ana"]
+
+
+def test_the_list_of_people_reports_why_it_failed(tmp_path):
+    service, events = make(tmp_path)
+    service.recipients()
+    assert wait_for(events, "error")["where"] == "recipients"
+    events.clear()
+
+    def offline():
+        raise ChatError("offline", "Sin conexión con Supabase", retryable=True)
+
+    service.fetch_recipients = offline
+    service.recipients()
+    got = wait_for(events, "error")
+    assert got["where"] == "recipients" and got["error"] == "Sin conexión con Supabase"
+
+
+def test_without_sync_the_mp3_stays_in_the_folder_as_before(tmp_path):
     service, events = make(tmp_path)
     service.songs("PL1")
     wait_for(events, "songs")
     service.download("PL1", ids=["v0"])
     wait_for(events, "finished")
-    handed = []
-    service.on_done = lambda *args: handed.append(args[0])
-    service.download("PL1", ids=["v0"])                                       # una canción concreta: se vuelve a mandar
-    assert handed == ["v0"]
-    handed.clear()
-    service.download("PL1")                                                   # «Descargar» todo: lo ya bajado no se reenvía
-    wait_for(events, "finished")
-    assert "v0" not in handed
+    assert states(events) == {"v0": "done"} and (tmp_path / "v0.mp3").exists() and service.is_done("v0")

@@ -28,6 +28,7 @@ class MusicController extends ChangeNotifier {
 
   final Set<String> _saved = {};
   final Set<String> _saving = {};
+  final Set<String> _confirming = {};
   final Map<String, String> _failed = {};
   DateTime? _autoSince;
   StreamSubscription<void>? _changes;
@@ -58,6 +59,9 @@ class MusicController extends ChangeNotifier {
 
   String? failureOf(Track track) => _failed[track.id];
 
+  /// Cuántas canciones ya están guardadas en el teléfono.
+  int get savedCount => _saved.length;
+
   int get pendingCount => tracks.where((t) => stateOf(t) == TrackState.pending || stateOf(t) == TrackState.failed).length;
 
   /// Vuelve a pedir la lista y, si toca, guarda solas las canciones nuevas.
@@ -87,14 +91,24 @@ class MusicController extends ChangeNotifier {
   }
 
   /// Baja una canción y la deja en la carpeta elegida.
+  /// Lo que se le hace a una canción antes de dejarla en el teléfono (ponerle la imagen que le hayas elegido).
+  Future<Uint8List> Function(Track track, Uint8List bytes)? prepareForSaving;
+
   Future<void> save(Track track, {bool quiet = false}) async {
     if (_saving.contains(track.id) || _saved.contains(track.id)) return;
     _saving.add(track.id);
     _failed.remove(track.id);
     _tell();
     try {
-      final bytes = await _backend.downloadTrack(track.storagePath);
-      final where = await _saver.save(fileName: track.fileName, bytes: bytes, base: settings.base, folder: settings.folder);
+      final downloaded = await _backend.downloadTrack(track.storagePath);
+      final bytes = await prepareForSaving?.call(track, downloaded) ?? downloaded;
+      final where = await _saver.save(
+        fileName: track.fileName,
+        bytes: bytes,
+        base: settings.base,
+        folder: settings.folder,
+        treeUri: settings.treeUri,
+      );
       _saved.add(track.id);
       await _store.markSaved(track.id);
       if (!_disposed) _notices.add('Guardada en $where: ${track.title}');
@@ -110,6 +124,40 @@ class MusicController extends ChangeNotifier {
     }
   }
 
+  /// ¿Ya confirmaste con «Recibido» esta canción?
+  bool isReceived(Track track) => track.receivedAt != null;
+
+  /// ¿Se está confirmando ahora mismo?
+  bool isConfirming(Track track) => _confirming.contains(track.id);
+
+  /// «Recibido»: avisa a Supabase de que la canción ya está guardada en este teléfono. Si todavía no lo está, la guarda primero; y
+  /// si no se puede guardar, **no** avisa (Supabase no borra nada sin esta confirmación). `true` si quedó confirmada.
+  Future<bool> confirmReceived(Track track) async {
+    if (isReceived(track)) return true;
+    if (_confirming.contains(track.id)) return false;
+    _confirming.add(track.id);
+    _tell();
+    try {
+      if (stateOf(track) == TrackState.saving) {
+        if (!_disposed) _notices.add('Espera a que termine de guardarse.');
+        return false;
+      }
+      if (stateOf(track) != TrackState.saved) await save(track);
+      if (stateOf(track) != TrackState.saved) return false; // no se pudo guardar: el motivo ya salió como aviso
+      await _backend.confirmReceived(track.id);
+      final at = DateTime.now().toUtc();
+      tracks = [for (final t in tracks) t.id == track.id ? t.withReceived(at) : t];
+      if (!_disposed) _notices.add('Recibida: ${track.title}');
+      return true;
+    } on ChatException catch (e) {
+      if (!_disposed) _notices.add(e.message);
+      return false;
+    } finally {
+      _confirming.remove(track.id);
+      _tell();
+    }
+  }
+
   /// «Guardar todas»: las pendientes y las que fallaron, una detrás de otra.
   Future<void> saveAll() async {
     for (final track in List.of(tracks)) {
@@ -118,6 +166,9 @@ class MusicController extends ChangeNotifier {
       if (state == TrackState.pending || state == TrackState.failed) await save(track);
     }
   }
+
+  /// Abre el selector de carpetas de Android (lo usa la hoja de ajustes). `null` si no se eligió ninguna.
+  Future<PickedFolder?> pickFolder() => _saver.pickFolder();
 
   Future<void> updateSettings(MusicSettings next) async {
     final turnedOn = next.auto && !settings.auto;

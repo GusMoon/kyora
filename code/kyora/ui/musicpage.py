@@ -2,7 +2,8 @@
 
 Las listas y las descargas tardan: se piden al núcleo con `invoke` (fuera del hilo de Qt) y las respuestas llegan por
 `on_result` (la señal music_result del puente). Enter abre una lista o reproduce la canción (en streaming, sin bajarla,
-y al acabar sigue con la siguiente); D la descarga; Espacio pausa; Esc / ← vuelve a las listas.
+y al acabar sigue con la siguiente); D la manda (pregunta a quién: «Yo» o un pasante, y nada se guarda en la PC);
+Espacio pausa; Esc / ← vuelve a las listas.
 """
 import array
 import math
@@ -27,7 +28,8 @@ from kyora.ui.status_icon import paint_status
 ROW_H = 40
 ICON_R = 9
 ACTION_W = 44  # la zona de la derecha: el botón de bajar o el porcentaje
-STATUS_OF = {"done": "done", "doing": "doing", "queued": "open", "error": "pending", "pending": "pending"}
+STATUS_OF = {"done": "done", "doing": "doing", "sending": "doing", "queued": "open", "error": "pending",
+             "pending": "pending"}
 
 
 def duration_text(seconds):
@@ -122,7 +124,7 @@ class MusicList(QWidget):
             self.play.emit(index)
 
     def _download(self, index):
-        if self.items[index]["state"] not in ("done", "doing", "queued"):
+        if self.items[index]["state"] not in ("doing", "queued", "sending"):  # una ya enviada se puede mandar a otra persona
             self.download.emit(index)
 
     def mouseMoveEvent(self, event):
@@ -204,7 +206,11 @@ class MusicList(QWidget):
             p.setPen(QColor(t.gold))
             p.setFont(font(t, t.small_px, bold=True))
             p.drawText(box, Qt.AlignVCenter | Qt.AlignRight, f"{item.get('percent', 0)}%")
-        elif state in ("pending", "error"):
+        elif state == "sending":
+            p.setPen(QColor(t.gold))
+            p.setFont(font(t, t.small_px, bold=True))
+            p.drawText(box, Qt.AlignVCenter | Qt.AlignRight, "…")
+        elif state in ("pending", "error", "done"):
             p.setPen(glyphs.pen(QColor(t.warn if state == "error" else t.dim), 1.4))
             p.setBrush(Qt.NoBrush)
             glyphs.download(p, QRectF(box.right() - 24, box.center().y() - 9, 18, 18))
@@ -284,6 +290,96 @@ class Player(QObject):
 
     def seek(self, ms):
         self.player.setPosition(ms)
+
+
+class RecipientPanel(QWidget):
+    """«¿A quién se la mando?»: tú («Yo») y los pasantes registrados. Enter o clic elige; Esc cancela. Sustituye a la lista
+    mientras está abierto (el mismo patrón que CookiePanel)."""
+
+    chosen = Signal(int)
+    cancelled = Signal()
+
+    def __init__(self, theme):
+        super().__init__()
+        self.theme = theme
+        self.items = []  # [{id, name, me}]
+        self.message = "Cargando…"
+        self.warn = False
+        self.selected = 0
+        self._hover = -1
+        self.prompt = ""
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def ask(self, prompt):
+        self.prompt, self.items, self.message, self.warn, self.selected = prompt, [], "Cargando…", False, 0
+        self.update()
+
+    def set_people(self, people):
+        self.items, self.message, self.warn = list(people), "", False
+        self.selected = 0
+        self.update()
+
+    def set_error(self, text):
+        self.items, self.message, self.warn = [], text, True
+        self.update()
+
+    def _top(self):
+        return 30  # sitio para la pregunta
+
+    def _row_at(self, y):
+        i = int((y - self._top()) // ROW_H)
+        return i if 0 <= i < len(self.items) else -1
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key_Up, Qt.Key_Down) and self.items:
+            self.selected = min(max(self.selected + (1 if key == Qt.Key_Down else -1), 0), len(self.items) - 1)
+            self.update()
+        elif key in (Qt.Key_Return, Qt.Key_Enter) and 0 <= self.selected < len(self.items):
+            self.chosen.emit(self.selected)
+        elif key in (Qt.Key_Escape, Qt.Key_Left, Qt.Key_Backspace):
+            self.cancelled.emit()
+        else:
+            super().keyPressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        hover = self._row_at(event.position().y())
+        if hover != self._hover:
+            self._hover = hover
+            self.update()
+
+    def leaveEvent(self, _):
+        self._hover = -1
+        self.update()
+
+    def mousePressEvent(self, event):
+        index = self._row_at(event.position().y())
+        if event.button() == Qt.LeftButton and index >= 0:
+            self.selected = index
+            self.chosen.emit(index)
+
+    def paintEvent(self, _):
+        t = self.theme
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QColor(t.dim))
+        p.setFont(font(t, t.font_px))
+        p.drawText(QRectF(14, 0, self.width() - 28, self._top()), Qt.AlignVCenter | Qt.AlignLeft, self.prompt)
+        if not self.items:
+            p.setPen(QColor(t.warn if self.warn else t.dim))
+            p.drawText(QRectF(self.rect()).adjusted(12, self._top() + 6, -12, -8), Qt.AlignTop | Qt.AlignHCenter | Qt.TextWordWrap,
+                       self.message + ("\n\nEsc para volver" if self.warn else ""))
+            return
+        for i, person in enumerate(self.items):
+            row = QRectF(0, self._top() + i * ROW_H, self.width(), ROW_H)
+            if i in (self.selected, self._hover):
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(t.gold_soft if i == self.selected and self.hasFocus() else t.hover))
+                p.drawRoundedRect(row.adjusted(2, 1, -2, -1), 8, 8)
+            p.setPen(QColor(t.gold if person.get("me") else t.ink))
+            p.setFont(font(t, t.font_px + 1, bold=bool(person.get("me"))))
+            p.drawText(row.adjusted(16, 0, -12, 0), Qt.AlignVCenter | Qt.AlignLeft, person["name"])
 
 
 class CookiePanel(QWidget):
@@ -367,6 +463,8 @@ class MusicPage(DockPage):
         self.queue_playlist = None  # de qué lista son (puede que ya estés mirando otra)
         self.at = -1  # cuál de ellas
         self.want = None  # la que se está pidiendo (por si el usuario cambia antes de que llegue)
+        self.last_recipient = {"id": None, "name": "Yo", "me": True}  # a quien se mandó la última vez (la cápsula usa este)
+        self.asking = None  # las canciones por mandar mientras se elige a quién: lista de ids, o [] = todas las pendientes
         self.sound = ""  # "loading", "playing" o "paused" de la que va en `self.at`
         t = theme
         self.title = QLabel("Música")
@@ -397,6 +495,10 @@ class MusicPage(DockPage):
         self.list.opened.connect(self._open)
         self.list.play.connect(self._play)
         self.list.download.connect(lambda i: self._download([self.songs[i]["id"]]))
+        self.recipients = RecipientPanel(theme)
+        self.recipients.chosen.connect(self._recipient_chosen)
+        self.recipients.cancelled.connect(self._close_recipients)
+        self.recipients.hide()
         self.list.toggle.connect(self._toggle)
         self.list.back.connect(self._back)
         self.cookies = CookiePanel(theme)
@@ -409,6 +511,7 @@ class MusicPage(DockPage):
         layout.addWidget(self.install)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.cookies, 1)
+        layout.addWidget(self.recipients, 1)
         self.setStyleSheet(
             f"QWidget {{ background: transparent; color: {t.ink}; }}"
             f"QPushButton {{ background: {_css(t.hover)}; border: 1px solid {_css(t.line)}; border-radius: 8px;"
@@ -419,7 +522,7 @@ class MusicPage(DockPage):
         self._sync()
 
     def focus_first(self):
-        self.list.setFocus()
+        (self.recipients if self.recipients.isVisible() else self.list).setFocus()
 
     # ---------- qué se ve ----------
 
@@ -469,6 +572,7 @@ class MusicPage(DockPage):
         self._invoke("music.songs", playlist=self.playlist["id"])
 
     def _back(self):
+        self._close_recipients(focus=False)
         self.playlist = None
         self.songs = []
         self._say("")
@@ -477,10 +581,33 @@ class MusicPage(DockPage):
         self.list.setFocus()
 
     def _download(self, ids):
+        """«Descargar»: pregunta a quién se manda (no se guarda nada en la PC). `ids` vacío = todas las pendientes."""
         if self.playlist is None:
             return
         self._say("")
-        self._invoke("music.download", playlist=self.playlist["id"], **({"ids": ids} if ids else {}))
+        self.asking = list(ids) if ids else []
+        count = len(ids) if ids else sum(s["state"] in ("pending", "error") for s in self.songs)
+        self.recipients.ask("¿A quién se la mando?" if count == 1 else f"¿A quién se las mando? ({count})")
+        self.list.hide()
+        self.recipients.show()
+        self.recipients.setFocus()
+        self._invoke("music.recipients")
+
+    def _close_recipients(self, focus=True):
+        self.asking = None
+        self.recipients.hide()
+        self.list.show()
+        if focus:
+            self.list.setFocus()
+
+    def _recipient_chosen(self, index):
+        person = self.recipients.items[index]
+        ids, self.asking = self.asking, None
+        self.last_recipient = person
+        self._close_recipients()
+        if self.playlist is not None:
+            self._invoke("music.download", playlist=self.playlist["id"], recipient=person["id"], recipient_name=person["name"],
+                         **({"ids": ids} if ids else {}))
 
     # ---------- escuchar ----------
 
@@ -545,10 +672,12 @@ class MusicPage(DockPage):
             self.player.toggle()
 
     def download_current(self):
-        """La tecla de descargar de la cápsula de abajo: baja la canción que suena (y, con la sincronización, la manda al
-        móvil). Si ya estaba bajada, solo se vuelve a mandar al móvil."""
+        """La tecla de descargar de la cápsula de abajo: manda la canción que suena a la última persona elegida en esta
+        página (por defecto «Yo»), sin abrir el panel de destinatarios."""
         if self.sound and 0 <= self.at < len(self.queue) and self.queue_playlist is not None:
-            self._invoke("music.download", playlist=self.queue_playlist, ids=[self.queue[self.at]["id"]])
+            person = self.last_recipient
+            self._invoke("music.download", playlist=self.queue_playlist, ids=[self.queue[self.at]["id"]],
+                         recipient=person["id"], recipient_name=person["name"])
 
     def next_track(self):
         """La cápsula de abajo: la canción siguiente de la lista (si hay)."""
@@ -612,6 +741,9 @@ class MusicPage(DockPage):
             self._streamed(result)
         elif kind == "progress":
             self._progress(result)
+        elif kind == "recipients":
+            if self.asking is not None:
+                self.recipients.set_people(result["recipients"])
         elif kind == "sync":
             self._sync_note(result)
         elif kind == "finished":
@@ -625,6 +757,10 @@ class MusicPage(DockPage):
                 self.sound = ""
                 self._mark()
                 self._announce()
+            if result.get("where") == "recipients":
+                if self.asking is not None:
+                    self.recipients.set_error(result["error"])
+                return
             if result.get("where") == "playlists" and "cookies" in result["error"].lower():
                 self._ask_cookies(result["error"])
                 return
@@ -649,14 +785,16 @@ class MusicPage(DockPage):
         self._sync()
 
     def _sync_note(self, result):
-        """La canción que se acaba de bajar sube a tu cuenta para que el móvil la vea: se cuenta en la línea de avisos."""
+        """La canción que se acaba de bajar sube a Supabase para quien elegiste: se cuenta en la línea de avisos."""
         title = result.get("title") or "la canción"
+        to = result.get("to") or "Yo"
+        mine = to == "Yo"
         if result["state"] == "uploading":
-            self._say(f"Mandando «{title}» a tu móvil…")
+            self._say(f"Mandando «{title}» a tu móvil…" if mine else f"Mandando «{title}» a {to}…")
         elif result["state"] == "synced":
-            self._say(f"En tu móvil: «{title}»")
+            self._say(f"En tu móvil: «{title}»" if mine else f"Enviada a {to}: «{title}»")
         else:
-            self._say(result.get("message") or "No se pudo mandar la canción al móvil", warn=True)
+            self._say(result.get("message") or "No se pudo mandar la canción", warn=True)
 
     def _summary(self, result):
         left = sum(s["state"] in ("pending", "error") for s in self.songs)
@@ -665,4 +803,5 @@ class MusicPage(DockPage):
         elif result["failed"]:
             self._say(f"{result['done']} descargadas, {result['failed']} fallaron: pulsa Reintentar.", warn=True)
         elif result["done"]:
-            self._say(f"Listo: {result['done']} descargadas en tu carpeta Música.")
+            name = self.last_recipient["name"]
+            self._say(f"Listo: {result['done']} bajadas; se mandan a {'tu móvil' if name == 'Yo' else name}.")

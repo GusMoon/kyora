@@ -65,7 +65,7 @@ COVER_URL = "https://i.ytimg.com/vi/{id}/mqdefault.jpg"
 COVER_CACHE = 12  # carátulas en memoria como mucho
 COVER_PX = 480  # ancho máximo con el que se guardan (la miniatura mide 320: se ve tal cual, sin recortar a cuadrado)
 KEYS = ("toggle", "download", "close")  # de izquierda a derecha
-BUSY = ("queued", "doing")  # estados de la descarga de la canción que suena
+BUSY = ("queued", "doing", "sending")  # estados de la descarga de la canción que suena
 
 
 def title_width():
@@ -160,7 +160,7 @@ class MusicPill:
         self.theme = theme
         self.title, self.track_id, self.playing = "", "", False
         self.has_next = False  # hay otra canción después de esta
-        self.download = ""  # cómo va la descarga de la que suena: "", "pending", "queued", "doing", "done" o "error"
+        self.download = ""  # cómo va la descarga de la que suena: "", "pending", "queued", "doing", "sending", "done" o "error"
         self.cover = None  # QPixmap de la miniatura, o None mientras llega (o si no hay)
         self.wave = Wave()
         self.offset = 0  # lo que se ha deslizado el nombre
