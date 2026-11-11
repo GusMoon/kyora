@@ -17,6 +17,10 @@ abstract class ReminderScheduler {
   /// Programa el aviso del recordatorio a su hora (si ya tenía uno, lo reemplaza).
   Future<void> schedule(Reminder reminder);
 
+  /// Programa un aviso que se repite cada semana ese día (`DateTime.weekday`, 1 = lunes) a esa hora local (si ya había uno con ese número,
+  /// lo reemplaza). Es el de los hábitos.
+  Future<void> scheduleWeekly({required int id, required String title, required int weekday, required int hour, required int minute});
+
   Future<void> cancel(int notifId);
 }
 
@@ -29,6 +33,14 @@ class LocalNotificationScheduler implements ReminderScheduler {
     'com.kyora.kyora_chat.reminders',
     'Recordatorios',
     channelDescription: 'Avisos de tus recordatorios',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+
+  static const _habitChannel = AndroidNotificationDetails(
+    'com.kyora.kyora_chat.habits',
+    'Hábitos',
+    channelDescription: 'El aviso de tus hábitos, los días que tocan',
     importance: Importance.high,
     priority: Priority.high,
   );
@@ -67,6 +79,28 @@ class LocalNotificationScheduler implements ReminderScheduler {
       scheduledDate: tz.TZDateTime.from(reminder.at, tz.local),
       notificationDetails: _channel,
       scheduleMode: exact ? AndroidScheduleMode.exactAllowWhileIdle : AndroidScheduleMode.inexactAllowWhileIdle,
+    );
+  }
+
+  @override
+  Future<void> scheduleWeekly({required int id, required String title, required int weekday, required int hour, required int minute}) async {
+    final android = _android;
+    if (android == null) return;
+    final now = tz.TZDateTime.now(tz.local);
+    var next = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    // el próximo de ese día de la semana (con el constructor y no sumando horas: así un cambio de horario no lo mueve)
+    while (next.weekday != weekday || !next.isAfter(now)) {
+      next = tz.TZDateTime(tz.local, next.year, next.month, next.day + 1, hour, minute);
+    }
+    final exact = await android.canScheduleExactNotifications() == true;
+    await android.zonedSchedule(
+      id: id,
+      title: title,
+      body: 'Hoy toca',
+      scheduledDate: next,
+      notificationDetails: _habitChannel,
+      scheduleMode: exact ? AndroidScheduleMode.exactAllowWhileIdle : AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
     );
   }
 

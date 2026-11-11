@@ -2,169 +2,131 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../state/now_playing_backdrop.dart';
 import '../../state/wallpaper_controller.dart';
+
 import '../../theme.dart';
+import 'cover_backdrop.dart';
+import 'device_shell.dart';
 
-/// El gris más claro que llega a tener el fondo (arriba) y el más oscuro (abajo), a partir del gris de la app: un gris **muy oscuro**.
-(Color, Color) backdropGreys(Color base) => (Color.lerp(base, Colors.black, 0.30)!, Color.lerp(base, Colors.black, 0.58)!);
+/// El fondo de pantalla elegido, para quien lo pinte (`BackdropLayers`): se pone una vez, encima de toda la app, y cambia cuando se cambia.
+class WallpaperScope extends InheritedNotifier<WallpaperController> {
+  const WallpaperScope({super.key, super.notifier, required super.child});
 
-/// Quién tiene el fondo de pantalla: las pantallas que se empujan encima (y que deben taparlo todo mientras se deslizan) lo leen de aquí
-/// para pintar sus propias capas del fondo, en vez de fundirse con opacidad (que dejaría sin desenfoque a las tarjetas de cristal).
-class BackdropScope extends InheritedWidget {
-  const BackdropScope({super.key, required this.wallpaper, required super.child});
-
-  final WallpaperController? wallpaper;
-
-  static BackdropScope? maybeOf(BuildContext context) => context.getInheritedWidgetOfExactType<BackdropScope>();
-
-  @override
-  bool updateShouldNotify(BackdropScope oldWidget) => oldWidget.wallpaper != wallpaper;
+  /// El fondo, o `null` si no hay un `WallpaperScope` encima o no se dio ninguno.
+  static WallpaperController? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<WallpaperScope>()?.notifier;
 }
 
-/// El fondo de toda la app. Sin fondo de pantalla, un gris muy oscuro (un poco más claro arriba para que no se vea plano). Con uno, esa
-/// imagen **muy suavizada y oscurecida**, para que se vea moderno y limpio sea cual sea la imagen y el texto claro se lea siempre.
-/// Va detrás del navegador, así que no se mueve al cambiar de pantalla. Este es el fondo de Inicio; las demás secciones ponen encima el
-/// efecto completo (`BackdropLayers` con `full`).
+/// La portada de lo que suena, para el fondo de toda la app (`BackdropLayers`): mientras suena una canción el fondo es su portada.
+class NowPlayingScope extends InheritedNotifier<NowPlayingBackdrop> {
+  const NowPlayingScope({super.key, super.notifier, required super.child});
+
+  /// La portada que suena, o `null` si no suena nada, no hay `NowPlayingScope` encima o lo que suena no tiene portada.
+  static ({String? file, String? url})? sourceOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<NowPlayingScope>()?.notifier?.source;
+}
+
+/// Lo que se oscurece el fondo (el de pantalla o la portada que suena): **plano**, igual en toda la pantalla y en todas las secciones; lo justo
+/// para que la información se lea.
+const kBackdropDim = 0.42;
+
+/// La capa de «pantalla de hacker» que va sobre cualquier fondo: el oscurecido plano ([dim]) y encima las **líneas de barrido** bien marcadas
+/// (una raya oscura cada pocos píxeles y un hilo de luz entre ellas). Es pintura: no recibe toques.
+class HackerScreen extends StatelessWidget {
+  const HackerScreen({super.key, this.dim = kBackdropDim});
+
+  /// El oscurecido (0 = sin oscurecer, solo las líneas).
+  final double dim;
+
+  /// Cada cuántos píxeles va una línea, y su grosor y opacidad.
+  static const pitch = 4.0;
+  static const lineWidth = 1.6;
+  static const lineAlpha = 0.38;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        if (dim > 0) ColoredBox(key: const Key('backdrop-dim'), color: Colors.black.withValues(alpha: dim)),
+        const RepaintBoundary(child: CustomPaint(key: Key('backdrop-lines'), painter: ScanLinesPainter(), size: Size.infinite)),
+      ],
+    ),
+  );
+}
+
+/// Las líneas de barrido del fondo: una raya oscura bien marcada cada [HackerScreen.pitch] píxeles y un hilo de luz tenue entre ellas.
+class ScanLinesPainter extends CustomPainter {
+  const ScanLinesPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final dark = Paint()..strokeWidth = HackerScreen.lineWidth..color = Colors.black.withValues(alpha: HackerScreen.lineAlpha);
+    final light = Paint()..strokeWidth = 1..color = Colors.white.withValues(alpha: 0.05);
+    for (var y = 1.0; y < size.height; y += HackerScreen.pitch) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), dark);
+      canvas.drawLine(Offset(0, y + HackerScreen.pitch / 2), Offset(size.width, y + HackerScreen.pitch / 2), light);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ScanLinesPainter old) => false;
+}
+
+/// Toda la app dentro del aparato: el bisel, la pantalla LCD y lo de dentro (el acceso, las secciones y lo que se abra encima). Con el fondo
+/// de pantalla, que lo ven todas las secciones.
 class AppBackdrop extends StatelessWidget {
-  const AppBackdrop({super.key, required this.child, this.wallpaper});
+  const AppBackdrop({super.key, required this.child, this.wallpaper, this.nowPlaying});
 
   final Widget child;
 
-  /// El fondo de pantalla elegido; sin él (o sin imagen) queda el gris.
+  /// El fondo de pantalla. Sin esto (o sin imagen puesta) el fondo es el gris oscuro de siempre.
   final WallpaperController? wallpaper;
 
-  /// El ancho al que se decodifica: tan pequeño que al estirarla a toda la pantalla queda borrosa, y casi sin coste de memoria.
-  static const decodeWidth = 96;
-
-  /// La parte de arriba, del alto de la pantalla, donde la foto se ve del todo nítida (el efecto cubre el 70 % de abajo).
-  static const sharpUntil = 0.30;
-
-  /// Cómo se va perdiendo la nitidez de la foto hacia abajo: la opacidad de la foto nítida en cada parada (de 1 en [sharpUntil] a 0 en
-  /// el borde de abajo, con una curva suave).
-  static const sharpStops = [0.0, sharpUntil, 0.45, 0.60, 0.80, 1.0];
-  static const sharpAlphas = [1.0, 1.0, 0.72, 0.40, 0.12, 0.0];
-
-  /// El velo del efecto completo (arriba y abajo): un poco más oscuro que el de Inicio.
-  static const fullVeil = [Color(0xA6000000), Color(0xBF000000)];
+  /// La portada de lo que suena: mientras suena algo, el fondo de toda la app pasa a ser su portada. Sin esto no cambia nunca.
+  final NowPlayingBackdrop? nowPlaying;
 
   @override
-  Widget build(BuildContext context) {
-    return BackdropScope(
-      wallpaper: wallpaper,
-      child: Stack(fit: StackFit.expand, children: [BackdropLayers(wallpaper: wallpaper), child]),
-    );
-  }
+  Widget build(BuildContext context) =>
+      NowPlayingScope(notifier: nowPlaying, child: WallpaperScope(notifier: wallpaper, child: DeviceShell(key: const Key('app-backdrop'), screen: child)));
 }
 
-/// Las capas del fondo (el gris, o la imagen suavizada con su velo), sin nada encima. Con `full`, el efecto ocupa el 100 %: toda la pantalla
-/// borrosa, sin la foto nítida de arriba, y un poco más oscura. Así se ve el fondo fuera de Inicio.
+/// El fondo de una pantalla: el gris oscuro de siempre o, si hay un fondo de pantalla, esa imagen a pantalla completa; mientras suena una
+/// canción, su portada por encima. Sobre todo ello, el **oscurecido plano** (sin degradados) y las **líneas de barrido** (`HackerScreen`).
 class BackdropLayers extends StatelessWidget {
-  const BackdropLayers({super.key, this.wallpaper, this.full = false});
+  const BackdropLayers({super.key});
 
-  final WallpaperController? wallpaper;
-  final bool full;
-
-  @override
-  Widget build(BuildContext context) {
-    final (top, bottom) = backdropGreys(context.colors.background);
-    final plain = DecoratedBox(
-      key: full ? null : const Key('app-backdrop'),
-      decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [top, bottom])),
-    );
-    final Widget gray = full ? Stack(fit: StackFit.expand, children: [plain, const _FullVeil()]) : plain;
-    final source = wallpaper;
-    if (source == null) return gray;
-    return ListenableBuilder(
-      listenable: source,
-      builder: (context, _) {
-        final path = source.path;
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          child: path == null ? KeyedSubtree(key: const ValueKey('no-wallpaper'), child: gray) : _Wallpaper(key: ValueKey(path), path: path, full: full),
-        );
-      },
-    );
-  }
-}
-
-/// El velo del efecto completo.
-class _FullVeil extends StatelessWidget {
-  const _FullVeil();
-
-  @override
-  Widget build(BuildContext context) => const DecoratedBox(
-        key: Key('backdrop-full-veil'),
-        decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: AppBackdrop.fullVeil)),
-      );
-}
-
-/// La imagen de fondo. La de Inicio: suavizada y oscurecida en el 70 % de abajo y, arriba, la foto nítida que se va desvaneciendo hacia
-/// abajo. Con `full`: solo la imagen suavizada, con el velo más oscuro.
-class _Wallpaper extends StatelessWidget {
-  const _Wallpaper({super.key, required this.path, required this.full});
-
-  final String path;
-  final bool full;
+  /// Lo que tarda el fondo en pasar a la portada que suena y en volver.
+  static const coverFade = Duration(milliseconds: 600);
 
   @override
   Widget build(BuildContext context) {
-    final soft = Image.file(
-      File(path),
-      key: Key(full ? 'backdrop-full-image' : 'wallpaper-image'),
-      fit: BoxFit.cover,
-      cacheWidth: AppBackdrop.decodeWidth,
-      filterQuality: FilterQuality.high,
-      gaplessPlayback: true,
-      errorBuilder: (context, _, _) => const ColoredBox(color: Color(0xFF111112)),
-    );
-    if (full) return RepaintBoundary(child: Stack(fit: StackFit.expand, children: [soft, const _FullVeil()]));
+    final path = WallpaperScope.maybeOf(context)?.path;
+    final playing = NowPlayingScope.sourceOf(context);
+    final base = ColoredBox(key: const Key('screen-backdrop'), color: context.colors.background);
     final media = MediaQuery.of(context);
-    // la nítida, al ancho real de la pantalla: aquí sí se ve la foto sin suavizar
-    final sharpWidth = (media.size.width * media.devicePixelRatio).round().clamp(200, 1080);
-    return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          soft,
-          // el velo: un poco más oscuro abajo, donde van las tarjetas
-          const DecoratedBox(
-            key: Key('wallpaper-veil'),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x80000000), Color(0xA6000000)],
-              ),
-            ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        base,
+        if (path != null)
+          Image.file(
+            File(path),
+            key: ValueKey(path),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            cacheWidth: (media.size.width * media.devicePixelRatio).round(),
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
           ),
-          // la foto nítida de arriba, que se desvanece hacia abajo (dejando ver el fondo ya suavizado)
-          ShaderMask(
-            key: const Key('backdrop-sharp'),
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (rect) => LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [for (final alpha in AppBackdrop.sharpAlphas) Colors.white.withValues(alpha: alpha)],
-              stops: AppBackdrop.sharpStops,
-            ).createShader(rect),
-            child: Image.file(
-              File(path),
-              key: const Key('backdrop-sharp-image'),
-              fit: BoxFit.cover,
-              cacheWidth: sharpWidth,
-              gaplessPlayback: true,
-              errorBuilder: (context, _, _) => const SizedBox.expand(),
-            ),
-          ),
-          // un velo fino arriba asegura que el texto claro se lea sobre cualquier foto
-          const DecoratedBox(
-            key: Key('backdrop-sharp-veil'),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x66000000), Color(0x00000000)], stops: [0.0, 0.28]),
-            ),
-          ),
-        ],
-      ),
+        // mientras suena algo, su portada cubre el fondo; al pausar o parar se funde y vuelve el de siempre
+        AnimatedSwitcher(
+          duration: coverFade,
+          child: playing == null
+              ? const SizedBox.shrink(key: Key('now-playing-none'))
+              : KeyedSubtree(key: ValueKey('now-playing-${playing.file ?? playing.url}'), child: CoverBackdrop(file: playing.file, url: playing.url)),
+        ),
+        // el oscurecido plano (solo si hay una imagen que oscurecer) y las líneas, siempre
+        HackerScreen(dim: path != null || playing != null ? kBackdropDim : 0),
+      ],
     );
   }
 }
@@ -180,20 +142,18 @@ class QuickPageRoute<T> extends MaterialPageRoute<T> {
   Duration get reverseTransitionDuration => const Duration(milliseconds: 90);
 }
 
-/// Cómo llegan las pantallas empujadas (detalle de tarea, reproductor, registro…): suben desde el borde de abajo **tapando** la anterior,
-/// con su propio fondo detrás, el del efecto completo (la foto nítida es solo de Inicio). Sin ningún efecto de opacidad: una tarjeta de cristal dentro de una capa con opacidad deja de ver lo que
-/// tiene detrás y pierde el desenfoque mientras dura el fundido.
+/// Cómo llegan las pantallas empujadas (detalle de tarea, álbum, registro…): suben desde el borde de abajo, con suavidad, tapando la
+/// anterior con su propio fondo detrás.
 class LayerPageTransitions extends PageTransitionsBuilder {
   const LayerPageTransitions();
 
   @override
   Widget buildTransitions<T>(PageRoute<T> route, BuildContext? context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
     if (route.isFirst) return child;
-    final scope = context == null ? null : BackdropScope.maybeOf(context);
     final entering = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
     return SlideTransition(
       position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(entering),
-      child: Stack(fit: StackFit.expand, children: [BackdropLayers(wallpaper: scope?.wallpaper, full: true), child]),
+      child: Stack(fit: StackFit.expand, children: [const BackdropLayers(), child]),
     );
   }
 }

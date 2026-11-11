@@ -345,6 +345,39 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
     return all..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
   }
 
+  /// **Todas** las canciones de la carpeta elegida: las de la raíz y las de cada álbum (sus carpetas de primer nivel y las subcarpetas de esos),
+  /// leyendo lo que todavía no se leyó. Para el aleatorio entre todos los álbumes. Lo que no se pueda leer se salta.
+  Future<List<Track>> allTracks() async {
+    final tree = _music.settings.treeUri;
+    if (tree == null || tree.isEmpty) return knownTracks();
+    Future<FolderListing?> read(String key, String? dirUri) async {
+      final known = _listings[key];
+      if (known != null) return known;
+      try {
+        final listing = await _saver.listDir(tree, dirUri: dirUri);
+        if (_disposed || tree != _music.settings.treeUri) return null;
+        _store(key, listing);
+        return listing;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final root = await read('', null);
+    final pending = [...?root?.folders];
+    var depth = 0;
+    while (pending.isNotEmpty && depth < 2) {
+      final level = [...pending];
+      pending.clear();
+      for (final folder in level) {
+        final listing = await read(folder.uri, folder.uri);
+        if (listing != null) pending.addAll(listing.folders);
+      }
+      depth++;
+    }
+    return knownTracks();
+  }
+
   /// Lee por adelantado, de a una y en silencio, las subcarpetas de la que se mira: al entrar ya están.
   Future<void> _prefetch(String tree, List<LocalFolder> subs) async {
     final token = ++_prefetchRound;

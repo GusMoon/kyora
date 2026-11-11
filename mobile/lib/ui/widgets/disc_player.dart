@@ -6,12 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../state/player_controller.dart';
+import '../../theme.dart';
+import 'cut_border.dart';
 import '../../util/format.dart';
 import 'sound_circle.dart';
+import '../../util/cover_tint.dart';
 import 'vinyl_disc.dart';
 
 /// El disco como reproductor. Un toque reproduce o pausa, y mientras suena gira. Girarlo con el dedo adelanta o retrocede la canción, y al
-/// soltar salta ahí. Por el contorno, la línea blanca del avance; en el centro, el círculo que reacciona al sonido.
+/// soltar salta ahí. Mantenerlo presionado sin moverlo abre la elección de álbum. Por el contorno, la línea blanca del avance; en el centro, el círculo que reacciona al sonido.
 ///
 /// Los toques solo cuentan dentro del círculo: fuera de él pasan a lo que haya debajo.
 class DiscPlayer extends StatefulWidget {
@@ -24,6 +27,7 @@ class DiscPlayer extends StatefulWidget {
     required this.size,
     required this.active,
     required this.onTap,
+    this.onLongPress,
     this.player,
     this.touchKey,
   });
@@ -40,6 +44,9 @@ class DiscPlayer extends StatefulWidget {
   /// La canción que suena es de este álbum: solo entonces gira, avanza la línea y se puede mover la canción.
   final bool active;
   final VoidCallback onTap;
+
+  /// Mantener el dedo quieto sobre el disco (para elegir otro álbum).
+  final VoidCallback? onLongPress;
   final PlayerController? player;
 
   /// La clave de la zona que se toca.
@@ -219,9 +226,18 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
               alignment: Alignment.center,
               children: [
                 VinylDisc(id: widget.id, file: widget.file, url: widget.url, icon: widget.icon, size: vinyl, angle: _angle),
-                SoundCircle(player: _p, active: widget.active, size: vinyl * VinylDisc.label * 0.92),
-                Positioned.fill(
-                  child: RepaintBoundary(child: CustomPaint(key: const Key('disc-progress'), painter: ProgressRingPainter(fraction: _fraction))),
+                // el sonido y el avance, del color de la portada (como el disco)
+                ValueListenableBuilder<Color?>(
+                  valueListenable: CoverTints.watch(widget.file ?? widget.url),
+                  builder: (context, tint, _) => Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SoundCircle(player: _p, active: widget.active, size: vinyl * VinylDisc.label * 0.92, color: tint),
+                      Positioned.fill(
+                        child: RepaintBoundary(child: CustomPaint(key: const Key('disc-progress'), painter: ProgressRingPainter(fraction: _fraction, ink: tint ?? context.colors.accent))),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -236,6 +252,7 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
                   behavior: HitTestBehavior.opaque,
                   dragStartBehavior: DragStartBehavior.down,
                   onTap: widget.onTap,
+                  onLongPress: widget.onLongPress,
                   onPanStart: (d) => _grab(d.localPosition, _centerOf(context)),
                   onPanUpdate: (d) => _turn(d.localPosition, _centerOf(context)),
                   onPanEnd: (_) => _release(),
@@ -254,13 +271,13 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
                     alignment: const Alignment(0, 0.66),
                     child: IgnorePointer(
                       child: DecoratedBox(
-                        decoration: BoxDecoration(color: const Color(0xB3000000), borderRadius: BorderRadius.circular(16)),
+                        decoration: ShapeDecoration(color: context.colors.accent, shape: const CutBorder(cut: 7)),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                           child: Text(
                             '${clock(at)} / ${clock(_p?.duration ?? Duration.zero)}',
                             key: const Key('disc-time'),
-                            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()]),
+                            style: TextStyle(fontFamily: monoFont, color: context.colors.onAccent, fontSize: 15, fontWeight: FontWeight.w600, fontFeatures: const [FontFeature.tabularFigures()]),
                           ),
                         ),
                       ),
@@ -273,36 +290,45 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
   }
 }
 
-/// La línea blanca del avance: un aro tenue y, encima, el tramo ya sonado, desde arriba y en el sentido del reloj, con un punto al final.
+/// La línea del avance, en tinta: un aro de puntos y, encima, el tramo ya sonado (un trazo grueso), desde arriba y en el sentido del reloj,
+/// con un cuadro al final. Sin suavizado.
 class ProgressRingPainter extends CustomPainter {
-  ProgressRingPainter({required this.fraction}) : super(repaint: fraction);
+  ProgressRingPainter({required this.fraction, this.ink = const Color(0xFF000000)}) : super(repaint: fraction);
 
   final ValueNotifier<double> fraction;
+  final Color ink;
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final r = size.shortestSide / 2 - 4;
+    final rect = Rect.fromCircle(center: c, radius: r);
+    // el aro de fondo: una línea fina y tenue
     canvas.drawCircle(
       c,
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = const Color(0x33FFFFFF),
+        ..strokeWidth = 2
+        ..color = ink.withValues(alpha: 0.22),
     );
     final f = fraction.value;
     if (f <= 0) return;
     final sweep = f * 2 * math.pi;
-    final line = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.6
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFFFFFFF);
-    canvas.drawArc(Rect.fromCircle(center: c, radius: r), -math.pi / 2, sweep, false, line);
-    canvas.drawCircle(c + Offset.fromDirection(-math.pi / 2 + sweep, r), 4.2, Paint()..color = const Color(0xFFFFFFFF));
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      sweep,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..strokeCap = StrokeCap.round
+        ..color = ink,
+    );
+    canvas.drawCircle(c + Offset.fromDirection(-math.pi / 2 + sweep, r), 6, Paint()..color = ink);
   }
 
   @override
-  bool shouldRepaint(ProgressRingPainter old) => old.fraction != fraction;
+  bool shouldRepaint(ProgressRingPainter old) => old.fraction != fraction || old.ink != ink;
 }

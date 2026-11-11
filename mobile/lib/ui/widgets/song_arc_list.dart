@@ -8,12 +8,14 @@ import '../../models/track.dart';
 import '../../theme.dart';
 import '../../util/format.dart';
 import 'album_art.dart';
+import 'pixel_glyph.dart';
+import 'cut_border.dart';
 
 /// La lista de canciones de un álbum: discos pequeños a lo largo de una **curva**, con la fila del centro en una píldora con el botón de
 /// reproducir. La curva se abomba hacia la izquierda: la fila del centro es la que más se acerca al borde y las demás se apartan al alejarse.
 /// Se desplaza con imán a la fila del centro. Tocar otra fila la trae al centro; con canciones marcadas, tocar marca o desmarca.
 ///
-/// Sin `BackdropFilter`: va bajo el difuminado de arriba y de abajo, que se lo quitaría.
+/// Sin `BackdropFilter`, sin fundidos ni degradados: solo tinta y fondo.
 class SongArcList extends StatefulWidget {
   const SongArcList({
     super.key,
@@ -172,15 +174,9 @@ class _SongArcListState extends State<SongArcList> {
       behavior: HitTestBehavior.translucent,
       onPointerDown: _pointerDown,
       onPointerUp: _pointerUp,
-      child: ShaderMask(
+      // sin fundido arriba y abajo: en la pantalla LCD nada se desvanece
+      child: KeyedSubtree(
         key: const Key('arc-fade'),
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) => const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x00FFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
-          stops: [0.05, 0.24, 0.80, 0.97],
-        ).createShader(rect),
         child: LayoutBuilder(
           builder: (context, box) {
             final radius = box.maxHeight * SongArcList.curve;
@@ -232,35 +228,26 @@ class _SongArcListState extends State<SongArcList> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(named.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: const Color(0xFFF4F4F6), fontSize: focused ? 17 : 16, fontWeight: focused ? FontWeight.w600 : FontWeight.w500, fontStyle: FontStyle.italic)),
+        Text(named.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: appFont, color: c.ink, fontSize: focused ? 17 : 16, fontWeight: focused ? FontWeight.w600 : FontWeight.w400)),
         const SizedBox(height: 2),
         Row(
           children: [
             if (widget.savedOf?.call(track) ?? false) ...[
-              Icon(Icons.check_circle, key: const Key('saved'), size: 13, color: c.accent),
+              LcdIcon(Icons.check_circle, key: const Key('saved'), size: 15, color: c.accent),
               const SizedBox(width: 4),
             ],
             Expanded(
-              child: Text(widget.lineOf(track), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: warn ? c.warn : const Color(0x99F4F4F6), fontSize: 13, fontStyle: FontStyle.italic)),
+              child: Text(widget.lineOf(track), maxLines: 1, overflow: TextOverflow.ellipsis, style: warn ? lcdStatus(color: c.warn) : TextStyle(fontFamily: appFont, color: c.dim, fontSize: 15)),
             ),
           ],
         ),
       ],
     );
 
-    final Widget pill = AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
+    // la fila del centro, en una tarjeta
+    final Widget pill = Container(
       padding: EdgeInsets.fromLTRB(16, focused ? 8 : 0, focused ? 8 : 0, focused ? 8 : 0),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(34),
-        border: Border.all(color: focused ? const Color(0x2EFFFFFF) : const Color(0x00FFFFFF)),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: focused ? const [Color(0x33FFFFFF), Color(0x12FFFFFF)] : const [Color(0x00FFFFFF), Color(0x00FFFFFF)],
-        ),
-      ),
+      decoration: cutDecoration(color: focused ? c.surface : null, edge: focused ? c.edge : const Color(0x00000000), cut: 14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -274,8 +261,8 @@ class _SongArcListState extends State<SongArcList> {
                   tooltip: playing ? 'Pausar' : 'Reproducir',
                   constraints: const BoxConstraints.tightFor(width: 56, height: 40),
                   padding: EdgeInsets.zero,
-                  style: IconButton.styleFrom(backgroundColor: const Color(0xFF2B2B2F), foregroundColor: const Color(0xFFF4F4F6)),
-                  icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 24),
+                  style: IconButton.styleFrom(backgroundColor: c.accent, foregroundColor: c.onAccent, shape: const CutBorder(cut: 8)),
+                  icon: LcdIcon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 24),
                   onPressed: () => widget.onPlay(track),
                 ),
               ],
@@ -336,23 +323,19 @@ class _Thumb extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          AlbumArt(file: file, url: url, icon: icon, size: size, radius: size / 2),
-          const DecoratedBox(
-            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.fromBorderSide(BorderSide(color: Color(0x40FFFFFF), width: 1.2))),
-            child: SizedBox.square(dimension: size),
-          ),
+          AlbumArt(file: file, url: url, icon: icon, size: size, radius: 10),
           if (current && selected == null)
             Container(
               width: 34,
               height: 34,
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), shape: BoxShape.circle),
-              child: Icon(playing ? Icons.graphic_eq_rounded : Icons.pause_rounded, key: const Key('now-playing'), size: 22, color: Colors.white),
+              color: c.accent,
+              child: LcdIcon(playing ? Icons.graphic_eq_rounded : Icons.pause_rounded, key: const Key('now-playing'), size: 22, color: c.onAccent),
             ),
           if (selected == true) ...[
-            Container(width: size, height: size, decoration: BoxDecoration(color: c.accent.withValues(alpha: 0.85), shape: BoxShape.circle)),
-            const Icon(Icons.check_rounded, key: Key('row-selected'), size: 30, color: Colors.white),
+            Container(width: size, height: size, color: c.accent.withValues(alpha: 0.75)),
+            LcdIcon(Icons.check_rounded, key: const Key('row-selected'), size: 30, color: c.onAccent),
           ],
-          if (selected == false) Container(key: const Key('row-unselected'), width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c.dim, width: 2))),
+          if (selected == false) Container(key: const Key('row-unselected'), width: size, height: size, decoration: BoxDecoration(border: Border.all(color: c.dim, width: 2))),
         ],
       ),
     );

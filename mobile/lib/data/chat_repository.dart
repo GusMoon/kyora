@@ -4,12 +4,14 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
+import '../models/habit.dart';
 import '../models/message.dart';
 import '../models/profile.dart';
 import '../models/task.dart';
 import '../models/track.dart';
 import 'account_backend.dart';
 import 'chat_backend.dart';
+import 'habit_backend.dart';
 import 'music_backend.dart';
 import 'task_backend.dart';
 
@@ -17,7 +19,7 @@ import 'task_backend.dart';
 /// funciones RPC para enviar y leer, Storage para los archivos y Realtime para lo que llega al instante. También sirve la
 /// música (las canciones que la PC manda con «Descargar»: `music_tracks` y sus MP3 en el mismo bucket) y las cuentas:
 /// el administrador (tú) y los pasantes, que se registran solos. Y las tareas (`tasks`, `tags`, `task_tags`).
-class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskBackend {
+class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskBackend, HabitBackend {
   ChatRepository(this._client);
 
   final SupabaseClient _client;
@@ -180,40 +182,59 @@ class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskB
   static const _pushChunk = 200;
   static const _pullPage = 500;
 
+  /// Sube filas por tandas: repetir una subida no duplica nada (`upsert` por su clave).
+  Future<void> _upsert(String table, List<Map<String, Object?>> rows, String onConflict) async {
+    for (var i = 0; i < rows.length; i += _pushChunk) {
+      final chunk = rows.sublist(i, i + _pushChunk > rows.length ? rows.length : i + _pushChunk);
+      await _guard(() => _client.from(table).upsert(chunk, onConflict: onConflict));
+    }
+  }
+
+  /// Las filas de una tabla que cambiaron después de `since` (`synced_at`), por páginas.
+  Future<List<Map<String, Object?>>> _readSince(String table, String? since) async {
+    final all = <Map<String, Object?>>[];
+    var cursor = since;
+    while (true) {
+      final base = _client.from(table).select();
+      final rows = await _guard(() => (cursor == null ? base : base.gt('synced_at', cursor)).order('synced_at', ascending: true).limit(_pullPage));
+      all.addAll([for (final r in rows) Map<String, Object?>.from(r)]);
+      if (rows.length < _pullPage) return all;
+      cursor = DateTime.parse(rows.last['synced_at'] as String).toUtc().toIso8601String();
+    }
+  }
+
   @override
   Future<void> push(TaskData changes) async {
-    Future<void> up(String table, List<Map<String, Object?>> rows, String onConflict) async {
-      for (var i = 0; i < rows.length; i += _pushChunk) {
-        final chunk = rows.sublist(i, i + _pushChunk > rows.length ? rows.length : i + _pushChunk);
-        await _guard(() => _client.from(table).upsert(chunk, onConflict: onConflict));
-      }
-    }
-
     // las subtareas después de sus tareas (la clave ajena las pide ya guardadas)
     final tasks = [...changes.tasks]..sort((a, b) => (a.parentId == null ? 0 : 1).compareTo(b.parentId == null ? 0 : 1));
-    await up('tags', [for (final t in changes.tags) t.toJson()], 'id');
-    await up('tasks', [for (final t in tasks) t.toJson()], 'id');
-    await up('task_tags', [for (final l in changes.links) l.toJson()], 'task_id,tag_id');
+    await _upsert('tags', [for (final t in changes.tags) t.toJson()], 'id');
+    await _upsert('tasks', [for (final t in tasks) t.toJson()], 'id');
+    await _upsert('task_tags', [for (final l in changes.links) l.toJson()], 'task_id,tag_id');
   }
 
   @override
   Future<TaskData> pull({String? tasksSince, String? tagsSince, String? linksSince}) async {
-    Future<List<Map<String, Object?>>> read(String table, String? since) async {
-      final all = <Map<String, Object?>>[];
-      var cursor = since;
-      while (true) {
-        final base = _client.from(table).select();
-        final rows = await _guard(() => (cursor == null ? base : base.gt('synced_at', cursor)).order('synced_at', ascending: true).limit(_pullPage));
-        all.addAll([for (final r in rows) Map<String, Object?>.from(r)]);
-        if (rows.length < _pullPage) return all;
-        cursor = DateTime.parse(rows.last['synced_at'] as String).toUtc().toIso8601String();
-      }
-    }
-
     return TaskData(
-      tags: [for (final r in await read('tags', tagsSince)) Tag.fromJson(r)],
-      tasks: [for (final r in await read('tasks', tasksSince)) TaskItem.fromJson(r)],
-      links: [for (final r in await read('task_tags', linksSince)) TaskTag.fromJson(r)],
+      tags: [for (final r in await _readSince('tags', tagsSince)) Tag.fromJson(r)],
+      tasks: [for (final r in await _readSince('tasks', tasksSince)) TaskItem.fromJson(r)],
+      links: [for (final r in await _readSince('task_tags', linksSince)) TaskTag.fromJson(r)],
+    );
+  }
+
+  // ---------- hábitos ----------
+
+  @override
+  Future<void> pushHabits(HabitData changes) async {
+    // las marcas después de sus hábitos (la clave ajena los pide ya guardados)
+    await _upsert('habits', [for (final h in changes.habits) h.toJson()], 'id');
+    await _upsert('habit_checks', [for (final c in changes.checks) c.toJson()], 'habit_id,day');
+  }
+
+  @override
+  Future<HabitData> pullHabits({String? habitsSince, String? checksSince}) async {
+    return HabitData(
+      habits: [for (final r in await _readSince('habits', habitsSince)) Habit.fromJson(r)],
+      checks: [for (final r in await _readSince('habit_checks', checksSince)) HabitCheck.fromJson(r)],
     );
   }
 

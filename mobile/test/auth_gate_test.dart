@@ -4,9 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/data/account_backend.dart';
 import 'package:kyora_chat/data/chat_backend.dart';
+import 'package:kyora_chat/data/contacts_source.dart';
+import 'package:kyora_chat/data/vault_source.dart';
+import 'package:kyora_chat/state/contacts_controller.dart';
+import 'package:kyora_chat/state/vault_controller.dart';
 import 'package:kyora_chat/models/profile.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
+import 'package:kyora_chat/ui/section_host.dart';
+import 'package:kyora_chat/ui/widgets/pixel_glyph.dart';
 import 'package:kyora_chat/ui/login_page.dart';
 import 'package:kyora_chat/ui/register_page.dart';
 
@@ -111,7 +117,7 @@ void main() {
     cache = MemoryRoleCache();
   });
 
-  Future<void> openGate(WidgetTester tester, FakeAccount account) async {
+  Future<void> openGate(WidgetTester tester, FakeAccount account, {ContactsController? contacts, VaultController? vault}) async {
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(),
       home: AuthGate(
@@ -122,6 +128,8 @@ void main() {
         saver: FakeSaver(),
         roleCache: cache,
         engine: FakeEngine.new,
+        contacts: contacts,
+        vault: vault,
       ),
     ));
     await settle(tester);
@@ -137,12 +145,13 @@ void main() {
     testWidgets('el administrador entra a Inicio, y tiene inicio, chat y música para deslizar', (tester) async {
       final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
       await openGate(tester, account);
-      expect(await menuOptions(tester), containsAll(['home', 'chat', 'music', 'settings'])); // en el menú circular (y Configuración es una opción más)
-      expect(find.byKey(const Key('radial-menu')), findsNothing); // que se cierra al soltar sin elegir
-      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // empieza en Inicio
-      expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsNothing);
+      expect(await menuOptions(tester), containsAll(['home', 'chat', 'music', 'settings'])); // en la barra (y Configuración es una opción más)
+      expect(find.byKey(const Key('home-time')), findsOneWidget); // empieza en Inicio
+      expect(find.byKey(const Key('chat-terminal')), findsNothing);
       await goToSection(tester, 'chat');
-      expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsOneWidget);
+      expect(find.byKey(const Key('chat-terminal')), findsOneWidget); // el chat, como terminal
+      final chatSection = tester.widget<SectionHost>(find.byType(SectionHost)).sections.firstWhere((s) => s.id == 'chat');
+      expect(chatSection.icon, Icons.cloud_outlined); // con el icono de una nube
       expect(chat.calls, contains('ensure'));
       expect(cache.roles['user-1'], Role.admin);
     });
@@ -150,7 +159,7 @@ void main() {
     testWidgets('el pasante entra a Inicio, la música está al lado y no toca el chat', (tester) async {
       final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
       await openGate(tester, account);
-      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // empieza en Inicio
+      expect(find.byKey(const Key('home-time')), findsOneWidget); // empieza en Inicio
       final options = await menuOptions(tester);
       expect(options, isNot(contains('chat'))); // sin chat
       expect(options, containsAll(['home', 'music']));
@@ -158,6 +167,31 @@ void main() {
       expect(find.byKey(const Key('album-deck')), findsOneWidget); // la pantalla de música
       expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsNothing);
       expect(chat.calls, isEmpty); // ni conversación, ni mensajes, ni Realtime del chat
+    });
+
+    testWidgets('con Contactos y Vault, salen en el menú (también para el pasante) y cada uno abre su pantalla', (tester) async {
+      final contacts = ContactsController(FakeContactsSource([const Contact(id: '1', name: 'Ana', phones: ['123'])]));
+      final vault = VaultController(FakeVaultSource(), MemoryVaultStore());
+      addTearDown(contacts.dispose);
+      addTearDown(vault.dispose);
+      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
+      await openGate(tester, account, contacts: contacts, vault: vault);
+      expect(await menuOptions(tester), containsAll(['home', 'music', 'contacts', 'vault']));
+      await goToSection(tester, 'contacts');
+      await tester.pumpAndSettle();
+      expect(find.text('CONTACTOS'), findsOneWidget);
+      expect(find.text('Ana'), findsOneWidget);
+      await goToSection(tester, 'vault');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('vault-pick')), findsOneWidget);
+    });
+
+    testWidgets('sin Contactos ni Vault configurados no salen', (tester) async {
+      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
+      await openGate(tester, account);
+      final options = await menuOptions(tester);
+      expect(options, isNot(contains('contacts')));
+      expect(options, isNot(contains('vault')));
     });
 
     testWidgets('una cuenta sin perfil se trata como pasante (la vista con menos permisos)', (tester) async {
@@ -201,9 +235,10 @@ void main() {
     testWidgets('cerrar sesión vuelve al acceso', (tester) async {
       final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
       await openGate(tester, account);
-      await tester.tap(find.byKey(const Key('home-settings'))); // el botón de Inicio abre la configuración
+      await goToSection(tester, 'settings');
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('settings-sign-out')));
+      await revealSignOut(tester);
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-sign-out')));
       await settle(tester);
       await tester.pumpAndSettle();
@@ -238,18 +273,19 @@ void main() {
 
     Future<void> scrollToButton(WidgetTester tester) => tester.ensureVisible(find.byKey(const Key('reg-button')));
 
-    testWidgets('la lista de requisitos de la contraseña se pone en verde a medida que se cumplen', (tester) async {
+    testWidgets('la lista de requisitos de la contraseña se va marcando a medida que se cumplen', (tester) async {
       await openRegister(tester, FakeAccount());
       for (final id in ['length', 'letter', 'number', 'match']) {
         expect(find.byKey(Key('rule-$id-todo')), findsOneWidget, reason: id); // al empezar, todos pendientes
       }
-      Color colorOf(String id, bool met) => tester.widget<Icon>(find.byKey(Key('rule-$id-${met ? 'ok' : 'todo'}'))).color!;
-      expect(colorOf('length', false), KyoraColors.classic().dim);
+      // solo hay tinta: lo cumplido se distingue por el icono (marcado) y no por el color
+      IconData iconOf(String id, bool met) => tester.widget<LcdIcon>(find.byKey(Key('rule-$id-${met ? 'ok' : 'todo'}'))).icon;
+      expect(iconOf('length', false), Icons.radio_button_unchecked);
 
       await tester.enterText(find.byKey(const Key('reg-password')), 'abc');
       await tester.pump();
       expect(find.byKey(const Key('rule-letter-ok')), findsOneWidget);
-      expect(colorOf('letter', true), KyoraColors.classic().ok);
+      expect(iconOf('letter', true), Icons.check_circle);
       expect(find.byKey(const Key('rule-length-todo')), findsOneWidget);
       expect(find.byKey(const Key('rule-number-todo')), findsOneWidget);
 
@@ -324,7 +360,7 @@ void main() {
       await tester.pumpAndSettle(); // termina la animación de cerrar la pantalla
       expect(find.byType(RegisterPage), findsNothing);
       expect(find.byType(LoginPage), findsNothing);
-      expect(find.byKey(const Key('home-greeting')), findsOneWidget); // entra en Inicio
+      expect(find.byKey(const Key('home-time')), findsOneWidget); // entra en Inicio
       expect(await menuOptions(tester), isNot(contains('chat')));
     });
 

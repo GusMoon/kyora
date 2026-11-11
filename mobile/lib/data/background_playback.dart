@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Lo que hace falta del teléfono para que la música siga sonando con la app en segundo plano o la pantalla apagada.
 /// El reproductor avisa cuando empieza y cuando para (`started` / `stopped`).
@@ -24,10 +25,15 @@ abstract class BackgroundPlayback implements PlaybackHooks {
 class AndroidBackgroundPlayback implements BackgroundPlayback {
   static const _channel = MethodChannel('kyora/background');
 
+  /// Dónde se recuerda que ya se pidió quitar la restricción de batería.
+  static const _batteryAskedKey = 'music.battery_asked';
+
   bool _askedNotifications = false;
 
   @override
   Future<void> started() async {
+    // lo primero: el aviso de permisos puede tardar lo que tarde la persona en contestar, y la música ya está sonando
+    await _call('wifiLock', {'on': true});
     if (!_askedNotifications) {
       _askedNotifications = true;
       try {
@@ -37,7 +43,20 @@ class AndroidBackgroundPlayback implements BackgroundPlayback {
         // sin permiso la música suena igual
       }
     }
-    await _call('wifiLock', {'on': true});
+    await _askBatteryOnce();
+  }
+
+  /// Hay marcas que cortan la música en segundo plano aunque todo lo demás esté bien. Se pregunta una sola vez, la primera vez que suena algo;
+  /// si se dice que no, queda la fila de Configuración.
+  Future<void> _askBatteryOnce() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_batteryAskedKey) ?? false) return;
+      await prefs.setBool(_batteryAskedKey, true);
+      if (!await batteryUnrestricted()) await requestBatteryExemption();
+    } catch (_) {
+      // sin esto la música suena igual
+    }
   }
 
   @override

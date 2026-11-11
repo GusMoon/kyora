@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/chat_backend.dart';
 import '../theme.dart';
 import 'register_page.dart';
+import 'widgets/pixel_glyph.dart';
 
 /// La pantalla de acceso: tu correo y contraseña (el administrador usa los mismos que la PC). La sesión queda guardada en el
 /// teléfono; la contraseña no. Con `onSignUp`, quien aún no tiene cuenta puede crearla (pasantes).
@@ -70,9 +71,16 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.forum_rounded, size: 56, color: context.colors.accent),
-                  const SizedBox(height: 14),
-                  Text('Kyra', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 26)),
+                  Center(
+                    child: Container(
+                      width: 76,
+                      height: 76,
+                      color: context.colors.accent,
+                      child: LcdIcon(Icons.forum_rounded, size: 38, color: context.colors.onAccent),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text('Kyra', textAlign: TextAlign.center, style: display(size: 48, color: context.colors.ink)),
                   const SizedBox(height: 6),
                   Text(
                     'Entra con tu correo y contraseña.',
@@ -100,7 +108,7 @@ class _LoginPageState extends State<LoginPage> {
                       hintText: 'Contraseña',
                       suffixIcon: IconButton(
                         tooltip: _hide ? 'Mostrar' : 'Ocultar',
-                        icon: Icon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: context.colors.dim),
+                        icon: LcdIcon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: context.colors.dim),
                         onPressed: () => setState(() => _hide = !_hide),
                       ),
                     ),

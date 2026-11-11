@@ -6,6 +6,8 @@ import '../data/music_store.dart';
 import '../models/track.dart';
 import '../state/local_music_controller.dart';
 import '../theme.dart';
+import 'widgets/pixel_glyph.dart';
+import 'widgets/focus_space.dart';
 
 /// Adónde se van a mover las canciones: una carpeta (`uri` `null` = la raíz elegida) y su nombre, para avisar.
 class MoveTarget {
@@ -16,10 +18,7 @@ class MoveTarget {
 }
 
 /// Pregunta el nombre de un álbum (carpeta) nuevo. `null` si se cancela.
-Future<String?> askFolderName(BuildContext context) => showDialog<String>(
-      context: context,
-      builder: (context) => const _FolderNameDialog(),
-    );
+Future<String?> askFolderName(BuildContext context) => showFocusPanel<String>(context, title: 'Nuevo álbum', builder: (context) => const _FolderNameDialog());
 
 class _FolderNameDialog extends StatefulWidget {
   const _FolderNameDialog();
@@ -39,8 +38,7 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Nuevo álbum'),
+    return FocusDialog(
       content: TextField(
         key: const Key('folder-name-field'),
         controller: _name,
@@ -58,11 +56,7 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
 }
 
 /// «Mover a…»: deja entrar por las carpetas (desde la raíz), crear una nueva ahí y elegir «Mover aquí».
-Future<MoveTarget?> showMoveSheet(BuildContext context, LocalMusicController local, {required int count}) => showModalBottomSheet<MoveTarget>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _MoveSheet(local: local, count: count),
+Future<MoveTarget?> showMoveSheet(BuildContext context, LocalMusicController local, {required int count}) => showFocusPanel<MoveTarget>(context, builder: (context) => _MoveSheet(local: local, count: count),
     );
 
 class _MoveSheet extends StatefulWidget {
@@ -163,7 +157,7 @@ class _MoveSheetState extends State<_MoveSheet> {
                             if (_trail.isNotEmpty)
                               ListTile(
                                 key: const Key('move-up'),
-                                leading: const Icon(Icons.arrow_upward_rounded),
+                                leading: const LcdIcon(Icons.arrow_upward_rounded),
                                 title: const Text('Subir'),
                                 onTap: () {
                                   _trail.removeLast();
@@ -173,10 +167,10 @@ class _MoveSheetState extends State<_MoveSheet> {
                             for (final f in folders)
                               ListTile(
                                 key: Key('move-folder-${f.name}'),
-                                leading: Icon(Icons.folder_rounded, color: c.accent),
+                                leading: LcdIcon(Icons.folder_rounded, color: c.accent),
                                 title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                                 subtitle: Text(f.count == 1 ? '1 canción' : '${f.count} canciones', style: TextStyle(color: c.dim)),
-                                trailing: const Icon(Icons.chevron_right),
+                                trailing: const LcdIcon(Icons.chevron_right),
                                 onTap: () {
                                   _trail.add(f);
                                   unawaited(_load());
@@ -196,7 +190,7 @@ class _MoveSheetState extends State<_MoveSheet> {
                         key: const Key('move-new-folder'),
                         style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
                         onPressed: _loading || _error != null || _trail.isNotEmpty ? null : _newFolder,
-                        icon: const Icon(Icons.create_new_folder_outlined),
+                        icon: const LcdIcon(Icons.create_new_folder_outlined),
                         label: const Text('Nuevo álbum'),
                       ),
                     ),

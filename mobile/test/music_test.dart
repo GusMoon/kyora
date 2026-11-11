@@ -593,6 +593,8 @@ void main() {
       await tester.tap(find.byKey(const Key('base-download')));
       await tester.pump();
       await tester.enterText(find.byKey(const Key('folder-field')), 'Rock');
+      await tester.ensureVisible(find.byKey(const Key('settings-save'))); // el panel se desplaza si no cabe
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-save')));
       await tester.pumpAndSettle();
       expect(store.settings.base, MusicBase.download);
@@ -612,6 +614,8 @@ void main() {
       expect(find.text('Cambiar carpeta'), findsOneWidget);
       expect(find.text('Se guardan en Mis canciones.'), findsOneWidget);
       expect(find.byKey(const Key('folder-field')), findsNothing); // con carpeta elegida no hace falta la subcarpeta
+      await tester.ensureVisible(find.byKey(const Key('settings-save'))); // el panel se desplaza si no cabe
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-save')));
       await tester.pumpAndSettle();
       expect(store.settings.treeUri, 'content://tree/musica');
@@ -644,6 +648,8 @@ void main() {
       await tester.tap(find.byKey(const Key('use-default-folder')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('folder-field')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('settings-save'))); // el panel se desplaza si no cabe
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('settings-save')));
       await tester.pumpAndSettle();
       expect(store.settings.hasTree, isFalse);

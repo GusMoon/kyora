@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../data/favorites_store.dart';
 import '../data/music_store.dart';
+import '../models/track.dart';
 import '../state/local_music_controller.dart';
 import '../state/music_controller.dart';
 import '../state/player_controller.dart';
@@ -12,14 +13,14 @@ import '../util/picker.dart';
 import 'album_view.dart';
 import 'folder_settings.dart';
 import 'move_sheet.dart';
-import 'player_page.dart';
-import 'widgets/album_deck.dart';
+import 'widgets/album_stack.dart';
 import 'widgets/music_rows.dart';
 import 'widgets/section_motion.dart';
 
-/// La música. Al abrirla sale, en grande, un álbum de la **ruleta**: «Canciones enviadas» (las que te mandan desde la PC), tu carpeta del
-/// teléfono y las carpetas de primer nivel que tenga. Tirando a un lado o al otro gira. Debajo, tus canciones favoritas (las del corazón), cada
-/// una con la portada de su álbum. Tocar el álbum de enfrente lo abre (`AlbumView`): un disco sale de la tarjeta.
+/// La música: **solo los álbumes**, en una pila vertical de portadas grandes que ocupa la pantalla y se desplaza con el dedo («Canciones enviadas»,
+/// tu carpeta del teléfono y las carpetas de primer nivel que tenga). Tocar la del centro lo abre (`AlbumView`): un disco sale de la portada.
+/// Sin título, sin favoritas y sin la tarjeta de lo que suena; solo dos iconos discretos arriba: el aleatorio entre todos los álbumes (si no
+/// empieza solo, según Configuración) y volver a leer.
 class MusicPage extends StatefulWidget {
   const MusicPage({super.key, required this.controller, this.player, this.local, this.favorites, this.pickCover = pickCoverImage});
 
@@ -51,6 +52,12 @@ class _MusicPageState extends State<MusicPage> {
   /// La tarjeta cuya portada no se pinta mientras el álbum está abierto (la está pintando el disco al volver).
   String? _hidden;
 
+  /// Se están reuniendo las canciones de todos los álbumes para el aleatorio.
+  bool _preparing = false;
+
+  /// Ya se miró si había que empezar a sonar solo (una vez por visita).
+  bool _autoChecked = false;
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +73,37 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   GlobalKey _keyFor(String id) => _cardKeys.putIfAbsent(id, GlobalKey.new);
+
+  /// **Aleatorio entre todo**: reúne las canciones de todos los álbumes (las enviadas y las de cada carpeta) y pone una cualquiera, con todas
+  /// como cola y el aleatorio puesto: después sigue al azar saltando de un álbum a otro.
+  Future<void> _shuffleAll() async {
+    final player = widget.player;
+    if (player == null || _preparing) return;
+    setState(() => _preparing = true);
+    try {
+      final local = widget.local;
+      final mine = local == null ? const <Track>[] : await local.allTracks();
+      final all = [...widget.controller.tracks, ...mine];
+      if (all.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aún no hay canciones para el aleatorio.')));
+        return;
+      }
+      await player.playShuffled(all);
+    } finally {
+      if (mounted) setState(() => _preparing = false);
+    }
+  }
+
+  /// Si en Configuración se eligió que empiece a sonar sola y no suena nada, arranca el aleatorio (una vez, al abrir Música).
+  void _autoShuffle() {
+    if (_autoChecked || widget.controller.loading) return;
+    _autoChecked = true;
+    final player = widget.player;
+    if (!widget.controller.settings.autoShuffle || player == null || player.current != null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_shuffleAll());
+    });
+  }
 
   Future<void> _settings() => showFolderSettings(context, widget.controller);
 
@@ -83,10 +121,10 @@ class _MusicPageState extends State<MusicPage> {
 
   /// La clave con la que se encuentra la tarjeta de un álbum (`card-received`, `card-root`, `card-folder-Rock`…).
   static String _cardId(AlbumEntry e) => switch (e.id) {
-        'received' => 'card-received',
-        'root' => 'card-root',
-        _ => 'card-folder-${e.title}',
-      };
+    'received' => 'card-received',
+    'root' => 'card-root',
+    _ => 'card-folder-${e.title}',
+  };
 
   Rect _originOf(String id) {
     final context = _cardKeys[id]?.currentContext;
@@ -135,10 +173,12 @@ class _MusicPageState extends State<MusicPage> {
     );
     unawaited(Navigator.of(context).push(route));
     // cuando termina de volver (no cuando empieza), la tarjeta vuelve a pintarse y el controlador a la raíz
-    unawaited(route.completed.then((_) {
-      if (mounted) setState(() => _hidden = null);
-      if (local != null) unawaited(local.goTo(0));
-    }));
+    unawaited(
+      route.completed.then((_) {
+        if (mounted) setState(() => _hidden = null);
+        if (local != null) unawaited(local.goTo(0));
+      }),
+    );
   }
 
   /// «Mover»: elige el álbum de destino para las canciones marcadas y las mueve de verdad.
@@ -175,20 +215,19 @@ class _MusicPageState extends State<MusicPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _page(context);
+
+  Widget _page(BuildContext context) {
     final local = widget.local;
     return ListenableBuilder(
       listenable: Listenable.merge([widget.controller, ?local, ?widget.favorites]),
       builder: (context, _) {
+        _autoShuffle();
         return Scaffold(
+          backgroundColor: Colors.transparent,
           body: SafeArea(
             bottom: false,
-            child: Column(
-              children: [
-                Expanded(child: local == null ? _receivedOnly() : _home(local)),
-                if (widget.player != null) FlyIn(edge: MotionEdge.bottom, order: 2, child: MiniPlayer(player: widget.player!)),
-              ],
-            ),
+            child: local == null ? _receivedOnly() : _home(local),
           ),
         );
       },
@@ -212,8 +251,14 @@ class _MusicPageState extends State<MusicPage> {
 
     return Column(
       children: [
-        FlyIn(edge: MotionEdge.left, order: 1, child: MusicBanner(controller: c)),
-        Expanded(child: FlyIn(edge: MotionEdge.bottom, order: 2, child: list())),
+        FlyIn(
+          edge: MotionEdge.left,
+          order: 1,
+          child: MusicBanner(controller: c),
+        ),
+        Expanded(
+          child: FlyIn(edge: MotionEdge.bottom, order: 3, child: list()),
+        ),
       ],
     );
   }
@@ -251,79 +296,56 @@ class _MusicPageState extends State<MusicPage> {
       await Future.wait([c.refresh(), local.refresh()]);
     }
 
-    final f = widget.favorites;
-    final sent = [
-      for (final t in c.tracks)
-        if (f != null && f.isFavorite(t.durationKey)) t,
-    ];
-    final mine = [
-      for (final t in local.knownTracks())
-        if (f != null && f.isFavorite(t.durationKey)) t,
-    ];
-    final all = [...sent, ...mine];
     final colors = context.colors;
+    final mono = TextStyle(fontFamily: monoFont, fontSize: 15, color: colors.dim);
 
-    return RefreshIndicator(
-      onRefresh: refresh,
-      child: CustomScrollView(
-        key: const Key('music-scroll'),
-        // al cambiar de sección los bloques llegan hasta el borde de la pantalla, sin cortarse en el de la lista
-        clipBehavior: SectionMotion.movingOf(context) ? Clip.none : Clip.hardEdge,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          if (broken)
-            SliverToBoxAdapter(
-              child: FlyIn(
-                edge: MotionEdge.left,
-                order: 1,
-                child: MusicMessage(
-                  local.error!,
-                  warn: true,
-                  actionLabel: local.folderLost ? 'Elegir carpeta' : 'Reintentar',
-                  onAction: local.folderLost ? _settings : local.refresh,
+    // solo los álbumes: la pila ocupa toda la pantalla; el aleatorio (si no empieza solo) y volver a leer, dos iconos discretos arriba a la derecha
+    return Stack(
+      key: const Key('music-scroll'),
+      children: [
+        Positioned.fill(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (broken)
+                FlyIn(
+                  edge: MotionEdge.left,
+                  order: 1,
+                  child: MusicMessage(
+                    local.error!,
+                    warn: true,
+                    actionLabel: local.folderLost ? 'Elegir carpeta' : 'Reintentar',
+                    onAction: local.folderLost ? _settings : local.refresh,
+                  ),
+                ),
+              Expanded(
+                child: FlyIn(
+                  edge: MotionEdge.left,
+                  order: 2,
+                  child: AlbumStack(cards: cards, controller: _deck, hiddenId: hiddenCard, cardKeys: keys, speed: c.settings.deckSpeed),
                 ),
               ),
-            ),
-          SliverToBoxAdapter(child: FlyIn(edge: MotionEdge.left, order: 1, child: AlbumDeck(cards: cards, controller: _deck, hiddenId: hiddenCard, cardKeys: keys))),
-          SliverToBoxAdapter(
-            child: FlyIn(
-              edge: MotionEdge.bottom,
-              order: 2,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
-                child: Text('Favoritas', key: const Key('favorites-title'), style: TextStyle(color: colors.ink, fontSize: 20, fontWeight: FontWeight.w600)),
-              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: FlyIn(
+            edge: MotionEdge.top,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.player != null && (!c.settings.autoShuffle || _preparing))
+                  _preparing
+                      ? Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('preparando…', key: const Key('music-shuffle-preparing'), style: mono))
+                      : IconButton(key: const Key('music-shuffle-all'), tooltip: 'Aleatorio', onPressed: _shuffleAll, icon: Icon(Icons.shuffle_rounded, color: colors.accent)),
+                IconButton(key: const Key('music-refresh'), tooltip: 'Volver a leer', onPressed: () => unawaited(refresh()), icon: Icon(Icons.refresh_rounded, color: colors.dim)),
+              ],
             ),
           ),
-          if (all.isEmpty)
-            const SliverToBoxAdapter(
-              child: FlyIn(
-                edge: MotionEdge.bottom,
-                order: 2,
-                child: MusicMessage('Aún no tienes favoritas.\nToca el corazón de una canción y aparecerá aquí.', key: Key('favorites-empty')),
-              ),
-            )
-          else
-            SliverPadding(
-              key: const Key('favorites-list'),
-              padding: const EdgeInsets.only(bottom: 24),
-              sliver: SliverList.builder(
-                itemCount: all.length,
-                itemBuilder: (context, i) {
-                  final t = all[i];
-                  // las filas se mueven juntas, como un solo bloque
-                  return FlyIn(
-                    edge: MotionEdge.bottom,
-                    order: 2,
-                    child: !t.isLocal
-                        ? SentTile(track: t, number: i + 1, controller: c, player: widget.player, favorites: f, local: local, queue: all)
-                        : LocalTile(track: t, number: i + 1, all: all, local: local, player: widget.player, favorites: f, line: 'Favorita'),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

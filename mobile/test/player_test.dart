@@ -8,8 +8,7 @@ import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/state/player_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/music_page.dart';
-import 'package:kyora_chat/ui/player_page.dart';
-import 'package:kyora_chat/ui/widgets/sound_rings.dart';
+import 'package:kyora_chat/util/format.dart';
 
 import 'fake_engine.dart';
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
@@ -277,16 +276,14 @@ void main() {
       expect(find.byKey(const Key('number-1')), findsNothing); // sin numeración
     });
 
-    testWidgets('tocar una canción la reproduce, la marca y saca la barra de abajo', (tester) async {
+    testWidgets('tocar una canción la reproduce y la marca, sin sacar ninguna barra abajo', (tester) async {
       await open(tester);
       await tester.tap(find.byKey(const Key('track-b')));
       await tester.runAsync(settle);
       await tester.pump();
       expect(engine.startIndex, 1);
-      expect(find.byKey(const Key('mini-player')), findsOneWidget);
-      expect(find.descendant(of: find.byKey(const Key('mini-player')), matching: find.text('Canción b')), findsOneWidget);
+      expect(find.byKey(const Key('mini-player')), findsNothing);
       expect(find.byKey(const Key('now-playing')), findsOneWidget);
-      expect(find.descendant(of: find.byKey(const Key('mini-player')), matching: find.byIcon(Icons.pause_rounded)), findsOneWidget);
     });
 
     testWidgets('tocar una canción no la guarda: guardar está en su menú ⋯', (tester) async {
@@ -302,118 +299,6 @@ void main() {
       await tester.pump();
       expect(find.byKey(const Key('saved')), findsOneWidget);
       expect(backend.downloads, ['u/music/b/b.mp3']);
-    });
-
-    testWidgets('la barra de abajo pausa y pasa a la siguiente', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-c')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-toggle')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(engine.isPlaying, isFalse);
-      expect(find.descendant(of: find.byKey(const Key('mini-player')), matching: find.byIcon(Icons.play_arrow_rounded)), findsOneWidget);
-      await tester.tap(find.byKey(const Key('mini-next')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(find.byKey(const Key('mini-title')), findsOneWidget);
-      expect(tester.widget<Text>(find.byKey(const Key('mini-title'))).data, 'Canción b');
-    });
-
-    testWidgets('el reproductor completo enseña título, tiempos, carátula y los controles', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-a')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      engine.emitPosition(const Duration(seconds: 65));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('player-title')), findsOneWidget);
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción a');
-      expect(find.text('Rock'), findsWidgets);
-      expect(tester.widget<Text>(find.byKey(const Key('player-position'))).data, '1:05');
-      expect(tester.widget<Text>(find.byKey(const Key('player-duration'))).data, '3:00');
-      expect(find.byKey(const Key('cover-image')), findsWidgets); // esta canción trae carátula (la etiqueta del vinilo)
-      for (final key in ['player-shuffle', 'player-previous', 'player-toggle', 'player-next', 'player-repeat', 'player-seek', 'player-disc']) {
-        expect(find.byKey(Key(key)), findsOneWidget, reason: key);
-      }
-    });
-
-    testWidgets('en el reproductor: anterior, pausa, siguiente, aleatorio y la barra funcionan', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-b')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('player-toggle')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(engine.isPlaying, isFalse);
-
-      await tester.tap(find.byKey(const Key('player-next')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción a');
-
-      await tester.tap(find.byKey(const Key('player-previous')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción b');
-
-      await tester.tap(find.byKey(const Key('player-shuffle')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(engine.shuffle, isTrue);
-      expect(tester.widget<IconButton>(find.byKey(const Key('player-shuffle'))).color, KyoraColors.classic().accent);
-
-      // arrastrar la barra desde la mitad hacia la derecha adelanta la canción
-      await tester.drag(find.byKey(const Key('player-seek')), const Offset(120, 0));
-      await tester.runAsync(settle);
-      await tester.pump();
-      expect(engine.seeks, isNotEmpty);
-      expect(engine.seeks.last, greaterThan(const Duration(seconds: 90))); // la mitad de 3:00 es 1:30; más arriba, más adelante
-    });
-
-    Future<void> openPlayer(WidgetTester tester, String id) async {
-      await open(tester);
-      await tester.tap(find.byKey(Key('track-$id')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('solo se ve la canción actual: nada de la cola alrededor del disco', (tester) async {
-      await openPlayer(tester, 'b'); // la cola es c, b, a
-      expect(find.byKey(const Key('player-disc')), findsOneWidget);
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción b');
-      expect(find.byKey(const Key('queue-a')), findsNothing);
-      expect(find.byKey(const Key('queue-c')), findsNothing);
-      expect(find.text('Canción a'), findsNothing);
-      expect(find.text('Canción c'), findsNothing);
-    });
-
-    testWidgets('deslizar la parte de arriba del disco pasa a la siguiente o a la anterior', (tester) async {
-      await openPlayer(tester, 'b');
-      await tester.fling(find.byKey(const Key('disc-swipe')), const Offset(-120, 0), 1000);
-      await tester.runAsync(settle);
-      await tester.pumpAndSettle();
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción a');
-      await tester.fling(find.byKey(const Key('disc-swipe')), const Offset(120, 0), 1000);
-      await tester.runAsync(settle);
-      await tester.pumpAndSettle();
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Canción b');
-    });
-
-    testWidgets('el disco ya no gira', (tester) async {
-      await openPlayer(tester, 'b');
-      expect(find.byKey(const Key('disc-spin')), findsNothing);
-      expect(find.descendant(of: find.byKey(const Key('player-seek')), matching: find.byType(RotationTransition)), findsNothing);
     });
 
     test('la lectura del sonido se comparte: solo se apaga cuando la suelta la última pantalla', () async {
@@ -434,160 +319,6 @@ void main() {
       own.resumeSound(); // sin nadie leyendo: tampoco
       expect(levels.stopped, 2);
       expect(levels.started, 2);
-    });
-
-    group('aros que siguen al sonido', () {
-      late FakeLevels levels;
-      late PlayerController own;
-
-      Future<void> show(WidgetTester tester) async {
-        tester.view.physicalSize = const Size(400, 850);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        levels = FakeLevels();
-        own = PlayerController(backend, engine, clock: () => now, noteAfter: Duration.zero, levels: levels);
-        addTearDown(own.dispose);
-        await tester.runAsync(() async {
-          await own.play(tracks[1], tracks);
-          await settle();
-        });
-        await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: PlayerPage(player: own)));
-        await tester.pump();
-      }
-
-      double ring(WidgetTester tester) => (tester.widget<CustomPaint>(find.byKey(const Key('sound-rings'))).painter! as SoundRingsPainter).level.value;
-
-      Future<void> run(WidgetTester tester, {int frames = 20}) async {
-        for (var i = 0; i < frames; i++) {
-          await tester.pump(const Duration(milliseconds: 16));
-        }
-      }
-
-      Future<void> pause(WidgetTester tester) async {
-        await tester.tap(find.byKey(const Key('player-toggle')));
-        await tester.runAsync(settle);
-        await run(tester, frames: 120);
-      }
-
-      testWidgets('se abren con el sonido fuerte y se recogen con el silencio', (tester) async {
-        await show(tester);
-        expect(levels.started, 1);
-        levels.emit(0.4);
-        await run(tester);
-        final loud = ring(tester);
-        expect(loud, greaterThan(0.8));
-        levels.emit(0.02);
-        await run(tester, frames: 40);
-        expect(ring(tester), lessThan(loud * 0.5));
-        await pause(tester);
-      });
-
-      testWidgets('una canción suave también los mueve: se mide contra lo más fuerte reciente', (tester) async {
-        await show(tester);
-        levels.emit(0.08);
-        await run(tester);
-        expect(ring(tester), greaterThan(0.8));
-        await pause(tester);
-      });
-
-      testWidgets('al pausar se apagan y se dejan de animar', (tester) async {
-        await show(tester);
-        levels.emit(0.4);
-        await run(tester);
-        await pause(tester);
-        expect(ring(tester), 0);
-        expect(tester.binding.hasScheduledFrame, isFalse);
-      });
-
-      testWidgets('si no llega sonido que leer, laten suavemente mientras suena', (tester) async {
-        await show(tester);
-        await run(tester, frames: 60);
-        expect(ring(tester), inInclusiveRange(0.05, 0.5));
-        levels.emit(0); // el teléfono da ceros: tampoco cuenta como sonido
-        await run(tester, frames: 60);
-        expect(ring(tester), inInclusiveRange(0.05, 0.5));
-        await pause(tester);
-      });
-
-      testWidgets('al salir del reproductor se deja de escuchar', (tester) async {
-        await show(tester);
-        await pause(tester);
-        await tester.pumpWidget(const SizedBox());
-        expect(levels.stopped, 1);
-      });
-
-      testWidgets('con las animaciones del teléfono desactivadas se quedan quietos', (tester) async {
-        tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
-        addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
-        await show(tester);
-        levels.emit(0.4);
-        await run(tester);
-        expect(ring(tester), 0);
-      });
-    });
-
-    testWidgets('cerrar, aleatorio y repetir van sobre círculos de vidrio; los del disco no', (tester) async {
-      await openPlayer(tester, 'b');
-      for (final key in ['player-close', 'player-shuffle', 'player-repeat']) {
-        expect(find.ancestor(of: find.byKey(Key(key)), matching: find.byType(BackdropFilter)), findsOneWidget, reason: key);
-      }
-      for (final key in ['player-previous', 'player-next', 'player-toggle']) {
-        expect(find.ancestor(of: find.byKey(Key(key)), matching: find.byType(BackdropFilter)), findsNothing, reason: key);
-      }
-      await tester.tap(find.byKey(const Key('player-close')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('player-disc')), findsNothing); // cerrar sigue funcionando
-    });
-
-    testWidgets('repetir pasa de apagado a toda la lista, a esta canción y otra vez a apagado', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-b')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-      Future<void> press() async {
-        await tester.tap(find.byKey(const Key('player-repeat')));
-        await tester.runAsync(settle);
-        await tester.pump();
-      }
-
-      expect(find.byIcon(Icons.repeat_rounded), findsOneWidget);
-      await press();
-      expect(engine.repeat, RepeatKind.all);
-      expect(tester.widget<IconButton>(find.byKey(const Key('player-repeat'))).color, KyoraColors.classic().accent);
-      await press();
-      expect(engine.repeat, RepeatKind.one);
-      expect(find.byIcon(Icons.repeat_one_rounded), findsOneWidget);
-      await press();
-      expect(engine.repeat, RepeatKind.off);
-      expect(tester.widget<IconButton>(find.byKey(const Key('player-repeat'))).color, Colors.white);
-    });
-
-    testWidgets('«Artista - Título» sale con el título grande y el artista debajo', (tester) async {
-      backend.add('z', title: 'Brambles - Solitude');
-      tracks = List.of(backend.tracks);
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-z')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-      expect(tester.widget<Text>(find.byKey(const Key('player-title'))).data, 'Solitude z');
-      expect(find.text('Brambles'), findsWidgets);
-    });
-
-    testWidgets('un error de reproducción sale en el reproductor', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('track-b')));
-      await tester.runAsync(settle);
-      await tester.pump();
-      engine.emitError('El enlace de la canción caducó: vuelve a tocarla.');
-      await tester.runAsync(settle);
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('mini-player')));
-      await tester.pumpAndSettle();
-      expect(find.text('El enlace de la canción caducó: vuelve a tocarla.'), findsOneWidget);
     });
   });
 }

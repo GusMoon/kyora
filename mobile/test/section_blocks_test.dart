@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kyora_chat/data/dock_store.dart';
 import 'package:kyora_chat/data/favorites_store.dart';
+import 'package:kyora_chat/data/installed_apps.dart';
 import 'package:kyora_chat/data/music_store.dart';
 import 'package:kyora_chat/data/reminder_store.dart';
 import 'package:kyora_chat/data/task_store.dart';
 import 'package:kyora_chat/data/weather_store.dart';
 import 'package:kyora_chat/models/track.dart';
 import 'package:kyora_chat/state/chat_controller.dart';
+import 'package:kyora_chat/state/dock_controller.dart';
 import 'package:kyora_chat/state/local_music_controller.dart';
 import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/state/player_controller.dart';
@@ -17,7 +20,7 @@ import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/chat_page.dart';
 import 'package:kyora_chat/ui/home_page.dart';
 import 'package:kyora_chat/ui/music_page.dart';
-import 'package:kyora_chat/ui/reminders_page.dart';
+import 'package:kyora_chat/ui/calendar_page.dart';
 import 'package:kyora_chat/ui/tasks_page.dart';
 import 'package:kyora_chat/ui/widgets/composer.dart';
 import 'package:kyora_chat/ui/widgets/section_motion.dart';
@@ -59,29 +62,22 @@ void main() {
       weather.dispose();
     });
 
-    Widget home() => HomePage(onOpenSettings: () {}, tasks: Future.value(tasks), weather: weather, now: () => DateTime(2026, 11, 3, 9, 30));
+    Widget home() => HomePage(
+      onOpenSettings: () {},
+      weather: weather,
+      dock: DockController(MemoryDockStore(), FakeInstalledApps([])),
+      now: () => DateTime(2026, 11, 3, 9, 30),
+    );
 
-    testWidgets('la cabecera por arriba, el botón por la derecha y la tarjeta (con el clima) por abajo', (tester) async {
-      await tester.runAsync(tasks.start);
+    testWidgets('los paneles de la cuadrícula aparecen por su lado, uno tras otro: la columna izquierda por la izquierda y la derecha por la derecha', (tester) async {
       await show(tester, home());
-      expect(edgeOf(tester, find.byKey(const Key('home-date'))), MotionEdge.top);
-      expect(edgeOf(tester, find.byKey(const Key('home-greeting'))), MotionEdge.top);
-      expect(edgeOf(tester, find.byKey(const Key('home-settings'))), MotionEdge.right);
-      expect(edgeOf(tester, find.byKey(const Key('notched-card'))), MotionEdge.bottom);
-      expect(edgeOf(tester, find.byKey(const Key('home-weather'))), MotionEdge.bottom);
-    });
-
-    testWidgets('sin tareas, el clima solo también sale por abajo', (tester) async {
-      await show(tester, HomePage(onOpenSettings: () {}, weather: weather, now: () => DateTime(2026, 11, 3, 9, 30)));
-      expect(edgeOf(tester, find.byKey(const Key('home-weather'))), MotionEdge.bottom);
-    });
-
-    testWidgets('la lista solo deja de recortar mientras dura el cambio', (tester) async {
-      await tester.runAsync(tasks.start);
-      await show(tester, moving(home(), yes: true));
-      expect(tester.widget<CustomScrollView>(find.byType(CustomScrollView)).clipBehavior, Clip.none);
-      await show(tester, moving(home(), yes: false));
-      expect(tester.widget<CustomScrollView>(find.byType(CustomScrollView)).clipBehavior, Clip.hardEdge);
+      await tester.pump();
+      expect(edgeOf(tester, find.byKey(const Key('home-time'))), MotionEdge.left);
+      expect(edgeOf(tester, find.byKey(const Key('home-weather'))), MotionEdge.right);
+      expect(edgeOf(tester, find.byKey(const Key('home-system'))), MotionEdge.left);
+      expect(edgeOf(tester, find.byKey(const Key('home-quick'))), MotionEdge.right);
+      int orderOf(String key) => tester.widget<FlyIn>(find.ancestor(of: find.byKey(Key(key)), matching: find.byType(FlyIn)).first).order;
+      expect([orderOf('home-time'), orderOf('home-weather'), orderOf('home-system'), orderOf('home-quick')], [0, 1, 2, 3]);
     });
   });
 
@@ -112,33 +108,20 @@ void main() {
 
     Widget page() => MusicPage(controller: music, local: local, player: player, favorites: favorites);
 
-    testWidgets('la ruleta por la izquierda; las favoritas y la mini-barra por abajo', (tester) async {
+    testWidgets('la pila por la izquierda y los iconos discretos por arriba; sin favoritas ni mini-barra', (tester) async {
       await tester.runAsync(() async {
         await music.start();
         await pumpEventQueue();
         await favorites.toggle(Track.local(song('a.mp3')).durationKey);
         await player.play(Track.local(song('a.mp3')), [Track.local(song('a.mp3'))]);
       });
-      await show(tester, page());
+      await show(tester, moving(page(), yes: true));
       expect(find.byKey(const Key('music-title')), findsNothing);
       expect(edgeOf(tester, find.byKey(const Key('album-deck'))), MotionEdge.left);
-      expect(edgeOf(tester, find.byKey(const Key('favorites-title'))), MotionEdge.bottom);
-      expect(edgeOf(tester, find.byKey(const Key('mini-player'))), MotionEdge.bottom);
-      await tester.drag(find.byKey(const Key('music-scroll')), const Offset(0, -400));
-      await tester.pump();
-      expect(edgeOf(tester, find.byKey(const Key('local-local:content://tree/musica/document/a.mp3'))), MotionEdge.bottom);
-    });
-
-    testWidgets('sin favoritas, el aviso va por abajo; y la lista solo deja de recortar durante el cambio', (tester) async {
-      await tester.runAsync(music.start);
-      await tester.runAsync(pumpEventQueue);
-      await show(tester, moving(page(), yes: true));
-      expect(tester.widget<CustomScrollView>(find.byKey(const Key('music-scroll'))).clipBehavior, Clip.none);
-      await tester.drag(find.byKey(const Key('music-scroll')), const Offset(0, -300));
-      await tester.pump();
-      expect(edgeOf(tester, find.byKey(const Key('favorites-empty'))), MotionEdge.bottom);
-      await show(tester, moving(page(), yes: false));
-      expect(tester.widget<CustomScrollView>(find.byKey(const Key('music-scroll'))).clipBehavior, Clip.hardEdge);
+      expect(edgeOf(tester, find.byKey(const Key('music-refresh'))), MotionEdge.top);
+      expect(find.byKey(const Key('favorites-title')), findsNothing);
+      expect(find.byKey(const Key('favorites-flow')), findsNothing);
+      expect(find.byKey(const Key('mini-player')), findsNothing);
     });
 
     testWidgets('sin carpeta posible: el resumen por la izquierda y la lista por abajo', (tester) async {
@@ -150,16 +133,18 @@ void main() {
     });
   });
 
-  testWidgets('Chat: la barra por arriba, los mensajes por la izquierda y el campo de escribir por abajo', (tester) async {
+  testWidgets('Chat: la ventana de la terminal por arriba, el registro por la izquierda y el prompt dentro de ella, abajo', (tester) async {
     final backend = FakeBackend();
     final controller = ChatController(backend, retryDelay: const Duration(milliseconds: 20), catchUpDelay: const Duration(milliseconds: 10));
     addTearDown(controller.dispose);
     await show(tester, ChatPage(backend: backend, controller: controller));
     await tester.runAsync(controller.start);
     await tester.pump();
-    expect(edgeOf(tester, find.byType(AppBar)), MotionEdge.top);
-    expect(edgeOf(tester, find.textContaining('mensajes')), MotionEdge.left);
-    expect(edgeOf(tester, find.byType(Composer)), MotionEdge.bottom);
+    expect(edgeOf(tester, find.byKey(const Key('terminal-header'))), MotionEdge.top);
+    expect(edgeOf(tester, find.byKey(const Key('chat-empty'))), MotionEdge.left);
+    // el prompt va dentro de la ventana, abajo del todo
+    expect(find.descendant(of: find.byKey(const Key('terminal-footer')), matching: find.byType(Composer)), findsOneWidget);
+    expect(tester.getBottomLeft(find.byType(Composer)).dy, greaterThan(tester.getBottomLeft(find.byKey(const Key('chat-empty'))).dy));
   });
 
   testWidgets('Tareas: la barra por arriba, los filtros por la izquierda, la lista por la derecha y el campo por abajo', (tester) async {
@@ -173,13 +158,15 @@ void main() {
     expect(edgeOf(tester, find.byKey(const Key('task-input'))), MotionEdge.bottom);
   });
 
-  testWidgets('Recordatorios: la barra por arriba, la lista por la derecha y «Nuevo» por abajo', (tester) async {
+  testWidgets('Calendario: la consola y las etiquetas de los paneles por arriba y lo del día por abajo', (tester) async {
     final reminders = ReminderController(MemoryReminderStore(), FakeScheduler());
     addTearDown(reminders.dispose);
     await tester.runAsync(reminders.start);
-    await show(tester, RemindersPage(controller: reminders));
-    expect(edgeOf(tester, find.byType(AppBar)), MotionEdge.top);
-    expect(edgeOf(tester, find.byKey(const Key('reminders-empty'))), MotionEdge.right);
-    expect(edgeOf(tester, find.byKey(const Key('reminder-new'))), MotionEdge.bottom);
+    await show(tester, CalendarPage(reminders: Future.value(reminders), now: () => DateTime(2026, 11, 5, 9)));
+    await tester.pump();
+    expect(edgeOf(tester, find.byKey(const Key('cal-title'))), MotionEdge.top);
+    expect(edgeOf(tester, find.byKey(const Key('cal-summary'))), MotionEdge.top);
+    expect(edgeOf(tester, find.byKey(const Key('cal-tab-day'))), MotionEdge.top); // con recordatorios hay dos paneles: Hoy y Recordatorios
+    expect(edgeOf(tester, find.byKey(const Key('cal-day-empty'))), MotionEdge.bottom);
   });
 }

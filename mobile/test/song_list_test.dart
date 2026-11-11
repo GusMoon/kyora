@@ -14,6 +14,7 @@ import 'package:kyora_chat/util/format.dart';
 import 'fake_engine.dart';
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
 import 'music_ui.dart';
+import 'sections.dart';
 
 /// La línea de abajo de la canción que se enseña en la vista de un álbum.
 String? ringLine(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('album-song-subtitle'))).data;
@@ -252,12 +253,12 @@ void main() {
       await playRow(tester, find.byKey(const Key('track-a')), 'a'); // es la segunda de la lista
       await tester.runAsync(pumpEventQueue);
       await tester.pumpAndSettle();
-      expect(find.descendant(of: find.byKey(const Key('track-a')), matching: find.byIcon(Icons.graphic_eq_rounded)), findsOneWidget); // solo la que suena
-      expect(find.descendant(of: find.byKey(const Key('track-b')), matching: find.byIcon(Icons.graphic_eq_rounded)), findsNothing);
+      expect(find.descendant(of: find.byKey(const Key('track-a')), matching: findIcon(Icons.graphic_eq_rounded)), findsOneWidget); // solo la que suena
+      expect(find.descendant(of: find.byKey(const Key('track-b')), matching: findIcon(Icons.graphic_eq_rounded)), findsNothing);
       await tester.tap(find.byKey(const Key('arc-play-a')));
       await tester.runAsync(pumpEventQueue);
       await tester.pump();
-      expect(find.descendant(of: find.byKey(const Key('track-a')), matching: find.byIcon(Icons.graphic_eq_rounded)), findsNothing);
+      expect(find.descendant(of: find.byKey(const Key('track-a')), matching: findIcon(Icons.graphic_eq_rounded)), findsNothing);
       expect(find.descendant(of: find.byKey(const Key('track-a')), matching: find.byKey(const Key('now-playing'))), findsOneWidget); // en pausa
     });
 
@@ -393,14 +394,14 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.byIcon(Icons.favorite), findsNothing);
+      expect(findIcon(Icons.favorite), findsNothing);
       await tester.tap(find.byKey(const Key('fav-1'))); // la primera de la lista es «Stay» (b, la más nueva)
       await tester.pump();
-      expect(find.byIcon(Icons.favorite), findsOneWidget);
+      expect(findIcon(Icons.favorite), findsOneWidget);
       expect(favStore.keys, {'b'});
       await tester.tap(find.byKey(const Key('fav-1')));
       await tester.pump();
-      expect(find.byIcon(Icons.favorite), findsNothing);
+      expect(findIcon(Icons.favorite), findsNothing);
       expect(favStore.keys, isEmpty);
       expect(tester.getSize(find.byKey(const Key('track-b'))).height, lessThanOrEqualTo(62));
       expect(find.text('Sweetest Pie a'), findsOneWidget);

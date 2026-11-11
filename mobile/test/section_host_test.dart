@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/data/nav_hint_store.dart';
 import 'package:kyora_chat/theme.dart';
@@ -7,7 +8,6 @@ import 'package:kyora_chat/ui/widgets/app_section.dart';
 import 'package:kyora_chat/ui/widgets/glass_card.dart';
 import 'package:kyora_chat/ui/widgets/section_motion.dart';
 
-import 'blur_guard_test.dart' show expectNoLayerAbove;
 import 'sections.dart';
 
 /// Una sección de prueba: una pantalla con su nombre, un campo de texto y un botón que enseña un aviso.
@@ -62,57 +62,6 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  group('el fondo', () {
-    double depth(WidgetTester tester) => tester.widget<FadeTransition>(find.byKey(const Key('backdrop-depth'))).opacity.value;
-
-    testWidgets('en la sección inicial no hay efecto completo; llega a la vez que los bloques y dura lo mismo', (tester) async {
-      await open(tester);
-      expect(depth(tester), 0);
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-home'))), 'chat');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 210));
-      expect(depth(tester), inExclusiveRange(0, 1));
-      await tester.pump(SectionMotion.total - const Duration(milliseconds: 200));
-      expect(depth(tester), 1);
-    });
-
-    testWidgets('entre dos secciones que no son la inicial no cambia, y al volver a la inicial se va', (tester) async {
-      await open(tester);
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-home'))), 'chat');
-      await tester.pumpAndSettle();
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-chat'))), 'tasks');
-      await tester.pump();
-      for (var i = 0; i < 5; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(depth(tester), 1);
-      }
-      await tester.pumpAndSettle();
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-tasks'))), 'home');
-      await tester.pumpAndSettle();
-      expect(depth(tester), 0);
-    });
-
-    testWidgets('si se cambia otra vez a mitad, termina según la última sección', (tester) async {
-      await open(tester);
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-home'))), 'chat');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-chat'))), 'home');
-      await tester.pumpAndSettle();
-      expect(depth(tester), 0);
-    });
-
-    testWidgets('la capa del fundido va debajo de las secciones: el cristal no la tiene por encima', (tester) async {
-      await open(tester);
-      SectionHost.goTo(tester.element(find.byKey(const Key('go-home'))), 'chat');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(find.ancestor(of: find.byKey(const Key('card-chat')), matching: find.byKey(const Key('backdrop-depth'))), findsNothing);
-      expectNoLayerAbove(tester);
-      await tester.pumpAndSettle();
-    });
-  });
-
   group('una sección a la vez', () {
     testWidgets('arranca en la sección inicial y solo esa se construye (las demás ni existen)', (tester) async {
       await open(tester, initial: 1);
@@ -156,6 +105,29 @@ void main() {
       expect(find.text('Pantalla Tareas'), findsNothing);
     });
 
+    testWidgets('«atrás» en Inicio cierra la app, salvo que Kyra sea la pantalla de inicio del teléfono (ahí no se cierra)', (tester) async {
+      final closed = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemNavigator.pop') closed.add(call);
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      var launcher = true;
+      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: SectionHost(sections: sections, canExit: () => !launcher)));
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(closed, isEmpty); // como launcher no se cierra
+      expect(find.text('Pantalla Inicio'), findsOneWidget);
+      launcher = false;
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(closed, hasLength(1));
+    });
+
     testWidgets('un aviso sale en la pantalla de su sección', (tester) async {
       await open(tester);
       await goToSection(tester, 'music');
@@ -166,7 +138,7 @@ void main() {
     });
   });
 
-  group('la transición: cada bloque por su borde', () {
+  group('la transición: glitch / holograma', () {
     /// Dónde está cada bloque en reposo (son iguales en todas las secciones de prueba).
     late Rect barAtRest, middleAtRest, cardAtRest;
 
@@ -179,62 +151,69 @@ void main() {
       await tester.pump(); // arranca (t = 0)
     }
 
-    testWidgets('los de la sección actual salen cada uno por su borde hasta desaparecer', (tester) async {
+    /// Lo visible que está un bloque (la opacidad de su capa).
+    double shown(WidgetTester tester, String key) =>
+        tester.widget<Opacity>(find.ancestor(of: find.byKey(Key(key)), matching: find.byType(Opacity)).first).opacity;
+
+    testWidgets('los de la sección actual se rompen todos a la vez y desaparecen en un instante', (tester) async {
       await start(tester);
-      // al empezar siguen en su sitio
+      // al empezar siguen en su sitio, enteros
+      for (final key in ['bar-home', 'middle-home', 'card-home']) {
+        expect(shown(tester, key), 1, reason: key);
+      }
       expect(tester.getRect(find.byKey(const Key('bar-home'))), barAtRest);
-      expect(tester.getRect(find.byKey(const Key('middle-home'))), middleAtRest);
-      expect(tester.getRect(find.byKey(const Key('card-home'))), cardAtRest);
-      // a mitad, cada uno va hacia su borde y sin moverse en el otro eje
-      await tester.pump(const Duration(milliseconds: 120));
-      final bar = tester.getRect(find.byKey(const Key('bar-home')));
-      final middle = tester.getRect(find.byKey(const Key('middle-home')));
-      final card = tester.getRect(find.byKey(const Key('card-home')));
-      expect(bar.top, lessThan(barAtRest.top));
-      expect(bar.left, barAtRest.left);
-      expect(middle.left, lessThan(middleAtRest.left));
-      expect(middle.top, middleAtRest.top);
-      expect(card.top, greaterThan(cardAtRest.top));
-      expect(card.left, cardAtRest.left);
-      // al terminar su salida ya no se ven
-      await tester.pump(const Duration(milliseconds: 140));
-      expect(tester.getRect(find.byKey(const Key('bar-home'))).bottom, lessThanOrEqualTo(0));
-      expect(tester.getRect(find.byKey(const Key('middle-home'))).right, lessThanOrEqualTo(0));
-      expect(tester.getRect(find.byKey(const Key('card-home'))).top, greaterThanOrEqualTo(800));
+      // a mitad de su salida, rotos: más tenues y fuera de su sitio
+      await tester.pump(const Duration(milliseconds: 60));
+      for (final key in ['bar-home', 'middle-home', 'card-home']) {
+        expect(shown(tester, key), allOf(greaterThan(0), lessThan(1)), reason: key);
+      }
+      expect(tester.getRect(find.byKey(const Key('middle-home'))), isNot(middleAtRest));
+      // y al acabar la salida ya no se ven
+      await tester.pump(SectionMotion.exitTime);
+      for (final key in ['bar-home', 'middle-home', 'card-home']) {
+        expect(shown(tester, key), 0, reason: key);
+      }
     });
 
-    testWidgets('los de la nueva esperan un momento y entran desde los bordes hasta su sitio', (tester) async {
+    testWidgets('los de la nueva esperan un momento y se materializan uno tras otro, por su turno, hasta quedar exactamente en su sitio', (tester) async {
       await start(tester);
-      Rect bar() => tester.getRect(find.byKey(const Key('bar-tasks')));
-      Rect middle() => tester.getRect(find.byKey(const Key('middle-tasks')));
-      Rect card() => tester.getRect(find.byKey(const Key('card-tasks')));
-      // al principio, y durante la espera, fuera de la pantalla
-      expect(bar().bottom, lessThanOrEqualTo(0));
-      expect(middle().right, lessThanOrEqualTo(0));
-      expect(card().top, greaterThanOrEqualTo(800));
+      // al principio, y durante la espera, ocultos
+      for (final key in ['bar-tasks', 'middle-tasks', 'card-tasks']) {
+        expect(shown(tester, key), 0, reason: key);
+      }
       await tester.pump(SectionMotion.enterDelay - const Duration(milliseconds: 10));
-      expect(bar().bottom, lessThanOrEqualTo(0));
-      // ya en camino, y el primero en llegar es el de turno más bajo
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(bar().top, greaterThan(-800));
-      expect(middle().left, greaterThan(-400));
-      expect(card().top, lessThan(1600));
-      // todos terminan exactamente en su sitio
+      expect(shown(tester, 'bar-tasks'), 0);
+      // el primero ya empezó y el último (turno 2) aún no
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(shown(tester, 'bar-tasks'), greaterThan(0));
+      expect(shown(tester, 'card-tasks'), 0);
+      // todos terminan enteros y exactamente en su sitio
       await tester.pumpAndSettle();
-      expect(bar(), barAtRest);
-      expect(middle(), middleAtRest);
-      expect(card(), cardAtRest);
+      for (final key in ['bar-tasks', 'middle-tasks', 'card-tasks']) {
+        expect(shown(tester, key), 1, reason: key);
+      }
+      expect(tester.getRect(find.byKey(const Key('bar-tasks'))), barAtRest);
+      expect(tester.getRect(find.byKey(const Key('middle-tasks'))), middleAtRest);
+      expect(tester.getRect(find.byKey(const Key('card-tasks'))), cardAtRest);
     });
 
-    testWidgets('casi a la vez: la nueva ya viene entrando antes de que la anterior termine de irse', (tester) async {
+    testWidgets('todo es rápido: la anterior se ha ido antes de 260 ms y la nueva está entera antes de 650 ms', (tester) async {
+      await start(tester);
+      await tester.pump(const Duration(milliseconds: 260));
+      expect(shown(tester, 'middle-home'), 0);
+      await tester.pump(const Duration(milliseconds: 390));
+      expect(shown(tester, 'card-tasks'), 1);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('casi a la vez: la nueva ya empieza a materializarse antes de que la anterior termine de irse', (tester) async {
       await start(tester);
       await tester.pump(const Duration(milliseconds: 150));
-      expect(tester.getRect(find.byKey(const Key('middle-home'))).left, lessThan(middleAtRest.left)); // todavía se está yendo
-      expect(tester.getRect(find.byKey(const Key('middle-home'))).right, greaterThan(0));
-      expect(tester.getRect(find.byKey(const Key('middle-tasks'))).left, greaterThan(-400)); // y la otra ya viene
+      expect(shown(tester, 'middle-home'), greaterThan(0)); // todavía se está yendo
+      expect(shown(tester, 'bar-tasks'), greaterThan(0)); // y la otra ya viene
     });
 
-    testWidgets('al terminar la sección anterior se destruye y el fondo no se toca', (tester) async {
+    testWidgets('al terminar la sección anterior se destruye', (tester) async {
       await start(tester);
       expect(find.byKey(const Key('page-home')), findsOneWidget);
       await tester.pumpAndSettle();
@@ -242,16 +221,17 @@ void main() {
       expect(find.byType(Scaffold), findsOneWidget);
     });
 
-    testWidgets('mientras se mueven no reciben toques', (tester) async {
+    testWidgets('la que se va no recibe toques; la que llega sí, desde el primer momento', (tester) async {
       await start(tester);
       await tester.pump(const Duration(milliseconds: 60));
-      await tester.tap(find.byKey(const Key('snack-tasks')), warnIfMissed: false);
+      await tester.tap(find.byKey(const Key('snack-home')), warnIfMissed: false);
       await tester.pump();
-      expect(find.text('Aviso de Tareas'), findsNothing);
-      await tester.pumpAndSettle();
+      expect(find.text('Aviso de Inicio'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.byKey(const Key('snack-tasks')));
       await tester.pump();
       expect(find.text('Aviso de Tareas'), findsOneWidget);
+      await tester.pumpAndSettle();
     });
 
     testWidgets('si llega otro cambio a mitad, la que se iba se destruye y se sigue sin saltos de pantalla', (tester) async {
@@ -263,14 +243,13 @@ void main() {
       expect(find.byType(Scaffold), findsOneWidget);
     });
 
-    testWidgets('sin ninguna capa de opacidad encima del cristal, durante toda la transición', (tester) async {
+    testWidgets('sin cristal durante toda la transición', (tester) async {
       await start(tester);
-      for (var i = 0; i < 7; i++) {
-        expectNoLayerAbove(tester, reason: 'a los ${i * 50} ms');
-        await tester.pump(const Duration(milliseconds: 50));
+      for (var i = 0; i < 12; i++) {
+        expect(find.byType(BackdropFilter), findsNothing);
+        await tester.pump(const Duration(milliseconds: 60));
       }
       await tester.pumpAndSettle();
-      expectNoLayerAbove(tester);
     });
   });
 
@@ -279,7 +258,7 @@ void main() {
       final hint = MemoryNavHintStore();
       await open(tester, hint: hint);
       expect(find.byKey(const Key('nav-hint')), findsOneWidget);
-      expect(find.text('Mantén el dedo para navegar'), findsOneWidget);
+      expect(find.text(NavHintPill.text), findsOneWidget);
       await menuOptions(tester);
       expect(find.byKey(const Key('nav-hint')), findsNothing);
       expect(hint.seen, isTrue);

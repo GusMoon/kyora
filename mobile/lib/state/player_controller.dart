@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -33,11 +34,12 @@ class PlayerController extends ChangeNotifier {
       _engine.index.listen(_onIndex),
       _engine.playing.listen((value) {
         _playing = value;
-        _tell();
+        // los hooks antes que la pantalla: lo que pide permisos va primero, y la lectura del sonido espera su turno
         _notifyHooks(value);
+        _tell();
       }),
       // el avance llega unas 5 veces por segundo: va a su propio aviso (`positionListenable`), no al de todo el reproductor, para que no se
-      // reconstruyan a ese ritmo las listas, el anillo, el fondo… Solo la barra de avance y la mini-barra lo escuchan
+      // reconstruyan a ese ritmo las listas, el fondo… Solo la línea del disco y la tarjeta de abajo lo escuchan
       _engine.position.listen((value) => position = value),
       _engine.duration.listen((value) {
         duration = value ?? Duration.zero;
@@ -64,18 +66,33 @@ class PlayerController extends ChangeNotifier {
   /// duración un instante antes que de la canción, y no se debe anotar la de una en la otra.
   final Duration noteAfter;
 
-  /// De dónde se lee qué tan fuerte suena, para los aros del reproductor. Sin esto laten sin más.
+  /// De dónde se lee qué tan fuerte suena, para el círculo del disco. Sin esto late sin más.
   final AudioLevels? levels;
 
   /// Lo que se mantiene despierto (la red) mientras suena, y el permiso de las notificaciones la primera vez.
   final PlaybackHooks? hooks;
 
-  /// Cuántas pantallas están leyendo el sonido (el disco del álbum y los aros del reproductor pueden estar a la vez, una debajo de la otra).
+  /// Cuántas pantallas están leyendo el sonido.
   int _soundUsers = 0;
+
+  /// Los hooks están pidiendo permisos. Android solo atiende una petición a la vez y descarta las demás sin avisar, así que el permiso de leer el
+  /// sonido espera a que terminen.
+  Future<void>? _asking;
+
+  void _startSound() {
+    final busy = _asking;
+    if (busy == null) {
+      unawaited(levels?.start());
+    } else {
+      unawaited(busy.whenComplete(() {
+        if (_soundUsers > 0 && !_disposed) _startSound();
+      }));
+    }
+  }
 
   /// Empieza a leer el sonido para una pantalla más.
   void listenToSound() {
-    if (_soundUsers++ == 0) unawaited(levels?.start());
+    if (_soundUsers++ == 0) _startSound();
   }
 
   /// Esa pantalla ya no lo lee; con la última, se apaga.
@@ -90,13 +107,21 @@ class PlayerController extends ChangeNotifier {
 
   /// La app vuelve a estar a la vista.
   void resumeSound() {
-    if (_soundUsers > 0) unawaited(levels?.start());
+    if (_soundUsers > 0) _startSound();
   }
 
   void _notifyHooks(bool playing) {
     final h = hooks;
     if (h == null) return;
-    unawaited((playing ? h.started() : h.stopped()).catchError((Object _) {}));
+    if (!playing) {
+      unawaited(h.stopped().catchError((Object _) {}));
+      return;
+    }
+    final done = h.started().catchError((Object _) {});
+    _asking = done;
+    unawaited(done.whenComplete(() {
+      if (identical(_asking, done)) _asking = null;
+    }));
   }
 
   final MusicBackend _backend;
@@ -165,8 +190,23 @@ class PlayerController extends ChangeNotifier {
   }
 
   List<QueueItem> _items(List<Track> tracks, String? Function(Track) addressOf) => [
-        for (final t in tracks) QueueItem(id: t.id, title: t.title, url: addressOf(t)!, subtitle: t.playlist, artUrl: t.coverUrl),
+        for (final t in tracks) QueueItem(id: t.id, title: t.title, url: addressOf(t)!, subtitle: t.playlist, artUrl: _artAddress(t)),
       ];
+
+  /// La portada que enseña la notificación: la del álbum, si está en el teléfono; si no, la de internet.
+  String? _artAddress(Track track) {
+    final file = _art?.artOf(track);
+    return file == null ? track.coverUrl : Uri.file(file).toString();
+  }
+
+  /// **Aleatorio entre todo**: activa el aleatorio y pone a sonar una canción cualquiera de [all] (todas las de todos los álbumes) con todas
+  /// como cola. Después sigue siempre al azar, saltando de un álbum a otro. No hace nada sin canciones.
+  Future<void> playShuffled(List<Track> all, {math.Random? random}) async {
+    if (all.isEmpty) return;
+    shuffle = true;
+    final pick = all[(random ?? math.Random()).nextInt(all.length)];
+    await play(pick, all);
+  }
 
   Future<void> toggle() => _playing && _status != EngineStatus.completed ? _engine.pause() : _engine.play();
 

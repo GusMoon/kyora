@@ -43,6 +43,54 @@ String dayLabel(DateTime moment, {DateTime? now}) {
   return local.year == today.year ? text : '$text de ${local.year}';
 }
 
+const _weekdaysShort = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+/// La fecha de Inicio con el día de la semana: «Lun, 9 de noviembre».
+String longDate(DateTime moment) {
+  final local = moment.toLocal();
+  return '${_weekdaysShort[local.weekday - 1]}, ${local.day} de ${_months[local.month - 1]}';
+}
+
+const _accents = {
+  'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'å': 'a',
+  'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
+  'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
+  'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
+  'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+  'ñ': 'n', 'ç': 'c',
+};
+
+/// El nombre de una app para ordenarla: en minúsculas, sin acentos (la «ñ» cuenta como «n») y sin los símbolos del principio.
+/// Lo que no empieza por una letra (un número, un símbolo) va al final.
+String alphaKey(String name) {
+  final lower = name.toLowerCase();
+  final plain = StringBuffer();
+  for (final rune in lower.runes) {
+    final char = String.fromCharCode(rune);
+    plain.write(_accents[char] ?? char);
+  }
+  var text = plain.toString();
+  var start = 0;
+  while (start < text.length && !RegExp(r'[a-z0-9]').hasMatch(text[start])) {
+    start++;
+  }
+  text = text.substring(start);
+  final isLetter = text.isNotEmpty && RegExp(r'[a-z]').hasMatch(text[0]);
+  return isLetter ? text : '~$text';
+}
+
+/// La letra con la que se agrupa una app: «A»…«Z», o «#» si no empieza por una letra.
+String letterOf(String name) {
+  final key = alphaKey(name);
+  return key.startsWith('~') || key.isEmpty ? '#' : key[0].toUpperCase();
+}
+
+/// Compara dos nombres de app para ordenarlas de la A a la Z (con lo que no empieza por letra al final).
+int compareAppNames(String a, String b) {
+  final byKey = alphaKey(a).compareTo(alphaKey(b));
+  return byKey != 0 ? byKey : a.compareTo(b);
+}
+
 /// ¿Es el mismo día (en la hora local)?
 bool sameDay(DateTime a, DateTime b) {
   final x = a.toLocal(), y = b.toLocal();

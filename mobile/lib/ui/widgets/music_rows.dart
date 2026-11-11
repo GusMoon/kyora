@@ -10,6 +10,7 @@ import '../../state/player_controller.dart';
 import '../../theme.dart';
 import '../../util/format.dart';
 import 'song_row.dart';
+import 'pixel_glyph.dart';
 
 /// Los trozos de la pantalla de música que se comparten entre la principal (álbumes y favoritas) y la de cada álbum.
 
@@ -46,7 +47,6 @@ class MusicMessage extends StatelessWidget {
   }
 }
 
-
 class MusicBanner extends StatelessWidget {
   const MusicBanner({super.key, required this.controller});
 
@@ -63,7 +63,7 @@ class MusicBanner extends StatelessWidget {
             child: Text(
               pending == 0 ? 'Todo guardado en ${controller.settings.where}.' : '$pending por guardar en ${controller.settings.where}.',
               key: const Key('music-banner'),
-              style: TextStyle(color: context.colors.dim, fontSize: 14),
+              style: TextStyle(color: context.colors.dim, fontSize: 15),
             ),
           ),
           if (pending > 0) TextButton(key: const Key('save-all'), onPressed: controller.saveAll, child: const Text('Guardar todas')),
@@ -165,7 +165,7 @@ class SentMenu extends StatelessWidget {
       key: Key('more-${track.id}'),
       tooltip: 'Más opciones',
       padding: EdgeInsets.zero,
-      icon: Icon(Icons.more_vert_rounded, color: context.colors.dim),
+      icon: LcdIcon(Icons.more_vert_rounded, color: context.colors.dim),
       onSelected: (_) => unawaited(controller.save(track)),
       itemBuilder: (_) => [
         PopupMenuItem(
@@ -193,7 +193,7 @@ class ReceivedButton extends StatelessWidget {
     if (controller.isReceived(track)) {
       return Tooltip(
         message: 'Recibida',
-        child: Icon(Icons.done_all_rounded, key: Key('received-mark-${track.id}'), size: 20, color: c.accent),
+        child: LcdIcon(Icons.done_all_rounded, key: Key('received-mark-${track.id}'), size: 20, color: c.accent),
       );
     }
     final busy = controller.isConfirming(track);
@@ -205,7 +205,7 @@ class ReceivedButton extends StatelessWidget {
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         foregroundColor: c.accent,
         side: BorderSide(color: c.accent.withValues(alpha: 0.6)),
-        textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
       ),
       onPressed: busy || controller.stateOf(track) == TrackState.saving ? null : () => unawaited(controller.confirmReceived(track)),
       child: busy ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Recibido'),
@@ -227,7 +227,7 @@ class SelectionBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(4, 0, 12, 4),
       child: Row(
         children: [
-          IconButton(key: const Key('cancel-selection'), tooltip: 'Cancelar', icon: const Icon(Icons.close_rounded), onPressed: local.clearSelection),
+          IconButton(key: const Key('cancel-selection'), tooltip: 'Cancelar', icon: const LcdIcon(Icons.close_rounded), onPressed: local.clearSelection),
           Expanded(
             child: Text(
               n == 1 ? '1 seleccionada' : '$n seleccionadas',
@@ -237,12 +237,12 @@ class SelectionBar extends StatelessWidget {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ),
-          IconButton(key: const Key('select-all'), tooltip: 'Marcar todas', icon: const Icon(Icons.select_all_rounded), onPressed: local.selectAll),
+          IconButton(key: const Key('select-all'), tooltip: 'Marcar todas', icon: const LcdIcon(Icons.select_all_rounded), onPressed: local.selectAll),
           FilledButton.tonalIcon(
             key: const Key('move-selected'),
             style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
             onPressed: onMove,
-            icon: const Icon(Icons.drive_file_move_outline),
+            icon: const LcdIcon(Icons.drive_file_move_outline),
             label: const Text('Mover'),
           ),
         ],
@@ -250,73 +250,3 @@ class SelectionBar extends StatelessWidget {
     );
   }
 }
-
-/// Una canción del teléfono en una lista. Con `selected` (modo selección) tocarla la marca o desmarca; mantenerla pulsada empieza a marcar.
-class LocalTile extends StatelessWidget {
-  const LocalTile({
-    super.key,
-    required this.track,
-    required this.number,
-    required this.all,
-    required this.local,
-    required this.player,
-    required this.favorites,
-    this.line,
-    this.selected,
-    this.onHold,
-    this.onToggle,
-    this.onPlayed,
-  });
-
-  /// `null` fuera del modo selección; si no, si esta canción está marcada.
-  final bool? selected;
-  final ValueChanged<Track>? onHold;
-  final ValueChanged<Track>? onToggle;
-  final VoidCallback? onPlayed;
-
-  /// El texto de debajo del título cuando la canción no trae artista.
-  final String? line;
-
-  final Track track;
-  final int number;
-  final List<Track> all;
-  final LocalMusicController local;
-  final PlayerController? player;
-  final FavoritesController? favorites;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([?player, ?favorites]),
-      builder: (context, _) {
-        final p = player;
-        final isCurrent = p?.current?.id == track.id;
-        final named = splitArtistTitle(track.title);
-        final f = favorites;
-        return SongRow(
-          key: Key('local-${track.id}'),
-          number: number,
-          title: named.title,
-          line: named.artist ?? line ?? local.folderName,
-          coverFile: local.artOf(track),
-          duration: local.durationOf(track) ?? p?.durationOf(track),
-          current: isCurrent,
-          playing: isCurrent && p!.playing,
-          favorite: f?.isFavorite(track.durationKey),
-          onFavorite: f == null ? null : () => unawaited(f.toggle(track.durationKey)),
-          selected: selected,
-          onLongPress: onHold == null ? null : () => onHold!(track),
-          onTap: selected != null
-              ? () => onToggle?.call(track)
-              : (p == null
-                  ? null
-                  : () {
-                      unawaited(p.play(track, all));
-                      onPlayed?.call();
-                    }),
-        );
-      },
-    );
-  }
-}
-

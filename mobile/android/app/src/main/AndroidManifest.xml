@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <!-- El chat habla con Supabase por internet (la version release no lo trae por defecto). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Inicio: saber si el Wi-Fi y el Bluetooth están encendidos (no se cambian desde la app: se abre el panel del sistema) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <!-- Contactos: leer los del teléfono para llamar o abrir su chat de WhatsApp (la app lo pide al abrir la sección). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
     <!-- Solo Android 9 y anteriores escriben directo en Musica/Descargas; de Android 10 en adelante se usa MediaStore (sin permiso). -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
     <!-- El reproductor sigue sonando con la pantalla apagada y deja sus controles en la notificacion (just_audio_background). -->
@@ -41,6 +46,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Kyra puede ser la pantalla de inicio del teléfono (launcher): sale en la lista de «Aplicación de inicio» de Android. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
         </activity>
         <!-- El servicio y el receptor de botones del reproductor (just_audio_background / audio_service). -->
@@ -83,10 +94,23 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Abrir el chat de WhatsApp de un contacto. -->
+        <package android:name="com.whatsapp"/>
+        <package android:name="com.whatsapp.w4b"/>
         <!-- Abrir en el navegador los archivos del chat (url_launcher). -->
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
+        </intent>
+        <!-- Las apps que se pueden abrir desde el disco de Inicio (sin pedir ver todas las apps del teléfono). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+        <!-- Saber si Kyra es la pantalla de inicio. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.HOME"/>
         </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>

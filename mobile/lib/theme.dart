@@ -2,9 +2,27 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'ui/widgets/cut_border.dart';
+
 import 'ui/widgets/app_backdrop.dart';
 
-/// Los colores de la app, siempre en modo oscuro: el gris de Kyora y su dorado. Se leen con `context.colors`.
+/// El color de acento (un neón) con el que se viste la app y el texto que va encima. Sale del fondo de pantalla; sin fondo, [standard].
+@immutable
+class AppPalette {
+  const AppPalette({required this.accent});
+
+  /// El acento: el color de lo elegido, de los botones principales y de las tarjetas destacadas.
+  final Color accent;
+
+  /// El texto que va sobre el acento: casi negro, o blanco si el acento es muy oscuro.
+  Color get onAccent => accent.computeLuminance() > 0.18 ? const Color(0xFF0A0B0D) : const Color(0xFFFFFFFF);
+
+  /// El de siempre: un naranja.
+  static const standard = AppPalette(accent: Color(0xFFFF5A1F));
+}
+
+/// Los colores de la app: un negro limpio con tarjetas en grises oscuros, texto claro y **un acento de neón** (el que sale del fondo de pantalla) para lo
+/// activo y lo destacado. Se leen con `context.colors`.
 @immutable
 class KyoraColors extends ThemeExtension<KyoraColors> {
   const KyoraColors({
@@ -20,121 +38,67 @@ class KyoraColors extends ThemeExtension<KyoraColors> {
     required this.onAccent,
     required this.warn,
     required this.ok,
+    required this.reminders,
+    required this.tasks,
+    required this.habits,
   });
 
   /// El fondo de las pantallas.
   final Color background;
 
-  /// Hojas, diálogos y tarjetas.
+  /// Las tarjetas, otra más clara para lo que va dentro de ellas (`plate`), los campos de escribir (`field`) y lo elegido (`pick`).
   final Color surface;
-
-  /// Superficies algo más claras (barra del reproductor, avisos).
   final Color plate;
-
-  /// Campos de escribir y carriles: más oscuros que el fondo.
   final Color field;
-
-  /// Lo elegido o lo propio (el relleno de mis burbujas).
   final Color pick;
 
-  /// El filo fino de campos y tarjetas.
+  /// El filo fino de las tarjetas y los separadores (blanco muy tenue).
   final Color edge;
 
-  /// El texto normal y el atenuado.
+  /// El texto normal y el secundario.
   final Color ink;
   final Color dim;
 
-  /// El color principal (botones, lo que suena, lo activo) y el del texto que va encima.
+  /// Lo activo o elegido y el texto que va encima.
   final Color accent;
   final Color onAccent;
 
-  /// Errores y requisitos cumplidos.
+  /// Avisos (lo vencido, los errores) y lo cumplido.
   final Color warn;
   final Color ok;
 
-  /// Mis burbujas del chat.
-  Color get mine => pick;
+  /// Los colores de los recordatorios, las tareas y los hábitos (en sus iconos y cifras).
+  final Color reminders;
+  final Color tasks;
+  final Color habits;
 
-  static const _warn = Color(0xFFE07A5F);
-  static const _ok = Color(0xFF5DBB63);
+  /// Mis burbujas del chat: claras, con texto oscuro.
+  Color get mine => ink;
 
-  // El gris oscuro de la app: de menos a más claro, cada capa se separa de la de abajo.
-  static const _field = Color(0xFF17181A);
-  static const _background = Color(0xFF1F2023);
-  static const _surface = Color(0xFF2A2B2F);
-  static const _plate = Color(0xFF33353A);
-  static const _pick = Color(0xFF3B3D43);
-  static const _ink = Color(0xFF141414); // el texto oscuro que va sobre el acento
+  /// El texto sobre `mine`.
+  Color get onMine => background;
 
-  /// Los colores de siempre: el gris oscuro y el acento dorado de Kyora.
-  factory KyoraColors.classic() => const KyoraColors(
-        background: _background,
-        surface: _surface,
-        plate: _plate,
-        field: _field,
-        pick: _pick,
-        edge: Color(0x1AFFFFFF),
-        ink: Color(0xFFE8E8E8),
-        dim: Color(0xFFB4B4B4),
-        accent: Color(0xFFE3B25A),
-        onAccent: Color(0xFF141414),
-        warn: _warn,
-        ok: _ok,
+  /// Los colores con un acento.
+  factory KyoraColors.of(AppPalette palette) => KyoraColors(
+        background: const Color(0xFF08090B),
+        surface: const Color(0xFF14161A),
+        plate: const Color(0xFF1D2025),
+        field: const Color(0xFF101216),
+        pick: const Color(0xFF282C33),
+        edge: const Color(0x1FFFFFFF),
+        ink: const Color(0xFFF3F4F6),
+        dim: const Color(0xFF9AA1AC),
+        accent: palette.accent,
+        onAccent: palette.onAccent,
+        warn: const Color(0xFFFF6B6B),
+        ok: const Color(0xFF7CE38B),
+        reminders: const Color(0xFFFFD166),
+        tasks: const Color(0xFF5BC8FF),
+        habits: const Color(0xFF7CE38B),
       );
 
-  /// Los colores a partir del color de una carátula: todo sale de ella (el tono de los fondos y de los textos y el color principal), con la
-  /// misma escalera de claridad que los de siempre, y con la claridad del acento y de los textos ajustada para que se lean (contraste de
-  /// 4,5:1 como mínimo contra el fondo, la superficie y la placa). Una carátula gris da un juego neutro, sin color.
-  factory KyoraColors.fromCover(Color seed) {
-    final hsl = HSLColor.fromColor(seed);
-    final gray = hsl.saturation < 0.12;
-    final hue = hsl.hue;
-    final tint = gray ? 0.03 : (hsl.saturation * 0.5).clamp(0.2, 0.5);
-    Color tone(double lightness, [double? saturation]) => HSLColor.fromAHSL(1, hue, saturation ?? tint, lightness).toColor();
-
-    final field = tone(0.09);
-    final background = tone(0.12);
-    final surface = tone(0.16);
-    final plate = tone(0.195);
-    final pick = tone(0.235);
-    final darkest = [field, background, surface, plate, pick];
-
-    /// Sube la claridad de un color hasta que se lea sobre las placas más claras.
-    Color readable(double saturation, double lightness, double ratio) {
-      var l = lightness;
-      var color = HSLColor.fromAHSL(1, hue, saturation, l).toColor();
-      while (l < 0.97 && darkest.any((back) => contrastRatio(color, back) < ratio)) {
-        l += 0.02;
-        color = HSLColor.fromAHSL(1, hue, saturation, l).toColor();
-      }
-      return color;
-    }
-
-    final accentSaturation = gray ? 0.0 : hsl.saturation.clamp(0.5, 0.9);
-    var accent = readable(accentSaturation, gray ? 0.72 : 0.62, 4.5);
-    // el texto de encima (oscuro o claro, el que más se lea): si ninguno llega, se aclara el acento hasta que el oscuro sí
-    Color onAccentFor(Color color) => contrastRatio(_ink, color) >= contrastRatio(Colors.white, color) ? _ink : Colors.white;
-    var accentLightness = HSLColor.fromColor(accent).lightness;
-    while (contrastRatio(onAccentFor(accent), accent) < 4.5 && accentLightness < 0.97) {
-      accentLightness += 0.02;
-      accent = HSLColor.fromAHSL(1, hue, accentSaturation, accentLightness).toColor();
-    }
-    final onAccent = onAccentFor(accent);
-    return KyoraColors(
-      background: background,
-      surface: surface,
-      plate: plate,
-      field: field,
-      pick: pick,
-      edge: const Color(0x1AFFFFFF),
-      ink: readable(0.10, 0.93, 7),
-      dim: readable(0.10, 0.74, 4.5),
-      accent: accent,
-      onAccent: onAccent,
-      warn: _warn,
-      ok: _ok,
-    );
-  }
+  /// Los de siempre (el naranja de acento).
+  factory KyoraColors.classic() => KyoraColors.of(AppPalette.standard);
 
   @override
   KyoraColors copyWith({
@@ -150,6 +114,9 @@ class KyoraColors extends ThemeExtension<KyoraColors> {
     Color? onAccent,
     Color? warn,
     Color? ok,
+    Color? reminders,
+    Color? tasks,
+    Color? habits,
   }) =>
       KyoraColors(
         background: background ?? this.background,
@@ -164,6 +131,9 @@ class KyoraColors extends ThemeExtension<KyoraColors> {
         onAccent: onAccent ?? this.onAccent,
         warn: warn ?? this.warn,
         ok: ok ?? this.ok,
+        reminders: reminders ?? this.reminders,
+        tasks: tasks ?? this.tasks,
+        habits: habits ?? this.habits,
       );
 
   @override
@@ -183,6 +153,9 @@ class KyoraColors extends ThemeExtension<KyoraColors> {
       onAccent: mix(onAccent, other.onAccent),
       warn: mix(warn, other.warn),
       ok: mix(ok, other.ok),
+      reminders: mix(reminders, other.reminders),
+      tasks: mix(tasks, other.tasks),
+      habits: mix(habits, other.habits),
     );
   }
 }
@@ -199,86 +172,153 @@ extension KyoraColorsContext on BuildContext {
   KyoraColors get colors => Theme.of(this).extension<KyoraColors>() ?? KyoraColors.classic();
 }
 
-/// El tema (siempre oscuro) para esos colores.
+/// La letra de toda la app: una grotesca moderna (títulos, cifras y texto) y, para lo técnico (etiquetas, códigos, datos), una monoespaciada.
+const appFont = 'Space Grotesk';
+const monoFont = 'IBM Plex Mono';
+
+/// La misma dentro de las pantallas.
+const screenFont = appFont;
+
+/// Una etiqueta técnica: monoespaciada, en mayúsculas (se escriben así) y con las letras algo separadas.
+TextStyle hudLabel({double size = 15, Color? color}) =>
+    TextStyle(fontFamily: monoFont, fontSize: size, fontWeight: FontWeight.w500, letterSpacing: 1.1, color: color);
+
+/// Un título o una cifra grande: la grotesca, en seminegrita y con las letras algo juntas.
+TextStyle display({double size = 32, Color? color, FontWeight weight = FontWeight.w600}) =>
+    TextStyle(fontFamily: appFont, fontSize: size, fontWeight: weight, letterSpacing: -size * 0.03, height: 1.05, color: color);
+
+/// Títulos de un grupo y botones: seminegrita.
+TextStyle lcdLabel({double size = 15, Color? color}) =>
+    TextStyle(fontFamily: appFont, fontSize: size, fontWeight: FontWeight.w600, letterSpacing: 0.3, color: color);
+
+/// Un mensaje de estado («cargando…», «sin conexión»): atenuado (nunca por debajo de 15 px).
+TextStyle lcdStatus({double size = 15, Color? color}) => TextStyle(fontFamily: appFont, fontSize: size, color: color);
+
+/// El tema para esos colores: oscuro, con tarjetas de esquinas cortadas y el acento de la paleta.
 ThemeData buildTheme([KyoraColors? colors]) {
   final c = colors ?? KyoraColors.classic();
-  final scheme = ColorScheme.fromSeed(
-    seedColor: c.accent,
-    brightness: Brightness.dark,
-    surface: c.background,
-  ).copyWith(
+  final scheme = ColorScheme.fromSeed(seedColor: c.accent, brightness: Brightness.dark, surface: c.background).copyWith(
     primary: c.accent,
     onPrimary: c.onAccent,
+    secondary: c.accent,
+    onSecondary: c.onAccent,
     error: c.warn,
+    onError: c.background,
+    surface: c.background,
     onSurface: c.ink,
     onSurfaceVariant: c.dim,
+    outline: c.edge,
+    outlineVariant: c.edge,
+    surfaceTint: Colors.transparent,
     surfaceContainerHighest: c.pick,
     surfaceContainerHigh: c.plate,
     surfaceContainer: c.surface,
+    surfaceContainerLow: c.surface,
     surfaceContainerLowest: c.field,
+    inverseSurface: c.ink,
+    onInverseSurface: c.background,
+    shadow: Colors.transparent,
   );
-  final base = TextStyle(color: c.ink, fontSize: 16);
+  final base = TextStyle(fontFamily: appFont, color: c.ink, fontSize: 16);
+  final line = BorderSide(color: c.edge, width: 1);
+  const round = CutBorder(cut: 12);
+  const pill = CutBorder(cut: 10);
   return ThemeData(
     useMaterial3: true,
+    fontFamily: appFont,
     brightness: Brightness.dark,
     colorScheme: scheme,
     extensions: [c],
-    scaffoldBackgroundColor: Colors.transparent, // el fondo lo pinta `AppBackdrop`, detrás de todas las pantallas
+    scaffoldBackgroundColor: Colors.transparent, // el fondo lo pinta `AppBackdrop`
     canvasColor: c.background,
+    splashFactory: NoSplash.splashFactory,
+    highlightColor: Colors.transparent,
+    splashColor: Colors.transparent,
+    hoverColor: Colors.transparent,
     appBarTheme: AppBarTheme(
       backgroundColor: Colors.transparent,
       foregroundColor: c.ink,
       elevation: 0,
       scrolledUnderElevation: 0,
+      titleTextStyle: display(size: 20, color: c.ink),
     ),
-    pageTransitionsTheme: const PageTransitionsTheme(builders: {
-      TargetPlatform.android: LayerPageTransitions(),
-      TargetPlatform.iOS: LayerPageTransitions(),
-      TargetPlatform.windows: LayerPageTransitions(),
-      TargetPlatform.macOS: LayerPageTransitions(),
-      TargetPlatform.linux: LayerPageTransitions(),
-    }),
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: LayerPageTransitions(),
+        TargetPlatform.iOS: LayerPageTransitions(),
+        TargetPlatform.windows: LayerPageTransitions(),
+        TargetPlatform.macOS: LayerPageTransitions(),
+        TargetPlatform.linux: LayerPageTransitions(),
+      },
+    ),
     textTheme: TextTheme(
       bodyLarge: base,
       bodyMedium: base,
-      bodySmall: TextStyle(color: c.dim, fontSize: 13),
-      titleMedium: TextStyle(color: c.ink, fontSize: 18, fontWeight: FontWeight.w600),
+      bodySmall: base.copyWith(color: c.dim, fontSize: 15),
+      titleMedium: display(size: 18, color: c.ink),
+      labelLarge: base.copyWith(fontWeight: FontWeight.w600),
     ),
+    iconTheme: IconThemeData(color: c.ink),
+    dividerTheme: DividerThemeData(color: c.edge, thickness: 1, space: 1),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: c.field,
-      hintStyle: TextStyle(color: c.dim),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide(color: c.edge)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide(color: c.edge)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide(color: c.accent)),
+      hintStyle: TextStyle(fontFamily: appFont, color: c.dim, fontSize: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: line),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: line),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: c.accent, width: 1.5)),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: c.accent,
         foregroundColor: c.onAccent,
-        minimumSize: const Size.fromHeight(50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        disabledBackgroundColor: c.plate,
+        disabledForegroundColor: c.dim,
+        minimumSize: const Size.fromHeight(52),
+        elevation: 0,
+        shape: pill,
+        textStyle: lcdLabel(size: 16),
       ),
     ),
+    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: c.accent, shape: pill, textStyle: lcdLabel(size: 16))),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(foregroundColor: c.ink, shape: pill, side: line, textStyle: lcdLabel(size: 16))),
+    iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: c.ink)),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: c.plate,
+      backgroundColor: c.pick,
       contentTextStyle: base,
+      actionTextColor: c.accent,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 0,
+      shape: round,
     ),
-    dialogTheme: DialogThemeData(backgroundColor: c.surface, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
-    bottomSheetTheme: BottomSheetThemeData(backgroundColor: c.surface, modalBackgroundColor: c.surface),
+    dialogTheme: DialogThemeData(backgroundColor: c.surface, elevation: 0, shape: CutBorder(cut: 18, all: true, side: line)),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: c.surface,
+      modalBackgroundColor: c.surface,
+      elevation: 0,
+      modalElevation: 0,
+      shape: CutBorder(cut: 22, side: line),
+      dragHandleColor: c.dim,
+    ),
+    popupMenuTheme: PopupMenuThemeData(color: c.plate, elevation: 0, shape: round),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: c.accent, linearTrackColor: c.plate, circularTrackColor: Colors.transparent),
+    checkboxTheme: CheckboxThemeData(
+      shape: const RoundedRectangleBorder(),
+      side: BorderSide(color: c.dim, width: 1.5),
+      fillColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? c.accent : Colors.transparent),
+      checkColor: WidgetStatePropertyAll(c.onAccent),
+    ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? c.onAccent : c.dim),
       trackColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? c.accent : c.pick),
+      trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
     ),
+    sliderTheme: SliderThemeData(activeTrackColor: c.accent, inactiveTrackColor: c.pick, thumbColor: c.accent, overlayColor: Colors.transparent),
   );
 }
 
-/// Cómo se comportan los desplazamientos: sin el estiramiento en los extremos. Ese efecto de Material 3 pinta la lista a través de un
-/// filtro de imagen, y mientras dura todas las tarjetas de cristal que lleva dentro pierden lo que tienen detrás (se quita el desenfoque).
+/// Cómo se comportan los desplazamientos: sin el estiramiento en los extremos.
 class KyraScrollBehavior extends MaterialScrollBehavior {
   const KyraScrollBehavior();
 
@@ -289,15 +329,10 @@ class KyraScrollBehavior extends MaterialScrollBehavior {
   ScrollPhysics getScrollPhysics(BuildContext context) => const ClampingScrollPhysics();
 }
 
-final _coverThemes = <int, ThemeData>{};
-ThemeData? _classicTheme;
+final _accentThemes = <int, ThemeData>{};
 
-/// El tema de la app para el color de la carátula que suena (`null` = nada ha sonado: los colores de siempre). Se guarda lo ya
-/// calculado: construir un tema no es barato y el mismo color sale muchas veces.
-ThemeData buildCoverTheme(Color? tint) {
-  if (tint == null) return _classicTheme ??= buildTheme();
-  final cache = _coverThemes[tint.toARGB32()];
-  if (cache != null) return cache;
-  if (_coverThemes.length > 64) _coverThemes.clear();
-  return _coverThemes[tint.toARGB32()] = buildTheme(KyoraColors.fromCover(tint));
+/// El tema de la app para un color de acento, el que sale del fondo de pantalla (`null` = el de siempre). Se guarda lo ya calculado.
+ThemeData buildAccentTheme(Color? accent) {
+  final palette = accent == null ? AppPalette.standard : AppPalette(accent: accent);
+  return _accentThemes[palette.accent.toARGB32()] ??= buildTheme(KyoraColors.of(palette));
 }

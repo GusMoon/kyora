@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../data/audio_engine.dart';
 import '../data/favorites_store.dart';
 import '../data/music_store.dart';
 import '../models/track.dart';
@@ -15,11 +16,19 @@ import '../util/format.dart';
 import '../util/picker.dart';
 import 'folder_settings.dart';
 import 'widgets/album_art.dart';
+import 'widgets/album_stack.dart';
+import 'widgets/cut_border.dart';
 import 'widgets/app_backdrop.dart';
+import 'widgets/cover_backdrop.dart';
 import 'widgets/disc_player.dart';
+import 'widgets/mini_player.dart';
 import 'widgets/music_rows.dart';
 import 'widgets/song_arc_list.dart';
 import 'widgets/vinyl_disc.dart';
+import 'widgets/pixel_glyph.dart';
+import 'widgets/lcd_box.dart';
+import 'widgets/hack_text.dart';
+import 'widgets/focus_space.dart';
 
 /// Un álbum que se puede abrir: las canciones enviadas (`received`), la carpeta elegida del teléfono (`root`) o una de sus carpetas.
 class AlbumEntry {
@@ -41,19 +50,20 @@ class AlbumEntry {
 /// cerrar) y con ella hace salir el disco de la tarjeta, deslizar la tarjeta y aparecer el fondo. Mientras se anima se sigue viendo la música
 /// debajo.
 PageRoute<T> albumOpenRoute<T>({required Widget Function(BuildContext context, Animation<double> animation) builder}) => PageRouteBuilder<T>(
-      opaque: true, // mientras dura la animación se ve la música debajo; al terminar ya no hace falta
-      transitionDuration: const Duration(milliseconds: 440),
-      reverseTransitionDuration: const Duration(milliseconds: 340),
-      pageBuilder: (context, animation, secondaryAnimation) => builder(context, animation),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
-    );
+  opaque: true, // mientras dura la animación se ve la música debajo; al terminar ya no hace falta
+  transitionDuration: const Duration(milliseconds: 440),
+  reverseTransitionDuration: const Duration(milliseconds: 340),
+  pageBuilder: (context, animation, secondaryAnimation) => builder(context, animation),
+  transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+);
 
-/// La vista de un álbum. De fondo, la portada del álbum a pantalla completa y muy borrosa; en el centro de la pantalla, el **disco de vinilo**
-/// (`DiscPlayer`): un toque reproduce o pausa y girarlo mueve la canción. Debajo, sin ningún fondo, el nombre de la canción.
+/// La vista de un álbum. De fondo, **la portada** nítida, con líneas de barrido y oscurecida; en el centro, algo más arriba que el medio,
+/// el **disco de vinilo** (`DiscPlayer`): un toque reproduce o pausa y girarlo mueve la canción. Debajo, sin ningún fondo, el nombre de la
+/// canción y, si suena una de este álbum, aleatorio, anterior, siguiente y repetir; si suena una de otro, abajo sale su tarjeta, que lleva a su disco.
 ///
+/// **Mantener presionado el disco** abre la pila de álbumes para pasar a otro **sin parar la canción que suena**; tocar una portada la elige.
 /// **Doble toque en cualquier parte menos en el disco** abre la lista de canciones (`SongArcList`): el disco encoge hasta la fila del centro y
-/// las demás llegan por la curva. Otro doble toque o «atrás» la cierran. Fuera del disco, deslizar a un lado o al otro pasa al álbum de al lado
-/// **sin parar la canción que suena**.
+/// las demás llegan por la curva. Otro doble toque o «atrás» la cierran. No hay deslizamientos de lado ni de arriba abajo.
 ///
 /// Un álbum solo enseña sus canciones: lo que tenga en subcarpetas no se muestra.
 ///
@@ -103,20 +113,22 @@ class AlbumView extends StatefulWidget {
   /// Lo que tarda en abrirse y cerrarse la lista.
   static const listTime = Duration(milliseconds: 460);
 
-  /// El disco con su línea del avance: el rectángulo que ocupa, en el centro de una pantalla de `size`.
+  /// El disco con su línea del avance: el rectángulo que ocupa, en una pantalla de `size`, un poco por encima del centro.
   static Rect discRect(Size size) {
-    final d = math.min(size.width * 0.84, size.height * 0.62).clamp(120.0, 520.0);
-    return Rect.fromCenter(center: size.center(Offset.zero), width: d, height: d);
+    final d = math.min(size.width * 0.84, size.height * 0.58).clamp(120.0, 520.0);
+    return Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.42), width: d, height: d);
   }
 
   @override
   State<AlbumView> createState() => _AlbumViewState();
 }
 
-class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMixin {
-  late final PageController _pages = PageController(initialPage: widget.initial)..addListener(_onPage);
+class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
   late final AnimationController _list = AnimationController(vsync: this, duration: AlbumView.listTime)..addStatusListener(_onListStatus);
-  late final CurvedAnimation _listFade = CurvedAnimation(parent: _list, curve: const Interval(0.25, 0.8, curve: Curves.easeOut));
+  late final CurvedAnimation _listFade = CurvedAnimation(
+    parent: _list,
+    curve: const Interval(0.25, 0.8, curve: Curves.easeOutCubic),
+  );
   final GlobalKey _stage = GlobalKey();
   late int _shown = widget.initial;
   bool _listOpen = false;
@@ -124,37 +136,51 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
   /// La canción que se enseña de cada álbum cuando no suena ninguna de él (la que quedó en el centro de la lista).
   final Map<String, int> _picked = {};
 
-  late final CurvedAnimation _backgroundIn = CurvedAnimation(parent: widget.animation, curve: const Interval(0.15, 0.9, curve: Curves.easeOut));
-  late final CurvedAnimation _barIn = CurvedAnimation(parent: widget.animation, curve: const Interval(0.55, 1.0, curve: Curves.easeOut));
+  /// Se está eligiendo otro álbum (la pila de portadas por encima del disco).
+  bool _picking = false;
+  final DeckController _pickDeck = DeckController();
+
+  /// La canción que sonaba la última vez que se miró: si pasa a sonar una de otro álbum (el aleatorio entre todo), se pasa solo a ese álbum.
+  String? _lastCurrent;
+
+  late final CurvedAnimation _backgroundIn = CurvedAnimation(
+    parent: widget.animation,
+    curve: const Interval(0.15, 0.9, curve: Curves.easeOutCubic),
+  );
+  late final CurvedAnimation _barIn = CurvedAnimation(
+    parent: widget.animation,
+    curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
+  );
 
   AlbumEntry get _entry => widget.albums[_shown];
 
   @override
   void initState() {
     super.initState();
+    _lastCurrent = widget.player?.current?.id;
+    widget.player?.addListener(_onPlayer);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onShown?.call(_entry);
     });
   }
 
+  /// Si empieza a sonar una canción de otro álbum (el aleatorio salta de uno a otro), la ruleta gira sola hasta su disco.
+  void _onPlayer() {
+    final current = widget.player?.current;
+    if (current == null || current.id == _lastCurrent) return;
+    _lastCurrent = current.id;
+    if (!mounted || _listOpen || _marking(_entry) || _isActive(_entry)) return;
+    _goToCurrent();
+  }
+
   @override
   void dispose() {
+    widget.player?.removeListener(_onPlayer);
     _backgroundIn.dispose();
     _barIn.dispose();
     _listFade.dispose();
     _list.dispose();
-    _pages.dispose();
     super.dispose();
-  }
-
-  void _onPage() {
-    if (!_pages.hasClients) return;
-    final page = _pages.page;
-    if (page == null) return;
-    final i = page.round().clamp(0, widget.albums.length - 1);
-    if (i == _shown) return;
-    setState(() => _shown = i);
-    widget.onShown?.call(widget.albums[i]);
   }
 
   void _onListStatus(AnimationStatus status) {
@@ -230,6 +256,37 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
 
   // ---------- acciones ----------
 
+  /// Pasa al disco de la canción que suena.
+  void _goToCurrent() {
+    final track = widget.player?.current;
+    if (track == null) return;
+    final id = widget.local?.albumIdOf(track) ?? 'received';
+    final i = widget.albums.indexWhere((album) => album.id == id);
+    if (i >= 0) _show(i);
+  }
+
+  /// Muestra el álbum `i` (sin tocar lo que suena).
+  void _show(int i) {
+    if (i == _shown) return;
+    setState(() => _shown = i);
+    widget.onShown?.call(widget.albums[i]);
+  }
+
+  /// Mantener presionado el disco: abre la pila para elegir otro álbum.
+  void _openPicker() {
+    if (_picking || _listOpen || widget.albums.length < 2) return;
+    unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
+    setState(() => _picking = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pickDeck.jumpTo(_shown));
+  }
+
+  void _closePicker() => setState(() => _picking = false);
+
+  void _pick(int i) {
+    setState(() => _picking = false);
+    _show(i);
+  }
+
   /// ¿La canción que suena es de este álbum?
   bool _isActive(AlbumEntry e) {
     final current = widget.player?.current;
@@ -262,27 +319,29 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
     final local = widget.local;
     if (local == null) return;
     final has = local.albumCoverOf(e.id) != null;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
+    final choice = await showFocusPanel<String>(context, builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(e.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              child: Text(
+                e.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
             ),
             ListTile(
               key: const Key('album-cover-pick'),
-              leading: const Icon(Icons.image_outlined),
+              leading: const LcdIcon(Icons.image_outlined),
               title: Text(has ? 'Cambiar portada' : 'Poner portada'),
               onTap: () => Navigator.pop(context, 'pick'),
             ),
             if (has)
               ListTile(
                 key: const Key('album-cover-clear'),
-                leading: const Icon(Icons.hide_image_outlined),
+                leading: const LcdIcon(Icons.hide_image_outlined),
                 title: const Text('Quitar portada'),
                 onTap: () => Navigator.pop(context, 'clear'),
               ),
@@ -319,10 +378,12 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
       listenable: Listenable.merge([widget.music, ?local, ?widget.player, ?widget.favorites]),
       builder: (context, _) => PopScope(
         // con canciones marcadas, «atrás» primero quita la marca; con la lista abierta, la cierra
-        canPop: !_marking(_entry) && !_listOpen,
+        canPop: !_marking(_entry) && !_listOpen && !_picking,
         onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
-          if (_marking(_entry)) {
+          if (_picking) {
+            _closePicker();
+          } else if (_marking(_entry)) {
             local?.clearSelection();
           } else if (_listOpen) {
             _closeList();
@@ -338,53 +399,53 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
 
   Widget _stageFor(BuildContext context, Size size) {
     final disc = AlbumView.discRect(size);
-    final cover = _coverOf(_entry);
     final local = widget.local;
     final marking = _marking(_entry);
     return Stack(
       key: _stage,
       fit: StackFit.expand,
       children: [
-        // el fondo: la portada del álbum, a pantalla completa y muy borrosa. Debajo, el de las secciones: esta ruta oculta las de atrás al
-        // terminar de abrirse y, en un álbum sin portada, se vería la foto nítida de Inicio
+        // el fondo: un color mate sacado de la portada (sin la portada borrosa); sin portada, el de la pantalla. Aparece poco a poco
         FadeTransition(
           opacity: _backgroundIn,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              BackdropLayers(wallpaper: BackdropScope.maybeOf(context)?.wallpaper, full: true),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                child: _BlurredBackdrop(key: ValueKey('${_entry.id}|${cover.file}|${cover.url}'), file: cover.file, url: cover.url),
-              ),
-            ],
-          ),
+          child: KeyedSubtree(key: const Key('album-backdrop'), child: _backdrop(_coverOf(_entry))),
         ),
-        // con la lista abierta, casi negro
+        // con la lista abierta, lo de debajo se tapa con una trama de tinta, y del todo al acabar de abrirse
         AnimatedBuilder(
           animation: _list,
-          builder: (context, _) => ColoredBox(key: const Key('album-dark'), color: Colors.black.withValues(alpha: 0.86 * _list.value)),
+          builder: (context, _) => KeyedSubtree(
+            key: const Key('album-dark'),
+            child: _list.value < 0.05
+                ? const SizedBox.expand()
+                : _list.value < 0.6
+                ? const LcdDither(density: 0.25)
+                : ColoredBox(color: context.colors.background),
+          ),
         ),
-        // deslizar y el doble toque: van debajo del disco, no por encima. Así el disco tiene sus gestos para él y un toque en él no espera a
-        // ver si llega un segundo
+        // el doble toque: va debajo del disco, no por encima. Así el disco tiene sus gestos para él y un toque en él no espera a ver si llega un segundo
         GestureDetector(
           key: const Key('album-background'),
           behavior: HitTestBehavior.opaque,
           onDoubleTap: _openList,
-          child: PageView.builder(
-            key: const Key('album-pages'),
-            controller: _pages,
-            itemCount: widget.albums.length,
-            itemBuilder: (context, i) => const SizedBox.expand(),
-          ),
+          child: const SizedBox.expand(),
         ),
-        // los discos, que se desplazan con las páginas
-        AnimatedBuilder(
-          animation: Listenable.merge([_pages, widget.animation, _list]),
-          builder: (context, _) => _discs(size, disc),
-        ),
+        // el disco del álbum que se ve
+        AnimatedBuilder(animation: Listenable.merge([widget.animation, _list]), builder: (context, _) => _discs(size, disc)),
         _caption(context, disc),
+        // la tarjeta de lo que suena, si es de otro álbum
+        if (widget.player != null && widget.player!.current != null && !_isActive(_entry) && !_listOpen && _list.isDismissed)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedBuilder(
+              animation: _barIn,
+              child: MiniPlayer(player: widget.player!, onOpen: _goToCurrent),
+              builder: (context, child) => Transform.translate(offset: Offset(0, 120 * (1 - _barIn.value)), child: child),
+            ),
+          ),
         if (_listOpen || !_list.isDismissed) Positioned.fill(child: _listLayer(context)),
+        if (_picking) Positioned.fill(child: _picker(context)),
         // la barra de arriba
         Positioned(
           top: 0,
@@ -398,13 +459,28 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
                   ? SelectionBar(local: local!, onMove: widget.onMove ?? () {})
                   : Row(
                       children: [
-                        const Padding(padding: EdgeInsets.only(left: 4), child: BackButton(key: Key('album-back'))),
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: BackButton(key: Key('album-back')),
+                        ),
                         Expanded(
                           child: IgnorePointer(
-                            child: Text(_entry.title, key: const Key('album-title'), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                            child: HackText(
+                              _entry.title,
+                              textKey: const Key('album-title'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                            ),
                           ),
                         ),
-                        if (local != null) IconButton(key: const Key('album-cover'), tooltip: 'Cambiar portada', icon: const Icon(Icons.image_outlined), onPressed: () => unawaited(_changeCover(_entry))),
+                        if (local != null)
+                          IconButton(
+                            key: const Key('album-cover'),
+                            tooltip: 'Cambiar portada',
+                            icon: const LcdIcon(Icons.image_outlined),
+                            onPressed: () => unawaited(_changeCover(_entry)),
+                          ),
                         const SizedBox(width: 4),
                       ],
                     ),
@@ -420,15 +496,13 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
     );
   }
 
-  /// El disco de cada álbum a la vista: uno, o dos mientras se desliza. Con la lista abriéndose, encoge hasta la fila del centro.
+  /// El disco del álbum que se ve. Con la lista abriéndose, encoge hasta la fila del centro.
   Widget _discs(Size size, Rect disc) {
-    final page = _pages.hasClients && _pages.position.haveDimensions ? (_pages.page ?? _shown.toDouble()) : _shown.toDouble();
     final t = Curves.easeInOutCubic.transform(_list.value);
     final vinyl = disc.width - 2 * DiscPlayer.inset;
     final scale = 1 + (SongArcList.thumb / vinyl - 1) * t;
     final move = (Offset(SongArcList.edge + SongArcList.thumb / 2, size.height / 2) - disc.center) * t;
     final fade = 1 - ((t - 0.75) / 0.25).clamp(0.0, 1.0);
-    final last = widget.albums.length - 1;
     return Offstage(
       // mientras el disco viaja de la tarjeta al centro (o al revés) lo pinta la transición
       offstage: !widget.animation.isCompleted || fade == 0,
@@ -436,19 +510,19 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
         ignoring: t > 0,
         child: Stack(
           fit: StackFit.expand,
+          clipBehavior: Clip.none,
           children: [
-            for (var i = page.floor().clamp(0, last); i <= page.ceil().clamp(0, last); i++)
-              Positioned(
-                key: ValueKey('disc-${widget.albums[i].id}'),
-                left: disc.left + (i - page) * size.width,
-                top: disc.top,
-                width: disc.width,
-                height: disc.height,
-                child: Transform.translate(
-                  offset: move,
-                  child: Transform.scale(scale: scale, child: Opacity(opacity: fade, child: _disc(widget.albums[i], disc))),
-                ),
+            Positioned(
+              key: ValueKey('disc-${_entry.id}'),
+              left: disc.left,
+              top: disc.top,
+              width: disc.width,
+              height: disc.height,
+              child: Transform.translate(
+                offset: move,
+                child: Transform.scale(scale: scale, child: Opacity(opacity: fade, child: _disc(_entry, disc))),
               ),
+            ),
           ],
         ),
       ),
@@ -467,6 +541,7 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
       player: widget.player,
       touchKey: Key('album-disc-${e.id}'),
       onTap: () => _toggle(e),
+      onLongPress: _openPicker,
     );
   }
 
@@ -478,33 +553,65 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
     final list = songs ?? const <Track>[];
     final track = list.isEmpty ? null : list[_focus(e, list)];
     final named = track == null ? null : splitArtistTitle(track.title);
+    final player = widget.player;
     final Widget body;
     if (notice != null) {
       body = SingleChildScrollView(child: notice);
     } else {
-      body = IgnorePointer(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              named?.title ?? '',
-              key: const Key('album-song-title'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFF4F4F6), fontSize: 20, fontWeight: FontWeight.w700),
+      body = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IgnorePointer(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                HackText(
+                  named?.title ?? '',
+                  order: 1,
+                  textKey: const Key('album-song-title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: lcdLabel(size: 20, color: context.colors.ink),
+                ),
+                if (track != null)
+                  HackText(
+                    songLine(
+                      artist: named!.artist ?? (e.received ? track.playlist : e.title),
+                      duration: widget.local?.durationOf(track) ?? widget.player?.durationOf(track),
+                    ),
+                    textKey: const Key('album-song-subtitle'),
+                    order: 2,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.colors.ink, fontSize: 15),
+                  ),
+              ],
             ),
-            if (track != null)
-              Text(
-                songLine(artist: named!.artist ?? (e.received ? track.playlist : e.title), duration: widget.local?.durationOf(track) ?? widget.player?.durationOf(track)),
-                key: const Key('album-song-subtitle'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xB3F4F4F6), fontSize: 14),
+          ),
+          if (player != null && _isActive(e)) ...[
+            if (player.error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                // un error del sistema: en vídeo inverso, minúsculas y cursiva
+                child: Container(
+                  color: context.colors.ink,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Text(
+                    player.error!.toLowerCase(),
+                    key: const Key('player-error'),
+                    textAlign: TextAlign.center,
+                    style: lcdStatus(color: context.colors.background),
+                  ),
+                ),
               ),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _PlayerControls(player: player),
+            ),
           ],
-        ),
+        ],
       );
     }
     return Positioned(
@@ -517,8 +624,44 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
         child: AnimatedBuilder(
           animation: _list,
           child: Align(alignment: Alignment.topCenter, child: body),
-          builder: (context, child) => _list.isDismissed ? child! : Opacity(opacity: (1 - _list.value * 2.5).clamp(0.0, 1.0), child: IgnorePointer(child: child)),
+          builder: (context, child) => _list.isDismissed
+              ? child!
+              : Opacity(
+                  opacity: (1 - _list.value * 2.5).clamp(0.0, 1.0),
+                  child: IgnorePointer(child: child),
+                ),
         ),
+      ),
+    );
+  }
+
+  /// El fondo del disco: la portada del álbum a pantalla completa, nítida, con líneas y oscurecida (`CoverBackdrop`); sin portada, el fondo de la
+  /// pantalla.
+  Widget _backdrop(({String? file, String? url}) cover) =>
+      cover.file == null && cover.url == null
+          ? const BackdropLayers()
+          : Stack(fit: StackFit.expand, children: [CoverBackdrop(file: cover.file, url: cover.url), const HackerScreen()]);
+
+  /// La pila de álbumes para elegir otro: sobre un velo oscuro, las portadas en cascada; tocar la del centro la elige, tocar otra la trae al centro.
+  Widget _picker(BuildContext context) {
+    final cards = [
+      for (var i = 0; i < widget.albums.length; i++)
+        DeckCard(
+          id: 'pick-${widget.albums[i].id}',
+          title: widget.albums[i].title,
+          icon: widget.albums[i].icon,
+          coverFile: _coverOf(widget.albums[i]).file,
+          coverUrl: _coverOf(widget.albums[i]).url,
+          onTap: (_) => _pick(i),
+        ),
+    ];
+    return GestureDetector(
+      key: const Key('album-picker'),
+      behavior: HitTestBehavior.opaque,
+      onTap: _closePicker,
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.86),
+        child: SafeArea(child: AlbumStack(cards: cards, controller: _pickDeck)),
       ),
     );
   }
@@ -579,7 +722,11 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
                           tooltip: favorite ? 'Quitar de favoritas' : 'Marcar como favorita',
                           constraints: const BoxConstraints.tightFor(width: 40, height: 40),
                           padding: EdgeInsets.zero,
-                          icon: Icon(favorite ? Icons.favorite : Icons.favorite_border, color: favorite ? context.colors.accent : const Color(0x99F4F4F6), size: 22),
+                          icon: LcdIcon(
+                            favorite ? Icons.favorite : Icons.favorite_border,
+                            color: context.colors.ink,
+                            size: 22,
+                          ),
                           onPressed: () => unawaited(favorites.toggle(t.durationKey)),
                         ),
                         const SizedBox(width: 4),
@@ -588,10 +735,14 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
               extraOf: !e.received
                   ? null
                   : (t) => [
-                        ReceivedButton(track: t, controller: widget.music),
-                        const SizedBox(width: 4),
-                        SizedBox(width: 40, height: 40, child: SentMenu(track: t, controller: widget.music)),
-                      ],
+                      ReceivedButton(track: t, controller: widget.music),
+                      const SizedBox(width: 4),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: SentMenu(track: t, controller: widget.music),
+                      ),
+                    ],
             ),
             if (e.received)
               Positioned(
@@ -637,7 +788,7 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
             top: origin.top,
             width: origin.width,
             height: origin.height,
-            child: AlbumArt(key: const Key('album-opening-card'), file: cover.file, url: cover.url, icon: _entry.icon, size: origin.width, radius: 28),
+            child: AlbumArt(key: const Key('album-opening-card'), file: cover.file, url: cover.url, icon: _entry.icon, size: origin.width, radius: 18),
           ),
         ],
       ),
@@ -645,31 +796,62 @@ class _AlbumViewState extends State<AlbumView> with SingleTickerProviderStateMix
   }
 }
 
-/// La portada a pantalla completa y muy borrosa (decodificada diminuta y estirada), con un velo oscuro para que se lea lo de encima.
-class _BlurredBackdrop extends StatelessWidget {
-  const _BlurredBackdrop({super.key, required this.file, required this.url});
+/// Bajo el disco: aleatorio, anterior, siguiente y repetir.
+class _PlayerControls extends StatelessWidget {
+  const _PlayerControls({required this.player});
 
-  final String? file;
-  final String? url;
-
-  static const decodeWidth = 48;
+  final PlayerController player;
 
   @override
   Widget build(BuildContext context) {
-    final Widget? image = file != null
-        ? Image.file(File(file!), fit: BoxFit.cover, cacheWidth: decodeWidth, filterQuality: FilterQuality.high, gaplessPlayback: true, errorBuilder: (context, _, _) => const SizedBox.expand())
-        : url != null
-            ? Image.network(url!, fit: BoxFit.cover, cacheWidth: decodeWidth, filterQuality: FilterQuality.high, gaplessPlayback: true, errorBuilder: (context, _, _) => const SizedBox.expand())
-            : null;
-    return Stack(
-      key: const Key('album-backdrop'),
-      fit: StackFit.expand,
+    final c = context.colors;
+    final idle = c.ink;
+    // lo encendido (aleatorio, repetir), con el acento
+    ButtonStyle on(bool lit) => IconButton.styleFrom(backgroundColor: lit ? c.accent : null, shape: const CutBorder(cut: 8));
+    return Row(
+      key: const Key('disc-controls'),
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        ?image,
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x73000000), Color(0xB3000000)]),
-          ),
+        IconButton(
+          key: const Key('player-shuffle'),
+          tooltip: player.shuffle ? 'Aleatorio: activado' : 'Aleatorio: apagado',
+          color: player.shuffle ? c.onAccent : idle,
+          style: on(player.shuffle),
+          iconSize: 22,
+          icon: const LcdIcon(Icons.shuffle_rounded),
+          onPressed: player.toggleShuffle,
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          key: const Key('disc-previous'),
+          tooltip: 'Anterior',
+          color: idle,
+          iconSize: 30,
+          icon: const LcdIcon(Icons.skip_previous_rounded),
+          onPressed: player.previous,
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          key: const Key('disc-next'),
+          tooltip: 'Siguiente',
+          color: idle,
+          iconSize: 30,
+          icon: const LcdIcon(Icons.skip_next_rounded),
+          onPressed: player.next,
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          key: const Key('player-repeat'),
+          tooltip: switch (player.repeat) {
+            RepeatKind.off => 'Repetir: apagado',
+            RepeatKind.all => 'Repetir toda la lista',
+            RepeatKind.one => 'Repetir esta canción',
+          },
+          color: player.repeat == RepeatKind.off ? idle : c.onAccent,
+          style: on(player.repeat != RepeatKind.off),
+          iconSize: 22,
+          icon: LcdIcon(player.repeat == RepeatKind.one ? Icons.repeat_one_rounded : Icons.repeat_rounded),
+          onPressed: player.cycleRepeat,
         ),
       ],
     );

@@ -13,7 +13,7 @@ extension MusicBaseText on MusicBase {
 }
 
 class MusicSettings {
-  const MusicSettings({this.base = MusicBase.music, this.folder = 'Kyora', this.auto = true, this.treeUri, this.treeName});
+  const MusicSettings({this.base = MusicBase.music, this.folder = 'Kyora', this.auto = true, this.treeUri, this.treeName, this.deckSpeed = 1, this.autoShuffle = false});
 
   final MusicBase base;
   final String folder;
@@ -28,17 +28,33 @@ class MusicSettings {
   /// El nombre de esa carpeta, para enseñarlo.
   final String? treeName;
 
+  /// La sensibilidad de la ruleta de álbumes y del abanico de favoritas: 1 es lo normal, menos es más lenta. Ver [deckSpeedMin] y [deckSpeedMax].
+  final double deckSpeed;
+
+  /// Al abrir Música, empezar a sonar sola en aleatorio entre todos los álbumes (si no suena nada). Si no, sale el botón «Aleatorio».
+  final bool autoShuffle;
+
+  static const deckSpeedMin = 0.5;
+  static const deckSpeedMax = 2.0;
+
   bool get hasTree => treeUri != null && treeUri!.isNotEmpty;
 
-  MusicSettings copyWith({MusicBase? base, String? folder, bool? auto}) =>
-      MusicSettings(base: base ?? this.base, folder: folder ?? this.folder, auto: auto ?? this.auto, treeUri: treeUri, treeName: treeName);
+  MusicSettings copyWith({MusicBase? base, String? folder, bool? auto, double? deckSpeed, bool? autoShuffle}) => MusicSettings(
+    base: base ?? this.base,
+    folder: folder ?? this.folder,
+    auto: auto ?? this.auto,
+    treeUri: treeUri,
+    treeName: treeName,
+    deckSpeed: deckSpeed ?? this.deckSpeed,
+    autoShuffle: autoShuffle ?? this.autoShuffle,
+  );
 
   /// Guardar en esa carpeta elegida.
   MusicSettings withTree(String uri, String name) =>
-      MusicSettings(base: base, folder: folder, auto: auto, treeUri: uri, treeName: name);
+      MusicSettings(base: base, folder: folder, auto: auto, treeUri: uri, treeName: name, deckSpeed: deckSpeed, autoShuffle: autoShuffle);
 
   /// Volver a Música/Descargas + subcarpeta.
-  MusicSettings withoutTree() => MusicSettings(base: base, folder: folder, auto: auto);
+  MusicSettings withoutTree() => MusicSettings(base: base, folder: folder, auto: auto, deckSpeed: deckSpeed, autoShuffle: autoShuffle);
 
   /// «Música/Kyora» o el nombre de la carpeta elegida: lo que se le enseña a la persona.
   String get where {
@@ -76,6 +92,8 @@ class PrefsMusicStore implements MusicStore {
       auto: _prefs.getBool('music.auto') ?? true,
       treeUri: tree == null || tree.isEmpty ? null : tree,
       treeName: _prefs.getString('music.treeName'),
+      deckSpeed: (_prefs.getDouble('music.deckSpeed') ?? 1).clamp(MusicSettings.deckSpeedMin, MusicSettings.deckSpeedMax),
+      autoShuffle: _prefs.getBool('music.autoShuffle') ?? false,
     );
   }
 
@@ -84,6 +102,8 @@ class PrefsMusicStore implements MusicStore {
     await _prefs.setString('music.base', settings.base.name);
     await _prefs.setString('music.folder', settings.folder.trim());
     await _prefs.setBool('music.auto', settings.auto);
+    await _prefs.setDouble('music.deckSpeed', settings.deckSpeed);
+    await _prefs.setBool('music.autoShuffle', settings.autoShuffle);
     if (settings.hasTree) {
       await _prefs.setString('music.treeUri', settings.treeUri!);
       await _prefs.setString('music.treeName', settings.treeName ?? '');

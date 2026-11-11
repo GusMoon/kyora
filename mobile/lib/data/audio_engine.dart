@@ -6,6 +6,8 @@ class QueueItem {
   final String title;
   final String url;
   final String? subtitle;
+
+  /// La dirección de su portada: de internet o un archivo del teléfono (`file://`).
   final String? artUrl;
 }
 

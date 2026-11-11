@@ -756,4 +756,66 @@ create policy "task_tags: owner insert" on public.task_tags for insert to authen
 create policy "task_tags: owner update" on public.task_tags for update to authenticated
   using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
 
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 9. Hábitos: los del móvil, con el mismo esquema que las tareas (copia en su SQLite, ids del dispositivo, borrado suave,
+--    gana el updated_at más reciente con sync_guard, synced_at del servidor para pedir solo las novedades).
+--    - habits: el hábito, los días de la semana que toca (weekdays: un bit por día, lunes = 1 … domingo = 64; 127 = todos)
+--      y la hora del aviso (remind_at: minutos desde medianoche, hora local del teléfono; null = sin aviso).
+--    - habit_checks: que un hábito se cumplió un día (done). Desmarcar es done = false: así también se sincroniza.
+--    Cada quien ve y toca solo lo suyo (owner_id).
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.habits (
+  id          uuid        primary key,
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  name        text        not null check (length(btrim(name)) > 0),
+  weekdays    smallint    not null default 127 check (weekdays between 1 and 127),
+  remind_at   smallint    check (remind_at is null or remind_at between 0 and 1439),
+  position    integer     not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted_at  timestamptz,
+  synced_at   timestamptz not null default clock_timestamp()
+);
+create index if not exists habits_owner_synced_idx on public.habits (owner_id, synced_at);
+
+create table if not exists public.habit_checks (
+  habit_id    uuid        not null references public.habits (id) on delete cascade,
+  day         date        not null,
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  done        boolean     not null default true,
+  updated_at  timestamptz not null default now(),
+  synced_at   timestamptz not null default clock_timestamp(),
+  primary key (habit_id, day)
+);
+create index if not exists habit_checks_owner_synced_idx on public.habit_checks (owner_id, synced_at);
+
+drop trigger if exists habits_sync_guard on public.habits;
+create trigger habits_sync_guard before insert or update on public.habits for each row execute function public.sync_guard();
+drop trigger if exists habit_checks_sync_guard on public.habit_checks;
+create trigger habit_checks_sync_guard before insert or update on public.habit_checks for each row execute function public.sync_guard();
+
+alter table public.habits       enable row level security;
+alter table public.habit_checks enable row level security;
+revoke all on public.habits, public.habit_checks from anon;
+-- Sin permiso de delete: los hábitos solo se borran «suave» (deleted_at) y las marcas se desmarcan (done = false).
+revoke delete on public.habits, public.habit_checks from authenticated;
+grant select, insert, update on public.habits, public.habit_checks to authenticated;
+
+drop policy if exists "habits: owner select" on public.habits;
+drop policy if exists "habits: owner insert" on public.habits;
+drop policy if exists "habits: owner update" on public.habits;
+create policy "habits: owner select" on public.habits for select to authenticated using (owner_id = (select auth.uid()));
+create policy "habits: owner insert" on public.habits for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "habits: owner update" on public.habits for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+drop policy if exists "habit_checks: owner select" on public.habit_checks;
+drop policy if exists "habit_checks: owner insert" on public.habit_checks;
+drop policy if exists "habit_checks: owner update" on public.habit_checks;
+create policy "habit_checks: owner select" on public.habit_checks for select to authenticated using (owner_id = (select auth.uid()));
+create policy "habit_checks: owner insert" on public.habit_checks for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "habit_checks: owner update" on public.habit_checks for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
 -- Fin. Ahora crea tu usuario en Authentication > Users (ver supabase/README.md).

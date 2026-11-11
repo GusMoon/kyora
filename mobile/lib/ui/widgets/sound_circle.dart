@@ -6,13 +6,17 @@ import 'package:flutter/scheduler.dart';
 
 import '../../data/audio_levels.dart';
 import '../../state/player_controller.dart';
+import '../../theme.dart';
 import '../../util/sound_shape.dart';
 
 /// El círculo del centro del disco: una línea blanca que se hincha con los bajos y se altera con los golpes (`SoundShape`). En pausa queda
 /// lisa. Si no se puede leer el sonido (sin permiso, o el teléfono no lo deja) late suavemente mientras suena; con las animaciones del
 /// teléfono desactivadas, quieta. El permiso se pide la primera vez que suena algo aquí, no al abrir el álbum.
 class SoundCircle extends StatefulWidget {
-  const SoundCircle({super.key, required this.player, required this.active, required this.size});
+  const SoundCircle({super.key, required this.player, required this.active, required this.size, this.color});
+
+  /// El color de la línea (el de la portada del disco). Sin esto, el acento de la app.
+  final Color? color;
 
   final PlayerController? player;
 
@@ -115,15 +119,24 @@ class _SoundCircleState extends State<SoundCircle> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: CustomPaint(key: const Key('sound-circle'), size: Size.square(widget.size), painter: SoundCirclePainter(shape: _shape, repaint: _repaint)),
+      child: CustomPaint(
+        key: const Key('sound-circle'),
+        size: Size.square(widget.size),
+        painter: SoundCirclePainter(shape: _shape, repaint: _repaint, ink: widget.color ?? context.colors.accent, screen: context.colors.background),
+      ),
     );
   }
 }
 
 class SoundCirclePainter extends CustomPainter {
-  SoundCirclePainter({required this.shape, required Listenable repaint}) : super(repaint: repaint);
+  SoundCirclePainter({required this.shape, required Listenable repaint, this.ink = const Color(0xFF000000), this.screen = const Color(0xFFFFFFFF)})
+    : super(repaint: repaint);
 
   final SoundShape shape;
+
+  /// El trazo (tinta) y el filo que lo separa de la portada (el fondo).
+  final Color ink;
+  final Color screen;
 
   /// Lo que ocupa la línea en reposo, del lado del cuadrado: deja sitio para hincharse sin salirse.
   static const rest = 0.34;
@@ -146,21 +159,23 @@ class SoundCirclePainter extends CustomPainter {
       }
     }
     path.close();
-    // una sombra debajo, para que la línea se lea sobre cualquier portada
+    // un filo del color de la pantalla debajo, para que la tinta se lea sobre la portada en dos tonos; sin sombras ni suavizado
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.2
-        ..color = const Color(0x59000000),
+        ..strokeWidth = 5
+        ..isAntiAlias = true
+        ..color = screen,
     );
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.9
+        ..strokeWidth = 2
         ..strokeJoin = StrokeJoin.round
-        ..color = const Color(0xFFFFFFFF),
+        ..isAntiAlias = true
+        ..color = ink,
     );
   }
 

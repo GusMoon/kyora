@@ -5,9 +5,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/section_host.dart';
 import 'package:kyora_chat/ui/widgets/app_section.dart';
+import 'package:kyora_chat/ui/widgets/pixel_glyph.dart';
 import 'package:kyora_chat/ui/widgets/radial_menu.dart';
 
 import 'sections.dart';
+
+const _icons = {'home': Icons.home_outlined, 'chat': Icons.chat_bubble_outline, 'music': Icons.music_note_outlined, 'tasks': Icons.checklist_rounded};
+
+/// El icono del disco del centro.
+IconData? centerIcon(WidgetTester tester) => tester.widget<LcdIcon>(find.byKey(const Key('radial-center'))).icon;
 
 void main() {
   group('geometría del círculo', () {
@@ -108,7 +114,7 @@ void main() {
         home: SectionHost(
           sections: [
             for (final id in ids)
-              AppSection(id: id, icon: Icons.circle_outlined, label: 'Sección $id', builder: id == 'home' && body != null ? body : (_) => Scaffold(body: Center(child: Text('Pantalla $id')))),
+              AppSection(id: id, icon: _icons[id] ?? Icons.circle_outlined, label: 'Sección $id', builder: id == 'home' && body != null ? body : (_) => Scaffold(body: Center(child: Text('Pantalla $id')))),
           ],
           actions: [NavAction(id: 'settings', icon: Icons.settings_outlined, label: 'Configuración', run: (_) => ran.add('settings'))],
         ),
@@ -116,23 +122,26 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('no sale antes de tiempo y sale al mantener el dedo', (tester) async {
+    testWidgets('no sale con un toque ni manteniendo el dedo; sale con un giro a la derecha y se ven las opciones', (tester) async {
       await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime - const Duration(milliseconds: 100));
-      expect(find.byKey(const Key('radial-menu')), findsNothing);
-      await tester.pump(const Duration(milliseconds: 150));
+      await tester.tapAt(const Offset(200, 400));
       await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const Key('radial-menu')), findsNothing);
+      final hold = await tester.startGesture(const Offset(200, 400));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byKey(const Key('radial-menu')), findsNothing);
+      await hold.up();
+      await drawCircle(tester);
       expect(find.byKey(const Key('radial-menu')), findsOneWidget);
       for (final id in ['home', 'chat', 'music', 'tasks', 'settings']) {
         expect(find.byKey(Key('radial-$id')), findsOneWidget, reason: id);
       }
-      await gesture.up();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('radial-menu')), findsNothing);
     });
 
-    testWidgets('un toque corto no lo abre y sigue pulsando lo de debajo', (tester) async {
+    testWidgets('un toque corto sigue pulsando lo de debajo', (tester) async {
       var taps = 0;
       await open(tester, body: (_) => Scaffold(body: Center(child: TextButton(key: const Key('tap-me'), onPressed: () => taps++, child: const Text('toca')))));
       await tester.tap(find.byKey(const Key('tap-me')));
@@ -141,54 +150,32 @@ void main() {
       expect(find.byKey(const Key('radial-menu')), findsNothing);
     });
 
-    testWidgets('si el dedo se mueve antes de tiempo (un desplazamiento) no se abre y la lista se desplaza', (tester) async {
+    testWidgets('un desplazamiento en línea recta no abre el menú y la lista se desplaza', (tester) async {
       await open(tester, body: (_) => Scaffold(body: ListView(children: [for (var i = 0; i < 40; i++) SizedBox(height: 80, child: Text('fila $i'))])));
-      final gesture = await tester.startGesture(const Offset(200, 500));
-      await gesture.moveBy(const Offset(0, -60));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 200));
-      expect(find.byKey(const Key('radial-menu')), findsNothing);
-      await gesture.moveBy(const Offset(0, -200));
+      final gesture = await tester.startGesture(const Offset(200, 600));
+      for (var i = 0; i < 30; i++) {
+        await gesture.moveBy(const Offset(0, -12));
+        await tester.pump(const Duration(milliseconds: 8));
+      }
       await gesture.up();
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('radial-menu')), findsNothing);
       expect(find.text('fila 0'), findsNothing); // se desplazó
     });
 
-    testWidgets('soltar sin elegir (sin mover el dedo) cancela y no cambia de sección', (tester) async {
+    testWidgets('con un giro a la izquierda sale el aro de apps (sin dock, vacío), no el de funciones', (tester) async {
       await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(find.text('Pantalla home'), findsOneWidget);
+      await drawCircle(tester, clockwise: false);
+      expect(find.byKey(const Key('radial-menu')), findsOneWidget);
+      expect(tester.widget<Text>(find.byKey(const Key('radial-label'))).data, 'APPS');
+      expect(find.byKey(const Key('radial-chat')), findsNothing);
     });
 
-    testWidgets('al deslizar hacia una opción se resalta con su nombre en el centro y al soltar se va a ella', (tester) async {
+    testWidgets('el menú se abre donde se dibujó el círculo, con su icono y su nombre en el centro', (tester) async {
       await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-      expect(find.byKey(const Key('radial-label')), findsNothing); // aún sin elegir
-      await gesture.moveTo(tester.getCenter(find.byKey(const Key('radial-music'))));
-      await tester.pump();
-      expect(tester.widget<Text>(find.byKey(const Key('radial-label'))).data, 'Sección music');
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(find.text('Pantalla music'), findsOneWidget);
-      expect(find.byKey(const Key('radial-menu')), findsNothing);
-    });
-
-    testWidgets('si se vuelve al centro antes de soltar, se cancela', (tester) async {
-      await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-      await gesture.moveTo(tester.getCenter(find.byKey(const Key('radial-chat'))));
-      await tester.pump();
-      expect(find.byKey(const Key('radial-label')), findsOneWidget);
-      await gesture.moveTo(const Offset(205, 402));
-      await tester.pump();
-      expect(find.byKey(const Key('radial-label')), findsNothing);
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(find.text('Pantalla home'), findsOneWidget);
+      await drawCircle(tester);
+      expect(centerIcon(tester), Icons.home_outlined); // aún sin elegir: la sección en la que se está
+      expect(tester.widget<Text>(find.byKey(const Key('radial-label'))).data, 'Sección home');
     });
 
     testWidgets('Configuración es una acción: no cambia de sección, hace lo suyo', (tester) async {
@@ -198,86 +185,101 @@ void main() {
       expect(find.text('Pantalla home'), findsOneWidget);
     });
 
-    testWidgets('con el dedo en cada esquina todas las opciones están a la vista', (tester) async {
+    testWidgets('con el círculo dibujado cerca de una esquina todas las opciones están a la vista, dentro de la pantalla', (tester) async {
       await open(tester);
-      for (final touch in const [Offset(6, 6), Offset(394, 6), Offset(6, 794), Offset(394, 794)]) {
-        final gesture = await tester.startGesture(touch);
-        await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
+      final screen = tester.getRect(find.byKey(SectionHost.screenKey));
+      for (final at in [const Offset(120, 140), const Offset(280, 140), const Offset(120, 660), const Offset(280, 660)]) {
+        await drawCircle(tester, center: at, radius: 60);
         for (final id in ['home', 'chat', 'music', 'tasks', 'settings']) {
           final r = tester.getRect(find.byKey(Key('radial-$id')));
-          expect(r.left, greaterThanOrEqualTo(0), reason: '$id con el dedo en $touch');
-          expect(r.right, lessThanOrEqualTo(400), reason: '$id con el dedo en $touch');
-          expect(r.top, greaterThanOrEqualTo(0), reason: '$id con el dedo en $touch');
-          expect(r.bottom, lessThanOrEqualTo(800), reason: '$id con el dedo en $touch');
+          expect(r.left, greaterThanOrEqualTo(screen.left), reason: '$id con el círculo en $at');
+          expect(r.right, lessThanOrEqualTo(screen.right), reason: '$id con el círculo en $at');
+          expect(r.top, greaterThanOrEqualTo(screen.top), reason: '$id con el círculo en $at');
+          expect(r.bottom, lessThanOrEqualTo(screen.bottom), reason: '$id con el círculo en $at');
         }
-        await gesture.up();
+        await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
       }
     });
 
-    testWidgets('el orden es el mismo con el dedo en el centro y en una esquina: no gira', (tester) async {
+    testWidgets('con el menú abierto el contenido cercano se corta para dejarle sitio y baja de opacidad, sin desenfoque ni oscurecer nada', (tester) async {
       await open(tester);
-      Future<Map<String, Offset>> around(Offset touch) async {
-        final gesture = await tester.startGesture(touch);
-        await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-        final home = tester.getCenter(find.byKey(const Key('radial-home')));
-        final seen = {for (final id in ['chat', 'music', 'tasks', 'settings']) id: tester.getCenter(find.byKey(Key('radial-$id'))) - home};
-        await gesture.up();
-        await tester.pumpAndSettle();
-        return seen;
-      }
-
-      final middle = await around(const Offset(200, 400));
-      final corner = await around(const Offset(394, 794));
-      for (final id in middle.keys) {
-        expect((middle[id]! - corner[id]!).distance, closeTo(0, 0.01), reason: id);
-      }
-    });
-
-    testWidgets('con el menú abierto todo lo de debajo se ve borroso, de borde a borde', (tester) async {
-      await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-      final blur = find.byKey(const Key('radial-blur'));
-      expect(tester.widget(blur), isA<BackdropFilter>());
-      expect(tester.getRect(blur), const Rect.fromLTWH(0, 0, 400, 800));
-      await gesture.up();
+      final cut = find.byKey(const Key('radial-cut'));
+      expect(tester.widget<ClipPath>(cut).clipBehavior, Clip.none); // sin menú: el contenido va entero
+      await drawCircle(tester, center: const Offset(200, 400));
+      final clipper = tester.widget<ClipPath>(cut).clipper!;
+      final path = clipper.getClip(const Size(400, 800));
+      final hole = tester.getCenter(find.byKey(const Key('radial-label')));
+      expect(path.contains(hole), isFalse); // donde está el reactor, el contenido se ha cortado
+      expect(path.contains(const Offset(5, 5)), isTrue); // lo de lejos sigue ahí
+      expect(tester.widget<ClipPath>(cut).clipBehavior, isNot(Clip.none));
+      final opacity = tester.widget<Opacity>(find.descendant(of: cut, matching: find.byType(Opacity)).first).opacity;
+      expect(opacity, lessThan(1)); // el contenido baja el tono...
+      expect(opacity, greaterThan(0.4)); // ...pero se sigue viendo
+      expect(find.byType(BackdropFilter), findsNothing); // nada de desenfoque
+      expect(find.byKey(const Key('focus-veil')), findsNothing);
+      expect(find.byKey(const Key('radial-edge')), findsOneWidget); // el borde del hueco se deshace en fragmentos
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(blur, findsNothing);
+      expect(tester.widget<ClipPath>(cut).clipBehavior, Clip.none);
+      expect(tester.widget<Opacity>(find.descendant(of: cut, matching: find.byType(Opacity)).first).opacity, 1);
+    });
+
+    test('el hueco crece con suavidad desde nada hasta su tamaño y su borde es un círculo cuando termina', () {
+      const c = Offset(200, 400);
+      expect(RadialCutout.path(c, 0).getBounds().width, 0);
+      var last = 0.0;
+      for (var i = 1; i <= 10; i++) {
+        final w = RadialCutout.path(c, i / 10).getBounds().width;
+        expect(w, greaterThanOrEqualTo(last - RadialCutout.radius * 0.3)); // salta algo, pero crece
+        last = w;
+      }
+      final done = RadialCutout.path(c, 1);
+      expect(done.getBounds().width, closeTo(RadialCutout.radius * 2, 4));
+      expect(done.contains(c + const Offset(RadialCutout.radius * 0.9, 0)), isTrue);
+      expect(done.contains(c + const Offset(RadialCutout.radius * 1.1, 0)), isFalse);
+    });
+
+    testWidgets('el reactor gira mientras el menú está abierto y se para al cerrarlo', (tester) async {
+      ReactorSpin.enabled = true;
+      addTearDown(() => ReactorSpin.enabled = false);
+      await open(tester);
+      await drawCircle(tester);
+      CustomPaint reactor() => tester.widget<CustomPaint>(find.byKey(const Key('radial-reactor')));
+      final spin = (reactor().painter! as dynamic).spin as Animation<double>;
+      final before = spin.value;
+      await tester.pump(const Duration(seconds: 2));
+      expect(spin.value, isNot(before)); // da vueltas
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      await tester.pumpAndSettle(); // al cerrar ya no hay animación que espere
     });
 
     testWidgets('la sección en la que se está va marcada', (tester) async {
       await open(tester);
       await goToSection(tester, 'tasks');
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
+      await drawCircle(tester);
       BoxDecoration of(String id) => tester.widget<DecoratedBox>(find.byKey(Key('radial-$id'))).decoration as BoxDecoration;
-      expect(of('tasks').border!.top.width, greaterThan(of('home').border!.top.width));
-      await gesture.up();
-      await tester.pumpAndSettle();
+      expect(of('tasks').border, isNotNull); // la actual lleva un aro de acento
+      expect(of('home').border, isNull);
+      expect(of('tasks').border!.top.color, KyoraColors.classic().accent);
     });
 
-    testWidgets('una pulsación larga de dentro de la pantalla gana: ahí no sale el menú', (tester) async {
-      var held = 0;
-      await open(tester, body: (_) => Scaffold(body: Center(child: GestureDetector(onLongPress: () => held++, child: Container(key: const Key('held'), width: 200, height: 200, color: Colors.red)))));
-      final gesture = await tester.startGesture(tester.getCenter(find.byKey(const Key('held'))));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 400));
-      await gesture.up();
+    testWidgets('con iconos de puntos, el menú los pinta en vez de los iconos normales', (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(),
+        home: SectionHost(sections: [
+          AppSection(id: 'home', icon: Icons.home_outlined, glyph: PixelGlyphs.home, label: 'Inicio', builder: (_) => const Scaffold(body: Text('Pantalla home'))),
+          AppSection(id: 'music', icon: Icons.music_note_outlined, glyph: PixelGlyphs.music, label: 'Música', builder: (_) => const Scaffold(body: Text('Pantalla music'))),
+        ]),
+      ));
       await tester.pumpAndSettle();
-      expect(held, 1);
-      expect(find.byKey(const Key('radial-menu')), findsNothing);
-    });
-
-    testWidgets('el menú no lleva ninguna capa de opacidad (los círculos crecen, no se funden)', (tester) async {
-      await open(tester);
-      final gesture = await tester.startGesture(const Offset(200, 400));
-      await tester.pump(SectionHost.holdTime + const Duration(milliseconds: 50));
-      for (var i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-        expect(find.descendant(of: find.byKey(const Key('radial-menu')), matching: find.byWidgetPredicate((w) => w is Opacity || w is FadeTransition || w is AnimatedOpacity)), findsNothing);
-      }
-      await gesture.up();
-      await tester.pumpAndSettle();
+      await drawCircle(tester);
+      expect(find.descendant(of: find.byKey(const Key('radial-music')), matching: find.byType(PixelIcon)), findsOneWidget);
+      expect(tester.widget<PixelIcon>(find.byKey(const Key('radial-center'))).glyph, PixelGlyphs.home);
     });
   });
 }

@@ -6,6 +6,8 @@ import '../models/task.dart';
 import '../state/task_controller.dart';
 import '../theme.dart';
 import '../util/task_format.dart';
+import 'widgets/pixel_glyph.dart';
+import 'widgets/focus_space.dart';
 
 /// Una tarea: nombre, descripción, estado, entrega, tiempo esperado, subtareas y etiquetas. Los cambios se guardan solos (al cambiar
 /// el estado, la entrega o las etiquetas, al terminar de escribir y al salir).
@@ -81,12 +83,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     await _c.update(task, due: DateTime(day.year, day.month, day.day, time.hour, time.minute).toUtc());
   }
 
-  Future<String?> _ask(String title, String hint) => showDialog<String>(
-        context: context,
+  Future<String?> _ask(String title, String hint) => showFocusPanel<String>(
+        context,
+        title: title,
         builder: (context) {
           final field = TextEditingController();
-          return AlertDialog(
-            title: Text(title),
+          return FocusDialog(
             content: TextField(
               key: const Key('ask-field'),
               controller: field,
@@ -104,10 +106,10 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
       );
 
   Future<bool> _confirm(String title, String body) async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
+      await showFocusPanel<bool>(
+        context,
+        title: title,
+        builder: (context) => FocusDialog(
           content: Text(body),
           actions: [
             TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancelar')),
@@ -149,7 +151,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         return Scaffold(
           appBar: AppBar(
             title: Text(task.isSub ? 'Subtarea' : 'Tarea', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-            actions: [IconButton(key: const Key('task-delete'), tooltip: 'Borrar', icon: const Icon(Icons.delete_outline), onPressed: () => _delete(task))],
+            actions: [IconButton(key: const Key('task-delete'), tooltip: 'Borrar', icon: const LcdIcon(Icons.delete_outline), onPressed: () => _delete(task))],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
@@ -182,10 +184,10 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               ListTile(
                 key: const Key('task-due'),
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.event_outlined),
+                leading: const LcdIcon(Icons.event_outlined),
                 title: Text(task.due == null ? 'Sin fecha de entrega' : dueLabel(task.due!, now)),
                 subtitle: Text('Entrega', style: TextStyle(color: c.dim)),
-                trailing: task.due == null ? null : IconButton(key: const Key('task-due-clear'), tooltip: 'Quitar la fecha', icon: const Icon(Icons.close), onPressed: () => _c.update(task, due: null)),
+                trailing: task.due == null ? null : IconButton(key: const Key('task-due-clear'), tooltip: 'Quitar la fecha', icon: const LcdIcon(Icons.close), onPressed: () => _c.update(task, due: null)),
                 onTap: () => _pickDue(task),
               ),
               TextField(
@@ -196,7 +198,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                   labelText: 'Tiempo esperado',
                   hintText: 'Por ejemplo 90, 1:30 o 1 h 30 min',
                   errorText: _expectedError,
-                  prefixIcon: const Icon(Icons.timer_outlined),
+                  prefixIcon: const LcdIcon(Icons.timer_outlined),
                 ),
                 onEditingComplete: () {
                   FocusScope.of(context).unfocus();
@@ -215,20 +217,20 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               ),
               if (!task.isSub) ...[
                 const SizedBox(height: 20),
-                Text('Subtareas', style: TextStyle(color: c.accent, fontSize: 14, fontWeight: FontWeight.w700)),
+                Text('Subtareas', style: TextStyle(color: c.accent, fontSize: 15, fontWeight: FontWeight.w700)),
                 for (final s in subs)
                   Row(
                     key: Key('sub-${s.id}'),
                     children: [
                       IconButton(
                         key: Key('sub-check-${s.id}'),
-                        icon: Icon(s.isDone ? Icons.check_circle : Icons.radio_button_unchecked, color: s.isDone ? c.accent : c.dim),
+                        icon: LcdIcon(s.isDone ? Icons.check_circle : Icons.radio_button_unchecked, color: s.isDone ? c.accent : c.dim),
                         onPressed: () => unawaited(_c.toggleDone(s)),
                       ),
                       Expanded(
                         child: Text(s.name, style: TextStyle(color: s.isDone ? c.dim : c.ink, decoration: s.isDone ? TextDecoration.lineThrough : null)),
                       ),
-                      IconButton(key: Key('sub-delete-${s.id}'), tooltip: 'Borrar', icon: Icon(Icons.close, color: c.dim), onPressed: () => unawaited(_c.delete(s))),
+                      IconButton(key: Key('sub-delete-${s.id}'), tooltip: 'Borrar', icon: LcdIcon(Icons.close, color: c.dim), onPressed: () => unawaited(_c.delete(s))),
                     ],
                   ),
                 Row(
@@ -242,12 +244,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                         onSubmitted: (_) => _addSub(task),
                       ),
                     ),
-                    IconButton(key: const Key('subtask-add'), tooltip: 'Añadir subtarea', icon: const Icon(Icons.add_rounded), onPressed: () => _addSub(task)),
+                    IconButton(key: const Key('subtask-add'), tooltip: 'Añadir subtarea', icon: const LcdIcon(Icons.add_rounded), onPressed: () => _addSub(task)),
                   ],
                 ),
               ],
               const SizedBox(height: 20),
-              Text('Etiquetas', style: TextStyle(color: c.accent, fontSize: 14, fontWeight: FontWeight.w700)),
+              Text('Etiquetas', style: TextStyle(color: c.accent, fontSize: 15, fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
               Wrap(
                 spacing: 8,
@@ -268,7 +270,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                     ),
                   ActionChip(
                     key: const Key('tag-new'),
-                    avatar: const Icon(Icons.add, size: 16),
+                    avatar: const LcdIcon(Icons.add, size: 16),
                     label: const Text('Etiqueta'),
                     onPressed: () async {
                       final name = await _ask('Nueva etiqueta', 'Nombre');

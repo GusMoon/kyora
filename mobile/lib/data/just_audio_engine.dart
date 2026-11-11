@@ -3,7 +3,20 @@ import 'dart:async';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
+import '../util/format.dart';
 import 'audio_engine.dart';
+
+/// Lo que enseñan la notificación y la pantalla de bloqueo de una canción: el nombre y el artista por separado, y su portada.
+MediaItem mediaItemOf(QueueItem item) {
+  final named = splitArtistTitle(item.title);
+  return MediaItem(
+    id: item.id,
+    title: named.title,
+    artist: named.artist ?? item.subtitle ?? 'Kyra',
+    album: item.subtitle,
+    artUri: item.artUrl == null ? null : Uri.tryParse(item.artUrl!),
+  );
+}
 
 /// El motor real: `just_audio`, con la notificación y los controles de la pantalla de bloqueo (`just_audio_background`).
 class JustAudioEngine implements AudioEngine {
@@ -52,15 +65,7 @@ class JustAudioEngine implements AudioEngine {
       await _player.setAudioSources(
         [
           for (final item in items)
-            AudioSource.uri(
-              Uri.parse(item.url),
-              tag: MediaItem(
-                id: item.id,
-                title: item.title,
-                album: item.subtitle,
-                artUri: item.artUrl == null ? null : Uri.tryParse(item.artUrl!),
-              ),
-            ),
+            AudioSource.uri(Uri.parse(item.url), tag: mediaItemOf(item)),
         ],
         initialIndex: startIndex,
       );

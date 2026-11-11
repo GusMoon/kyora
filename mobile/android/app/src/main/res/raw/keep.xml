@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El compilador de release borra los recursos que nadie nombra desde el código nativo, y estos iconos solo se nombran desde Dart.
+     Sin ellos, en Android 13 o más nuevo el reproductor falla al crear el control «Stop» antes de pasar a primer plano: no sale la
+     notificación y Android congela la app a los pocos minutos, con la música. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*,@drawable/ic_kyra_notification" />

@@ -3,13 +3,12 @@ import 'package:flutter/material.dart';
 import '../data/music_store.dart';
 import '../state/music_controller.dart';
 import '../theme.dart';
+import 'widgets/pixel_glyph.dart';
+import 'widgets/focus_space.dart';
 
 /// Abre la hoja de «Carpeta de las canciones» y, si se pulsa «Listo», guarda los cambios.
 Future<void> showFolderSettings(BuildContext context, MusicController controller) async {
-  final next = await showModalBottomSheet<MusicSettings>(
-    context: context,
-    isScrollControlled: true,
-    builder: (context) => FolderSettingsSheet(initial: controller.settings, pickFolder: controller.pickFolder),
+  final next = await showFocusPanel<MusicSettings>(context, builder: (context) => FolderSettingsSheet(initial: controller.settings, pickFolder: controller.pickFolder),
   );
   if (next != null) await controller.updateSettings(next);
 }
@@ -66,7 +65,7 @@ class FolderSettingsSheetState extends State<FolderSettingsSheet> {
           OutlinedButton.icon(
             key: const Key('pick-folder'),
             onPressed: _pick,
-            icon: const Icon(Icons.folder_open_outlined),
+            icon: const LcdIcon(Icons.folder_open_outlined),
             label: Text(_next.hasTree ? 'Cambiar carpeta' : 'Elegir carpeta'),
           ),
           if (_pickError != null) ...[

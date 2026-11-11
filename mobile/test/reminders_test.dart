@@ -7,7 +7,7 @@ import 'package:kyora_chat/models/reminder.dart';
 import 'package:kyora_chat/state/reminder_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
-import 'package:kyora_chat/ui/reminders_page.dart';
+import 'package:kyora_chat/ui/calendar_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_gate_test.dart' show FakeAccount, MemoryRoleCache;
@@ -39,8 +39,20 @@ class FakeScheduler implements ReminderScheduler {
     scheduled[reminder.notifId] = reminder;
   }
 
+  /// Los avisos semanales (de los hábitos): número → (título, día, hora, minuto).
+  final Map<int, (String, int, int, int)> weekly = {};
+
   @override
-  Future<void> cancel(int notifId) async => scheduled.remove(notifId);
+  Future<void> scheduleWeekly({required int id, required String title, required int weekday, required int hour, required int minute}) async {
+    if (failSchedule) throw StateError('no se pudo');
+    weekly[id] = (title, weekday, hour, minute);
+  }
+
+  @override
+  Future<void> cancel(int notifId) async {
+    scheduled.remove(notifId);
+    weekly.remove(notifId);
+  }
 }
 
 void main() {
@@ -171,20 +183,26 @@ void main() {
     });
   });
 
-  group('pantalla', () {
+  group('en el Calendario', () {
+    // un día fijo para la pantalla; los recordatorios se crean ese día
+    final day = DateTime(2026, 11, 5, 9);
+
     Future<void> open(WidgetTester tester) async {
       tester.view.physicalSize = const Size(400, 850);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.runAsync(c.start);
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: RemindersPage(controller: c)));
+      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: CalendarPage(reminders: Future.value(c), now: () => day)));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('sin recordatorios lo dice; «Nuevo» crea uno con su título y notas', (tester) async {
+    testWidgets('sin nada lo dice; «+» → Recordatorio crea uno con su título y notas', (tester) async {
       await open(tester);
-      expect(find.byKey(const Key('reminders-empty')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('reminder-new')));
+      expect(find.byKey(const Key('cal-day-empty')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('cal-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('cal-add-task')), findsNothing); // sin tareas no se ofrecen
+      await tester.tap(find.byKey(const Key('cal-add-reminder')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('reminder-save'))); // sin título no guarda
       await tester.pumpAndSettle();
@@ -193,32 +211,53 @@ void main() {
       await tester.enterText(find.byKey(const Key('reminder-notes')), 'vence el 10');
       await tester.tap(find.byKey(const Key('reminder-save')));
       await tester.pumpAndSettle();
-      expect(find.text('Pagar la luz'), findsOneWidget);
-      expect(find.text('vence el 10'), findsOneWidget);
-      expect(find.byKey(const Key('reminders-empty')), findsNothing);
-      expect(scheduler.scheduled.length, 1);
+      expect(c.items.single.title, 'Pagar la luz');
+      expect(c.items.single.notes, 'vence el 10');
     });
 
-    testWidgets('la casilla lo marca como hecho, tocar uno lo edita y la papelera lo borra', (tester) async {
-      final r = (await c.add('Llamar', DateTime.now().toUtc().add(const Duration(days: 1))))!;
+    testWidgets('sale en su día; la casilla lo marca como hecho, tocarlo lo edita y desde ahí se borra', (tester) async {
+      final r = (await c.add('Llamar', DateTime(2026, 11, 5, 15).toUtc()))!;
       await open(tester);
-      await tester.tap(find.byKey(Key('reminder-check-${r.id}')));
+      expect(find.byKey(Key('cal-reminder-${r.id}')), findsOneWidget);
+      expect(find.text('15:00'), findsOneWidget);
+      await tester.tap(find.byKey(Key('cal-reminder-check-${r.id}')));
       await tester.pumpAndSettle();
       expect(c.items.single.done, isTrue);
-      await tester.tap(find.byKey(Key('reminder-${r.id}')));
+      await tester.tap(find.text('Llamar'));
       await tester.pumpAndSettle();
       expect(find.text('Editar recordatorio'), findsOneWidget);
       await tester.enterText(find.byKey(const Key('reminder-title')), 'Llamar a Ana');
       await tester.tap(find.byKey(const Key('reminder-save')));
       await tester.pumpAndSettle();
       expect(find.text('Llamar a Ana'), findsOneWidget);
-      await tester.tap(find.byKey(Key('reminder-delete-${r.id}')));
+      await tester.tap(find.text('Llamar a Ana'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reminder-delete')));
       await tester.pumpAndSettle();
       expect(c.items, isEmpty);
-      expect(find.byKey(const Key('reminders-empty')), findsOneWidget);
+      expect(find.byKey(const Key('cal-day-empty')), findsOneWidget);
     });
 
-    testWidgets('si las notificaciones están bloqueadas, la pantalla lo avisa', (tester) async {
+    testWidgets('el «+» empieza el recordatorio en el día elegido', (tester) async {
+      await open(tester);
+      // el día se elige en el mini calendario
+      await tester.tap(find.byKey(const Key('cal-open-month')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dial-day-2026-11-07')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('cal-add')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('cal-add-reminder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('reminder-title')), 'Sábado');
+      await tester.tap(find.byKey(const Key('reminder-save')));
+      await tester.pumpAndSettle();
+      final at = c.items.single.at.toLocal();
+      expect((at.year, at.month, at.day, at.hour), (2026, 11, 7, 9));
+      expect(find.text('Sábado'), findsOneWidget); // sale en el día elegido
+    });
+
+    testWidgets('si las notificaciones están bloqueadas, el Calendario lo avisa', (tester) async {
       scheduler.granted = false;
       await c.add('Llamar', DateTime.now().toUtc().add(const Duration(days: 1)));
       await open(tester);
@@ -227,7 +266,7 @@ void main() {
   });
 
   group('desde la app', () {
-    testWidgets('el administrador llega a los recordatorios deslizando', (tester) async {
+    testWidgets('el administrador llega a los recordatorios en el Calendario', (tester) async {
       tester.view.physicalSize = const Size(400, 850);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -247,11 +286,15 @@ void main() {
       ));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pump();
-      expect(await menuOptions(tester), isNot(contains('tasks'))); // sin Supabase de tareas no hay tareas
-      await goToSection(tester, 'reminders');
+      final options = await menuOptions(tester);
+      expect(options, contains('calendar'));
+      expect(options, isNot(contains('tasks')));
+      expect(options, isNot(contains('reminders'))); // ya no son secciones: viven en el Calendario
+      await goToSection(tester, 'calendar');
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
       await tester.pumpAndSettle();
-      expect(find.byType(RemindersPage), findsOneWidget);
+      expect(find.byType(CalendarPage), findsOneWidget);
+      expect(find.byKey(const Key('cal-tab-tasks')), findsNothing); // sin Supabase de tareas no hay pestaña de tareas
       expect(scheduler.inits, 1);
     });
   });

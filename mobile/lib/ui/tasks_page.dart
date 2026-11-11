@@ -9,19 +9,48 @@ import '../util/task_format.dart';
 import 'task_detail_page.dart';
 import 'widgets/app_backdrop.dart';
 import 'widgets/section_motion.dart';
+import 'widgets/pixel_glyph.dart';
+import 'widgets/hack_text.dart';
 
-/// Las tareas: filtros por estado arriba, la lista y, abajo, el campo para anotar una nueva. Tocar una abre su detalle; la casilla de la
-/// izquierda la finaliza. Todo se guarda en el teléfono al instante y sube a Supabase cuando hay internet.
-class TasksPage extends StatefulWidget {
+/// Las tareas en su propia pantalla (con su barra y el estado de la sincronización). En la app viven dentro del Calendario (`TasksView`).
+class TasksPage extends StatelessWidget {
   const TasksPage({super.key, required this.controller});
 
   final TaskController controller;
 
   @override
-  State<TasksPage> createState() => _TasksPageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: FlyInBar(
+        child: AppBar(
+          title: const HackText('Tareas', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          actions: [
+            ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) => SyncBadge(controller: controller),
+            ),
+          ],
+        ),
+      ),
+      body: TasksView(controller: controller),
+    );
+  }
 }
 
-class _TasksPageState extends State<TasksPage> with WidgetsBindingObserver {
+/// Las tareas: filtros por estado arriba, la lista y, abajo, el campo para anotar una nueva. Tocar una abre su detalle; la casilla de la
+/// izquierda la finaliza. Todo se guarda en el teléfono al instante y sube a Supabase cuando hay internet. Con `showSync`, el estado de la
+/// sincronización va al final de los filtros.
+class TasksView extends StatefulWidget {
+  const TasksView({super.key, required this.controller, this.showSync = false});
+
+  final TaskController controller;
+  final bool showSync;
+
+  @override
+  State<TasksView> createState() => _TasksViewState();
+}
+
+class _TasksViewState extends State<TasksView> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _focus = FocusNode();
 
@@ -61,7 +90,13 @@ class _TasksPageState extends State<TasksPage> with WidgetsBindingObserver {
   }
 
   void _open(TaskItem task) {
-    unawaited(Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => TaskDetailPage(controller: widget.controller, taskId: task.id))));
+    unawaited(
+      Navigator.of(context).push(
+        QuickPageRoute<void>(
+          builder: (_) => TaskDetailPage(controller: widget.controller, taskId: task.id),
+        ),
+      ),
+    );
   }
 
   @override
@@ -71,78 +106,76 @@ class _TasksPageState extends State<TasksPage> with WidgetsBindingObserver {
       builder: (context, _) {
         final c = widget.controller;
         final tasks = c.roots(status: _status, active: _status == null);
-        return Scaffold(
-          appBar: FlyInBar(
-            child: AppBar(
-              title: const Text('Tareas', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-              actions: [_SyncBadge(controller: c)],
-            ),
-          ),
-          body: Column(
-            children: [
-              FlyIn(edge: MotionEdge.left, order: 1, child: _Filters(controller: c, selected: _status, onSelected: (s) => setState(() => _status = s))),
-              Expanded(
-                child: FlyIn(
-                  edge: MotionEdge.right,
-                  order: 1,
-                  child: tasks.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Text(
-                              !c.loaded
-                                  ? 'Cargando…'
-                                  : _status == null
-                                      ? 'No tienes tareas pendientes.\nAnota una abajo.'
-                                      : 'No hay tareas «${_status!.label}».',
-                              key: const Key('tasks-empty'),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: context.colors.dim),
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          key: const Key('task-list'),
-                          padding: const EdgeInsets.only(bottom: 12),
-                          itemCount: tasks.length,
-                          itemBuilder: (context, i) => _TaskTile(task: tasks[i], controller: c, onOpen: () => _open(tasks[i])),
-                        ),
-                ),
+        return Column(
+          children: [
+            FlyIn(
+              edge: MotionEdge.left,
+              order: 0,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _Filters(controller: c, selected: _status, onSelected: (s) => setState(() => _status = s)),
+                  ),
+                  if (widget.showSync) SyncBadge(controller: c),
+                ],
               ),
-              FlyIn(
-                edge: MotionEdge.bottom,
+            ),
+            Expanded(
+              child: FlyIn(
+                edge: MotionEdge.right,
                 order: 2,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            key: const Key('task-input'),
-                            controller: _input,
-                            focusNode: _focus,
-                            textCapitalization: TextCapitalization.sentences,
-                            textInputAction: TextInputAction.done,
-                            decoration: const InputDecoration(hintText: 'Nueva tarea'),
-                            onSubmitted: (_) => _add(),
+                child: tasks.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Text(
+                            !c.loaded
+                                ? 'Cargando…'
+                                : _status == null
+                                ? 'No tienes tareas pendientes.\nAnota una abajo.'
+                                : 'No hay tareas «${_status!.label}».',
+                            key: const Key('tasks-empty'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: context.colors.dim),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          key: const Key('task-add'),
-                          tooltip: 'Añadir',
-                          onPressed: _add,
-                          icon: const Icon(Icons.add_rounded),
+                      )
+                    : ListView.builder(
+                        key: const Key('task-list'),
+                        padding: const EdgeInsets.only(bottom: 12),
+                        itemCount: tasks.length,
+                        itemBuilder: (context, i) => _TaskTile(task: tasks[i], controller: c, onOpen: () => _open(tasks[i])),
+                      ),
+              ),
+            ),
+            FlyIn(
+              edge: MotionEdge.bottom,
+              order: 4,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          key: const Key('task-input'),
+                          controller: _input,
+                          focusNode: _focus,
+                          textCapitalization: TextCapitalization.sentences,
+                          textInputAction: TextInputAction.done,
+                          decoration: const InputDecoration(hintText: 'Nueva tarea'),
+                          onSubmitted: (_) => _add(),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(key: const Key('task-add'), tooltip: 'Añadir', onPressed: _add, icon: const LcdIcon(Icons.add_rounded)),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -160,14 +193,9 @@ class _Filters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget chip(Key key, String label, int count, TaskStatus? value) => Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: ChoiceChip(
-            key: key,
-            label: Text('$label · $count'),
-            selected: selected == value,
-            onSelected: (_) => onSelected(value),
-          ),
-        );
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(key: key, label: Text('$label · $count'), selected: selected == value, onSelected: (_) => onSelected(value)),
+    );
     return SizedBox(
       height: 46,
       child: SingleChildScrollView(
@@ -200,15 +228,26 @@ class _TaskTile extends StatelessWidget {
     final progress = controller.progress(task);
     final tags = controller.tagsOf(task.id);
     final bits = <Widget>[
-      if (task.status != TaskStatus.pending) Text(task.status.label, style: TextStyle(color: c.accent, fontSize: 12.5, fontWeight: FontWeight.w600)),
-      if (due != null) Text(dueLabel(due, now), style: TextStyle(color: overdue ? c.warn : c.dim, fontSize: 12.5)),
-      if (progress.total > 0) Text('${progress.done}/${progress.total} subtareas', style: TextStyle(color: c.dim, fontSize: 12.5)),
+      if (task.status != TaskStatus.pending)
+        Text(
+          task.status.label,
+          style: TextStyle(color: c.accent, fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+      if (due != null) Text(dueLabel(due, now), style: TextStyle(color: overdue ? c.warn : c.dim, fontSize: 15)),
+      if (progress.total > 0) Text('${progress.done}/${progress.total} subtareas', style: TextStyle(color: c.dim, fontSize: 15)),
       for (final t in tags)
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 8, height: 8, decoration: BoxDecoration(color: colorFromHex(t.color), shape: BoxShape.circle)),
-          const SizedBox(width: 4),
-          Text(t.name, style: TextStyle(color: c.dim, fontSize: 12.5)),
-        ]),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              color: c.accent,
+            ),
+            const SizedBox(width: 4),
+            Text(t.name, style: TextStyle(color: c.dim, fontSize: 15)),
+          ],
+        ),
     ];
     return InkWell(
       key: Key('task-${task.id}'),
@@ -220,7 +259,7 @@ class _TaskTile extends StatelessWidget {
             IconButton(
               key: Key('task-check-${task.id}'),
               tooltip: task.isDone ? 'Volver a pendiente' : 'Finalizar',
-              icon: Icon(task.isDone ? Icons.check_circle : Icons.radio_button_unchecked, color: task.isDone ? c.accent : c.dim),
+              icon: LcdIcon(task.isDone ? Icons.check_circle : Icons.radio_button_unchecked, color: task.isDone ? c.accent : c.dim),
               onPressed: () => unawaited(controller.toggleDone(task)),
             ),
             Expanded(
@@ -238,11 +277,15 @@ class _TaskTile extends StatelessWidget {
                       decoration: task.isDone ? TextDecoration.lineThrough : null,
                     ),
                   ),
-                  if (bits.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Wrap(spacing: 10, runSpacing: 2, children: bits)),
+                  if (bits.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Wrap(spacing: 10, runSpacing: 2, children: bits),
+                    ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: c.dim),
+            LcdIcon(Icons.chevron_right_rounded, color: c.dim),
           ],
         ),
       ),
@@ -251,8 +294,8 @@ class _TaskTile extends StatelessWidget {
 }
 
 /// Cómo va la sincronización: al día, subiendo, sin conexión (con cuántas faltan por subir) o con un error.
-class _SyncBadge extends StatelessWidget {
-  const _SyncBadge({required this.controller});
+class SyncBadge extends StatelessWidget {
+  const SyncBadge({super.key, required this.controller});
 
   final TaskController controller;
 
@@ -283,7 +326,7 @@ class _SyncBadge extends StatelessWidget {
     return IconButton(
       key: Key('sync-${controller.syncState.name}'),
       tooltip: tip,
-      icon: Icon(icon, color: color),
+      icon: LcdIcon(icon, color: color),
       onPressed: () {
         unawaited(controller.sync());
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tip)));

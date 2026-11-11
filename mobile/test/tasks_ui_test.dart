@@ -241,30 +241,36 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('el administrador llega a las tareas con el menú circular y lo anotado sube a Supabase', (tester) async {
+    testWidgets('el administrador llega a las tareas en el Calendario y lo anotado sube a Supabase', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)));
       final options = await menuOptions(tester);
-      expect(options, contains('tasks'));
-      expect(options, isNot(contains('reminders'))); // sin programador de avisos no hay recordatorios
-      await goToSection(tester, 'tasks');
+      expect(options, contains('calendar'));
+      expect(options, isNot(contains('tasks')));
+      await goToSection(tester, 'calendar');
       await settle(tester);
-      expect(find.byType(TasksPage), findsOneWidget);
+      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
+      await tester.tap(find.byKey(const Key('cal-all-tasks')));
+      await settle(tester);
+      expect(find.byType(TasksView), findsOneWidget);
       await tester.enterText(find.byKey(const Key('task-input')), 'Desde el móvil');
       await tester.tap(find.byKey(const Key('task-add')));
       await settle(tester);
       expect(backend.tasks.values.single.name, 'Desde el móvil');
     });
 
-    testWidgets('el pasante también las alcanza con el menú circular', (tester) async {
+    testWidgets('el pasante también las alcanza en el Calendario', (tester) async {
       await gate(tester, FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern)));
-      await goToSection(tester, 'tasks');
+      await goToSection(tester, 'calendar');
       await settle(tester);
-      expect(find.byType(TasksPage), findsOneWidget);
+      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
+      await tester.tap(find.byKey(const Key('cal-all-tasks')));
+      await settle(tester);
+      expect(find.byType(TasksView), findsOneWidget);
     });
 
-    testWidgets('sin el servicio de tareas no hay sección de tareas', (tester) async {
+    testWidgets('sin tareas, recordatorios ni hábitos no hay Calendario', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)), withTasks: false);
-      expect(await menuOptions(tester), isNot(contains('tasks')));
+      expect(await menuOptions(tester), isNot(contains('calendar')));
     });
   });
 }

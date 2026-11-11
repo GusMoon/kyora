@@ -1,19 +1,18 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Lo que se recuerda del fondo de pantalla: la ruta de la imagen (una copia dentro de la app) y sus 5 colores, como números ARGB.
+/// Lo que se recuerda del fondo de pantalla: la ruta de una copia de la imagen dentro de la app y su color de acento (ARGB).
 class WallpaperState {
-  const WallpaperState({this.path, this.palette = const []});
+  const WallpaperState({this.path, this.accent});
 
   final String? path;
-  final List<int> palette;
+  final int? accent;
 }
 
-/// Dónde se guarda el fondo de pantalla de Kyra y su paleta (solo en el teléfono).
+/// Dónde se guarda el fondo de pantalla de Inicio y su color (solo en el teléfono).
 abstract class WallpaperStore {
   WallpaperState load();
   Future<void> save(WallpaperState state);
@@ -28,7 +27,7 @@ abstract class WallpaperStore {
 class MemoryWallpaperStore implements WallpaperStore {
   WallpaperState state = const WallpaperState();
 
-  /// Lo que se copió, para las pruebas.
+  /// Lo que se copió y lo que se borró, para las pruebas.
   final List<String> kept = [];
   final List<String> discarded = [];
 
@@ -52,7 +51,7 @@ class PrefsWallpaperStore implements WallpaperStore {
   PrefsWallpaperStore._(this._prefs);
 
   static const _pathKey = 'wallpaper.path';
-  static const _paletteKey = 'wallpaper.palette';
+  static const _accentKey = 'wallpaper.accent';
 
   final SharedPreferences _prefs;
 
@@ -61,32 +60,31 @@ class PrefsWallpaperStore implements WallpaperStore {
   @override
   WallpaperState load() {
     final path = _prefs.getString(_pathKey);
-    if (path == null) return const WallpaperState();
-    var palette = <int>[];
-    try {
-      palette = (jsonDecode(_prefs.getString(_paletteKey) ?? '[]') as List).cast<int>();
-    } on Object {
-      palette = [];
-    }
-    return WallpaperState(path: path, palette: palette);
+    // la copia pudo borrarse (limpiar datos): sin archivo no hay fondo
+    if (path == null || !File(path).existsSync()) return const WallpaperState();
+    return WallpaperState(path: path, accent: _prefs.getInt(_accentKey));
   }
 
   @override
   Future<void> save(WallpaperState state) async {
     if (state.path == null) {
       await _prefs.remove(_pathKey);
-      await _prefs.remove(_paletteKey);
-      return;
+    } else {
+      await _prefs.setString(_pathKey, state.path!);
     }
-    await _prefs.setString(_pathKey, state.path!);
-    await _prefs.setString(_paletteKey, jsonEncode(state.palette));
+    if (state.accent == null) {
+      await _prefs.remove(_accentKey);
+    } else {
+      await _prefs.setInt(_accentKey, state.accent!);
+    }
   }
 
   @override
   Future<String> keep(String source) async {
     final folder = await getApplicationDocumentsDirectory();
+    final extension = p.extension(source).isEmpty ? '.jpg' : p.extension(source);
     // un nombre nuevo cada vez: así Flutter no enseña la imagen anterior que tiene en caché
-    final target = p.join(folder.path, 'wallpaper-${DateTime.now().millisecondsSinceEpoch}${p.extension(source).isEmpty ? '.jpg' : p.extension(source)}');
+    final target = p.join(folder.path, 'wallpaper-${DateTime.now().millisecondsSinceEpoch}$extension');
     await File(source).copy(target);
     return target;
   }

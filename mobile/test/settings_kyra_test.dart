@@ -1,183 +1,338 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kyora_chat/data/dock_store.dart';
+import 'package:kyora_chat/data/installed_apps.dart';
 import 'package:kyora_chat/data/wallpaper_store.dart';
 import 'package:kyora_chat/data/weather_service.dart';
 import 'package:kyora_chat/data/weather_store.dart';
 import 'package:kyora_chat/models/profile.dart';
+import 'package:kyora_chat/state/dock_controller.dart';
 import 'package:kyora_chat/state/music_controller.dart';
 import 'package:kyora_chat/state/wallpaper_controller.dart';
 import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
-import 'package:kyora_chat/ui/settings_sheet.dart';
-import 'package:kyora_chat/util/palette.dart';
+import 'package:kyora_chat/ui/settings_page.dart';
 
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
+import 'sections.dart';
 import 'weather_test.dart' show FakeWeather;
 
-const _five = [Color(0xFF112233), Color(0xFF445566), Color(0xFF778899), Color(0xFFAABBCC), Color(0xFFDDEEFF)];
+final _png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
 
 void main() {
   late MusicController music;
-  late MemoryWallpaperStore store;
-  late WallpaperController wallpaper;
   late FakeWeather backend;
   late WeatherController weather;
-  String? picked;
+  late FakeInstalledApps apps;
+  late DockController dock;
+  late WallpaperController wallpaper;
 
-  Future<void> open(WidgetTester tester, {bool withWallpaper = true, bool withWeather = true}) async {
-    tester.view.physicalSize = const Size(400, 1400);
+  Future<void> open(WidgetTester tester, {bool withWeather = true, bool withDock = false, bool withWallpaper = false, String? initialTile, Size size = const Size(400, 850)}) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     music = MusicController(FakeMusicBackend(), MemoryMusicStore(since: DateTime.utc(2026, 10, 1)), FakeSaver());
     addTearDown(music.dispose);
     await tester.runAsync(music.start);
-    store = MemoryWallpaperStore();
-    wallpaper = WallpaperController(store, lookup: (_) async => _five);
     backend = FakeWeather();
     weather = WeatherController(backend, MemoryWeatherStore());
     addTearDown(weather.dispose);
+    apps = FakeInstalledApps([for (var i = 1; i <= 3; i++) InstalledApp(package: 'com.app$i', label: 'App $i', icon: Uint8List.fromList(_png))]);
+    dock = DockController(MemoryDockStore(), apps);
+    addTearDown(dock.dispose);
+    wallpaper = WallpaperController(MemoryWallpaperStore(), lookup: (_) async => null);
+    addTearDown(wallpaper.dispose);
+    await tester.runAsync(dock.refresh);
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(),
-      home: SettingsSheet(
+      home: SettingsPage(
         music: music,
         role: Role.admin,
         username: 'gustavo',
         onSignOut: () async {},
-        wallpaper: withWallpaper ? wallpaper : null,
         weather: withWeather ? weather : null,
-        pickImage: () async => picked,
+        dock: withDock ? dock : null,
+        wallpaper: withWallpaper ? wallpaper : null,
+        initialTile: initialTile,
       ),
     ));
     await tester.pumpAndSettle();
   }
 
-  setUp(() => picked = '/galeria/lluvia.jpg');
+  Rect tile(WidgetTester tester, String id) => tester.getRect(find.byKey(Key('mosaic-tile-$id')));
 
-  testWidgets('está organizada en grupos con su explicación: Apariencia, Clima, Música y Cuenta', (tester) async {
-    await open(tester);
-    for (final title in ['Apariencia', 'Clima', 'Música', 'Cuenta']) {
-      expect(find.text(title), findsOneWidget, reason: title);
-    }
-    expect(find.text('El fondo de la app y los colores que salen de él.'), findsOneWidget);
-    expect(find.text('Con quién has entrado.'), findsOneWidget);
-  });
-
-  testWidgets('sin fondo ni clima solo salen Música y Cuenta', (tester) async {
-    await open(tester, withWallpaper: false, withWeather: false);
-    expect(find.text('Apariencia'), findsNothing);
-    expect(find.text('Clima'), findsNothing);
-    expect(find.text('Música'), findsOneWidget);
-  });
-
-  testWidgets('sin fondo no hay colores que enseñar y se invita a elegir uno', (tester) async {
-    await open(tester);
-    expect(find.byKey(const Key('palette-strip')), findsNothing);
-    expect(find.text('Elige un fondo y aquí salen sus 5 colores.'), findsOneWidget);
-    expect(find.byKey(const Key('settings-wallpaper-clear')), findsNothing);
-  });
-
-  testWidgets('elegir una imagen pone el fondo y enseña sus 5 colores con su código', (tester) async {
-    await open(tester);
-    await tester.tap(find.byKey(const Key('settings-wallpaper')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
-    expect(wallpaper.path, '/galeria/lluvia.jpg');
-    expect(find.byKey(const Key('palette-strip')), findsOneWidget);
-    for (final color in _five) {
-      expect(find.text(hexOf(color)), findsOneWidget);
-    }
-    expect(find.byKey(const Key('settings-wallpaper-clear')), findsOneWidget);
-  });
-
-  testWidgets('cancelar el selector no cambia nada', (tester) async {
-    picked = null;
-    await open(tester);
-    await tester.tap(find.byKey(const Key('settings-wallpaper')));
-    await tester.pumpAndSettle();
-    expect(wallpaper.hasWallpaper, isFalse);
-  });
-
-  testWidgets('«Quitar el fondo» vuelve al gris y esconde los colores', (tester) async {
-    await open(tester);
-    await tester.runAsync(() => wallpaper.set('/galeria/lluvia.jpg'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('settings-wallpaper-clear')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
-    expect(wallpaper.hasWallpaper, isFalse);
-    expect(find.byKey(const Key('palette-strip')), findsNothing);
-  });
-
-  testWidgets('la ciudad se escribe, se guarda al enviar y dice si la encontró', (tester) async {
-    await open(tester);
-    expect(find.text('Escribe tu ciudad y pulsa enviar.'), findsOneWidget);
-    await tester.enterText(find.byKey(const Key('settings-city-field')), 'Lima');
-    await tester.testTextInput.receiveAction(TextInputAction.search);
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
-    expect(backend.asked, ['Lima']);
-    expect(weather.city, 'Lima');
-    expect(find.text('Encontrada: Lima.'), findsOneWidget);
-  });
-
-  testWidgets('una ciudad que no existe se avisa en la propia fila', (tester) async {
-    await open(tester);
-    backend.error = const CityNotFound('Xyzzy');
-    await tester.enterText(find.byKey(const Key('settings-city-field')), 'Xyzzy');
-    await tester.testTextInput.receiveAction(TextInputAction.search);
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
-    expect(find.text('No encontré esa ciudad. Prueba con otro nombre.'), findsOneWidget);
-  });
-
-  testWidgets('la hoja es de gris oscuro semitransparente que difumina lo de detrás, con las esquinas de arriba redondeadas y su tirador', (tester) async {
-    await open(tester);
-    final sheet = tester.widget<ClipRRect>(find.byKey(const Key('settings-sheet')));
-    expect((sheet.borderRadius as BorderRadius).topLeft.x, greaterThan(0));
-    expect((sheet.borderRadius as BorderRadius).bottomLeft.x, 0);
-    expect(find.descendant(of: find.byKey(const Key('settings-sheet')), matching: find.byType(BackdropFilter)), findsOneWidget);
-    // el relleno: un gris oscuro, algo transparente
-    final fill = tester.widget<ColoredBox>(find.descendant(of: find.byKey(const Key('settings-sheet')), matching: find.byType(ColoredBox)).first).color;
-    expect(fill.a, inExclusiveRange(0.4, 0.95));
-    expect(HSLColor.fromColor(fill).lightness, lessThan(0.2));
-    expect(HSLColor.fromColor(fill).saturation, lessThan(0.15));
-    expect(find.byKey(const Key('settings-handle')), findsOneWidget);
-    // dentro, los grupos van sin tarjetas de cristal propias (no se apilan desenfoques)
-    expect(find.byKey(const Key('glass-card')), findsNothing);
-  });
-
-  testWidgets('con el teclado abierto la lista se queda por encima de él', (tester) async {
-    await open(tester);
-    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-    addTearDown(tester.view.resetViewInsets);
-    await tester.pumpAndSettle();
-    expect(tester.getRect(find.byType(ListView)).bottom, lessThanOrEqualTo(1400 - 300));
-  });
-
-  group('el color de la app', () {
-    test('con un fondo puesto la app se viste con su color, no con el de la carátula', () {
-      const cover = Color(0xFFD62828); // rojo
-      final seed = paletteSeed([const Color(0xFF808080), const Color(0xFF1B998B), const Color(0xFF808080), const Color(0xFF808080), const Color(0xFF808080)]);
-      // lo mismo que hace `main.dart`: `wallpaper?.seed ?? cover`
-      final withWallpaper = buildCoverTheme(seed).extension<KyoraColors>()!;
-      final withoutWallpaper = buildCoverTheme(cover).extension<KyoraColors>()!;
-      expect(HSLColor.fromColor(withWallpaper.accent).hue, closeTo(HSLColor.fromColor(seed).hue, 8));
-      expect(HSLColor.fromColor(withoutWallpaper.accent).hue, closeTo(HSLColor.fromColor(cover).hue, 8));
-      expect(withWallpaper.accent, isNot(withoutWallpaper.accent));
-    });
-
-    test('con el fondo del gris oscuro de siempre y sin carátula, los colores clásicos', () {
-      expect(buildCoverTheme(null).extension<KyoraColors>()!.accent, KyoraColors.classic().accent);
-    });
-
-    test('sea cual sea el fondo, el texto y el acento se leen sobre las placas', () {
-      for (final seed in const [Color(0xFFFFFFFF), Color(0xFF000000), Color(0xFFFFEB3B), Color(0xFF1B998B), Color(0xFF3F51B5)]) {
-        final c = buildCoverTheme(seed).extension<KyoraColors>()!;
-        for (final plate in [c.background, c.surface, c.plate, c.pick]) {
-          expect(contrastRatio(c.ink, plate), greaterThanOrEqualTo(7), reason: 'texto sobre $plate con $seed');
-          expect(contrastRatio(c.accent, plate), greaterThanOrEqualTo(4.5), reason: 'acento sobre $plate con $seed');
+  group('el mosaico', () {
+    testWidgets('con todo, salen seis fichas de distintos tamaños, dentro de la pantalla y sin pisarse', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      final ids = ['wallpaper', 'launcher', 'weather', 'dock', 'music', 'account'];
+      final rects = {for (final id in ids) id: tile(tester, id)};
+      for (final id in ids) {
+        expect(find.byKey(Key('mosaic-summary-$id')), findsOneWidget, reason: id);
+      }
+      final area = tester.getRect(find.byKey(const Key('settings-page')));
+      for (final r in rects.values) {
+        expect(area.contains(r.topLeft) && area.contains(r.bottomRight), isTrue);
+      }
+      for (final a in ids) {
+        for (final b in ids) {
+          if (a.compareTo(b) >= 0) continue;
+          expect(rects[a]!.deflate(0.5).overlaps(rects[b]!.deflate(0.5)), isFalse, reason: '$a pisa a $b');
         }
       }
+      // tamaños distintos: la del fondo es la más grande, la de los iconos es ancha y baja, la de la cuenta es alta y estrecha
+      final sizes = {for (final r in rects.values) '${r.width.round()}x${r.height.round()}'};
+      expect(sizes.length, greaterThanOrEqualTo(4));
+      expect(rects['wallpaper']!.width * rects['wallpaper']!.height, greaterThan(rects['launcher']!.width * rects['launcher']!.height * 2));
+      expect(rects['dock']!.width, greaterThan(rects['dock']!.height * 3));
+      expect(rects['account']!.height, greaterThan(rects['account']!.width * 1.5));
+    });
+
+    testWidgets('los títulos y un resumen en vivo en cada ficha', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      for (final title in ['Fondo de pantalla', 'Pantalla de inicio', 'Clima', 'Apps del disco', 'Música', 'gustavo']) {
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
+      expect(find.text('SIN FONDO'), findsOneWidget);
+      expect(find.text('INACTIVO'), findsOneWidget);
+      expect(find.text('ELIGE CIUDAD'), findsOneWidget);
+      expect(find.text('Música/Kyora'), findsOneWidget);
+      expect(find.text('ADMIN'), findsOneWidget);
+    });
+
+    testWidgets('los resúmenes se ponen al día solos', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      await tester.runAsync(() => wallpaper.set('C:/fondo.jpg'));
+      await tester.pump();
+      expect(find.text('SIN FONDO'), findsNothing);
+      expect(find.byKey(const Key('settings-wallpaper-preview')), findsOneWidget);
+      await tester.runAsync(() => weather.setCity('Lima'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('LIMA'), findsWidgets);
+    });
+
+    testWidgets('sin un servicio opcional no sale su ficha y las demás se reacomodan sin agujeros ni solapes', (tester) async {
+      await open(tester, withWeather: false);
+      expect(find.byKey(const Key('mosaic-tile-weather')), findsNothing);
+      expect(find.byKey(const Key('mosaic-tile-wallpaper')), findsNothing);
+      expect(find.byKey(const Key('mosaic-tile-dock')), findsNothing);
+      expect(find.byKey(const Key('mosaic-tile-music')), findsOneWidget);
+      expect(find.byKey(const Key('mosaic-tile-account')), findsOneWidget);
+      expect(tile(tester, 'music').overlaps(tile(tester, 'account')), isFalse);
+      expect(tile(tester, 'music').top, closeTo(tile(tester, 'account').top, 0.5)); // la música sube al primer hueco, junto a la cuenta
+    });
+  });
+
+  group('al expandir una ficha', () {
+    testWidgets('la elegida ocupa casi todo, las demás pasan a una franja de iconos abajo y el resumen se cambia por el detalle', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      await openSettingsTile(tester, 'weather');
+      final area = tester.getRect(find.byKey(const Key('settings-page')));
+      final big = tile(tester, 'weather');
+      expect(big.width, closeTo(400 - 32, 0.5)); // todo el ancho útil
+      expect(big.height, greaterThan(850 * 0.6));
+      expect(find.byKey(const Key('mosaic-detail-weather')), findsOneWidget);
+      expect(find.byKey(const Key('mosaic-summary-weather')), findsNothing);
+      for (final id in ['wallpaper', 'launcher', 'dock', 'music', 'account']) {
+        final r = tile(tester, id);
+        expect(r.top, greaterThan(big.bottom - 1), reason: '$id debajo de la expandida');
+        expect(r.height, lessThan(80));
+        expect(find.byKey(Key('mosaic-strip-$id')), findsOneWidget, reason: id);
+        expect(find.byKey(Key('mosaic-summary-$id')), findsNothing, reason: id);
+      }
+      expect(area.contains(big.bottomRight), isTrue);
+    });
+
+    testWidgets('se mueven con fluidez: a mitad del camino cada ficha está entre donde estaba y donde va a quedar', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      final before = tile(tester, 'music');
+      await tester.tap(find.byKey(const Key('mosaic-tile-weather')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      final mid = tile(tester, 'music');
+      await tester.pumpAndSettle();
+      final after = tile(tester, 'music');
+      expect(mid, isNot(before));
+      expect(mid, isNot(after));
+      expect(mid.top, inInclusiveRange(before.top < after.top ? before.top : after.top, before.top < after.top ? after.top : before.top));
+      expect(tester.takeException(), isNull); // y durante el movimiento no se desborda nada
+    });
+
+    testWidgets('el contenido se cambia con un fundido: a mitad del camino conviven el resumen y el detalle', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      await tester.tap(find.byKey(const Key('mosaic-tile-weather')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 230));
+      expect(find.byKey(const Key('mosaic-summary-weather')), findsOneWidget);
+      expect(find.byKey(const Key('mosaic-detail-weather')), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('mosaic-summary-weather')), findsNothing);
+    });
+
+    testWidgets('tocar otra ficha de la franja cambia de ficha sin pasar por el mosaico', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      await openSettingsTile(tester, 'weather');
+      await openSettingsTile(tester, 'music');
+      expect(find.byKey(const Key('mosaic-detail-music')), findsOneWidget);
+      expect(find.byKey(const Key('mosaic-detail-weather')), findsNothing);
+      expect(find.byKey(const Key('mosaic-strip-weather')), findsOneWidget);
+      expect(tile(tester, 'music').height, greaterThan(850 * 0.6));
+    });
+
+    testWidgets('cambiar de ficha a mitad de un movimiento no salta ni falla', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      await tester.tap(find.byKey(const Key('mosaic-tile-weather')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.tap(find.byKey(const Key('mosaic-tile-music')));
+      await tester.pump();
+      final first = tile(tester, 'music');
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('mosaic-detail-music')), findsOneWidget);
+      expect(tile(tester, 'music').height, greaterThanOrEqualTo(first.height));
+    });
+
+    testWidgets('la X de la ficha vuelve al mosaico y todas recuperan su sitio', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      final before = {for (final id in ['wallpaper', 'launcher', 'weather', 'dock', 'music', 'account']) id: tile(tester, id)};
+      await openSettingsTile(tester, 'dock');
+      await tester.tap(find.byKey(const Key('mosaic-close')));
+      await tester.pumpAndSettle();
+      for (final e in before.entries) {
+        expect(tile(tester, e.key).left, closeTo(e.value.left, 0.5), reason: e.key);
+        expect(tile(tester, e.key).top, closeTo(e.value.top, 0.5), reason: e.key);
+        expect(tile(tester, e.key).size.width, closeTo(e.value.width, 0.5), reason: e.key);
+      }
+    });
+
+    testWidgets('una ficha puede abrirse ya expandida (el clima desde Inicio)', (tester) async {
+      await open(tester, initialTile: 'weather');
+      expect(find.byKey(const Key('mosaic-detail-weather')), findsOneWidget);
+      expect(find.byKey(const Key('settings-city-field')), findsOneWidget);
+    });
+
+    testWidgets('con el teclado abierto la ficha se queda por encima de él', (tester) async {
+      await open(tester, initialTile: 'weather');
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(tile(tester, 'weather').bottom, lessThanOrEqualTo(850 - 300));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('en una pantalla baja y estrecha no se desborda', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true, size: const Size(320, 520));
+      expect(tester.takeException(), isNull);
+      await openSettingsTile(tester, 'music');
+      expect(tester.takeException(), isNull);
+      await openSettingsTile(tester, 'dock');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('lo de dentro de cada ficha', () {
+    testWidgets('la ciudad se escribe, se guarda al enviar y dice si la encontró', (tester) async {
+      await open(tester);
+      await openSettingsTile(tester, 'weather');
+      expect(find.text('Escribe tu ciudad y pulsa enviar.'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('settings-city-field')), 'Lima');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pumpAndSettle();
+      expect(backend.asked, ['Lima']);
+      expect(weather.city, 'Lima');
+      expect(find.text('Encontrada: Lima.'), findsOneWidget);
+    });
+
+    testWidgets('una ciudad que no existe se avisa en la propia fila', (tester) async {
+      await open(tester);
+      await openSettingsTile(tester, 'weather');
+      backend.error = const CityNotFound('Xyzzy');
+      await tester.enterText(find.byKey(const Key('settings-city-field')), 'Xyzzy');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pumpAndSettle();
+      expect(find.text('No encontré esa ciudad. Prueba con otro nombre.'), findsOneWidget);
+    });
+
+    testWidgets('el fondo: elegir y quitar desde su ficha', (tester) async {
+      await open(tester, withWallpaper: true);
+      await openSettingsTile(tester, 'wallpaper');
+      expect(find.byKey(const Key('settings-wallpaper')), findsOneWidget);
+      expect(find.byKey(const Key('settings-wallpaper-clear')), findsNothing);
+      await tester.runAsync(() => wallpaper.set('C:/fondo.jpg'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings-wallpaper-clear')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('settings-wallpaper-clear')));
+      await tester.pumpAndSettle();
+      expect(wallpaper.hasWallpaper, isFalse);
+    });
+
+    testWidgets('las apps del disco: una fila por ranura y «Rellenar solo» al fijar alguna', (tester) async {
+      await open(tester, withDock: true);
+      await openSettingsTile(tester, 'dock');
+      expect(find.byKey(const Key('settings-dock-0')), findsOneWidget);
+      await tester.runAsync(() => dock.setSlot(0, 'com.app3'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings-dock-reset')), findsOneWidget);
+    });
+
+    testWidgets('no hay ninguna ficha ni grupo de colores: el color sale del fondo', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true);
+      expect(find.text('COLORES'), findsNothing);
+      expect(find.byKey(const Key('settings-colors')), findsNothing);
+      expect(find.text('Colores'), findsNothing);
+    });
+  });
+
+  group('pantalla de inicio (launcher)', () {
+    testWidgets('con el disco sale la ficha «Pantalla de inicio» con la opción de usar Kyra como launcher', (tester) async {
+      await open(tester, withDock: true);
+      expect(find.text('Pantalla de inicio'), findsOneWidget);
+      await openSettingsTile(tester, 'launcher');
+      expect(find.text('Usar Kyra como pantalla de inicio'), findsOneWidget);
+    });
+
+    testWidgets('tocarla pide a Android que Kyra sea la pantalla de inicio', (tester) async {
+      await open(tester, withDock: true);
+      await openSettingsTile(tester, 'launcher');
+      await tester.tap(find.byKey(const Key('settings-launcher')));
+      await tester.pump();
+      expect(apps.chooseCalls, 1);
+    });
+
+    testWidgets('si Kyra ya es la pantalla de inicio lo dice, en el resumen y dentro', (tester) async {
+      apps.launcher = true;
+      await open(tester, withDock: true);
+      apps.launcher = true;
+      await tester.runAsync(dock.refresh);
+      await tester.pumpAndSettle();
+      expect(find.text('ACTIVO'), findsOneWidget);
+      await openSettingsTile(tester, 'launcher');
+      expect(find.text('Kyra es tu pantalla de inicio'), findsOneWidget);
+      expect(find.text('Usar Kyra como pantalla de inicio'), findsNothing);
+    });
+
+    testWidgets('sin disco no sale la ficha', (tester) async {
+      await open(tester);
+      expect(find.byKey(const Key('mosaic-tile-launcher')), findsNothing);
+    });
+
+    test('el estado se pone al día al volver a la app (refresh)', () async {
+      final fake = FakeInstalledApps([]);
+      final d = DockController(MemoryDockStore(), fake);
+      addTearDown(d.dispose);
+      expect(d.isLauncher, isFalse);
+      fake.launcher = true;
+      await d.refresh();
+      expect(d.isLauncher, isTrue);
+      fake.launcher = false;
+      await d.refresh();
+      expect(d.isLauncher, isFalse);
     });
   });
 }

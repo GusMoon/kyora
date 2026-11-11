@@ -10,6 +10,8 @@ import '../data/chat_backend.dart';
 import '../data/cover_store.dart';
 import '../data/duration_cache.dart';
 import '../data/favorites_store.dart';
+import '../data/habit_backend.dart';
+import '../data/habit_store.dart';
 import '../data/music_backend.dart';
 import '../data/music_store.dart';
 import '../data/nav_hint_store.dart';
@@ -18,30 +20,35 @@ import '../data/reminder_store.dart';
 import '../data/task_backend.dart';
 import '../data/task_store.dart';
 import '../models/profile.dart';
-import '../state/cover_theme.dart';
+import '../state/contacts_controller.dart';
+import '../state/dock_controller.dart';
+import '../state/habit_controller.dart';
 import '../state/local_music_controller.dart';
 import '../state/music_controller.dart';
 import '../state/player_controller.dart';
 import '../state/reminder_controller.dart';
 import '../state/task_controller.dart';
+import '../state/now_playing_backdrop.dart';
+import '../state/system_controller.dart';
+import '../state/vault_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
-import '../util/picker.dart';
+import 'calendar_page.dart';
 import 'chat_page.dart';
+import 'contacts_page.dart';
 import 'home_page.dart';
 import 'login_page.dart';
 import 'music_page.dart';
-import 'reminders_page.dart';
-import 'settings_sheet.dart';
-import 'tasks_page.dart';
+import 'settings_page.dart';
 import 'section_host.dart';
+import 'vault_page.dart';
 import 'widgets/app_section.dart';
-import 'widgets/section_motion.dart';
+import 'widgets/pixel_glyph.dart';
 
 /// La puerta de entrada: sin sesión pide el acceso (o crear una cuenta); con sesión mira qué rol tiene la cuenta y abre
-/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Tareas ·
-/// Recordatorios; el pasante, lo mismo sin el chat. La configuración se abre con el botón de Inicio o desde el menú circular. Con sesión también arranca la música: las canciones que lleguen se guardan solas
+/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Calendario
+/// (tareas, recordatorios y hábitos) · Contactos · Vault; el pasante, lo mismo sin el chat. La configuración se abre desde el menú. Con sesión también arranca la música: las canciones que lleguen se guardan solas
 /// aunque estés en otra sección.
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -59,13 +66,18 @@ class AuthGate extends StatefulWidget {
     this.levels,
     this.tasks,
     this.openTaskStore,
+    this.habits,
+    this.openHabitStore,
     this.openReminderStore,
     this.reminderScheduler,
-    this.coverTheme,
     this.background,
-    this.wallpaper,
     this.weather,
-    this.pickImage,
+    this.dock,
+    this.system,
+    this.contacts,
+    this.vault,
+    this.wallpaper,
+    this.nowPlaying,
     this.navHint,
     this.now,
   });
@@ -89,37 +101,54 @@ class AuthGate extends StatefulWidget {
   /// Las imágenes elegidas para las canciones enviadas, recordadas en el teléfono.
   final CoverStore? covers;
 
-  /// De dónde se lee la fuerza del sonido, para los aros del reproductor.
+  /// De dónde se lee el sonido, para el círculo del disco.
   final AudioLevels? levels;
 
-  /// Supabase para las tareas. Sin esto no hay sección de Tareas.
-  final TaskBackend? tasks;
+  /// Supabase para las tareas. Sin esto el Calendario no tiene tareas.
 
   /// Abre la base local de las tareas de esa cuenta (sin esto, una en memoria).
+  final TaskBackend? tasks;
+
   final Future<TaskStore> Function(String userId)? openTaskStore;
 
-  /// Dónde se guardan los recordatorios de esa cuenta y cómo se programan sus avisos. Sin el programador no hay sección de Recordatorios.
+  /// Supabase para los hábitos y la base local de los de esa cuenta (sin la base, una en memoria). Sin Supabase no hay hábitos.
+  final HabitBackend? habits;
+  final Future<HabitStore> Function(String userId)? openHabitStore;
+
+  /// Dónde se guardan los recordatorios de esa cuenta y cómo se programan sus avisos (también los de los hábitos). Sin el programador el
+  /// Calendario no tiene recordatorios.
   final Future<ReminderStore> Function(String userId)? openReminderStore;
   final ReminderScheduler? reminderScheduler;
 
   /// Dónde se recuerda si los álbumes se ven en pila o en cuadrícula.
 
-  /// El color de la carátula que suena (toda la app se viste con él). Sin esto, los colores no cambian.
-  final CoverTheme? coverTheme;
 
   /// Lo que mantiene la música sonando en segundo plano (red despierta, permiso de notificaciones) y el estado de la batería (Ajustes).
   final BackgroundPlayback? background;
 
-  /// El fondo de pantalla y sus 5 colores. Sin esto no hay fondo ni grupo «Apariencia».
-  final WallpaperController? wallpaper;
 
   /// El clima de Inicio y su ciudad. Sin esto no hay tarjeta del clima ni grupo «Clima».
   final WeatherController? weather;
 
-  /// Elige la imagen del fondo (en las pruebas, una falsa). Sin esto, el selector del teléfono.
-  final Future<String?> Function()? pickImage;
+  /// Las 8 apps del disco de Inicio. Sin esto no hay disco ni grupo «Apps del disco».
+  final DockController? dock;
 
-  /// Si ya se enseñó el menú circular (la pista de Inicio). Sin esto no hay pista.
+  /// El estado del teléfono para Inicio (batería, memoria, almacenamiento, Wi-Fi y Bluetooth). Sin esto esos paneles dicen que no hay.
+  final SystemController? system;
+
+  /// Los contactos del teléfono (la sección «Contactos»). Sin esto la sección no sale.
+  final ContactsController? contacts;
+
+  /// El Vault: una carpeta del almacenamiento para ver sus archivos e imágenes (la sección «Vault»). Sin esto la sección no sale.
+  final VaultController? vault;
+
+  /// El fondo de pantalla de Inicio. Sin esto no hay fondo ni grupo «Fondo de pantalla».
+  final WallpaperController? wallpaper;
+
+  /// La portada de lo que suena, para el fondo de toda la app: aquí se le da el reproductor. Sin esto el fondo no cambia al sonar.
+  final NowPlayingBackdrop? nowPlaying;
+
+  /// Si ya se enseñó cómo abrir el menú circular (la pista de Inicio). Sin esto no hay pista.
   final NavHintStore? navHint;
 
   /// El reloj de Inicio (en las pruebas, uno fijo).
@@ -135,6 +164,7 @@ class _AuthGateState extends State<AuthGate> {
   LocalMusicController? _local;
   Future<TaskController>? _tasks;
   Future<ReminderController>? _reminders;
+  Future<HabitController>? _habits;
   late final DurationCache _durations = widget.durations ?? MemoryDurationCache();
 
   /// La persona pidió cerrar sesión (Ajustes o la pantalla de error): ahí sí se para la música. Si la sesión caduca sola (Supabase no
@@ -182,11 +212,28 @@ class _AuthGateState extends State<AuthGate> {
     }();
   }
 
-  /// La pantalla de una sección que depende de un controlador que se abre en segundo plano: un círculo de carga hasta que esté listo.
-  Widget _whenReady<T>(Future<T> future, Widget Function(T controller) page) => FutureBuilder<T>(
-        future: future,
-        builder: (context, snapshot) => snapshot.hasData ? page(snapshot.data as T) : const Scaffold(body: Center(child: FlyIn(edge: MotionEdge.bottom, order: 1, child: CircularProgressIndicator(strokeWidth: 2.4)))),
-      );
+  /// Los hábitos de esta cuenta: como las tareas, se abren una vez y se ponen al día con Supabase.
+  Future<HabitController>? _habitController(String userId) {
+    final backend = widget.habits;
+    if (backend == null) return null;
+    return _habits ??= () async {
+      HabitStore store;
+      try {
+        store = await (widget.openHabitStore?.call(userId) ?? Future<HabitStore>.value(MemoryHabitStore()));
+      } catch (_) {
+        store = MemoryHabitStore(); // el teléfono no dejó abrir la base: los hábitos valen mientras la app siga abierta
+      }
+      final scheduler = widget.reminderScheduler;
+      try {
+        await scheduler?.init();
+      } catch (_) {
+        // sin notificaciones los hábitos se siguen viendo y marcando
+      }
+      final controller = HabitController(store, backend, scheduler: scheduler);
+      await controller.start();
+      return controller;
+    }();
+  }
 
   MusicController _musicController() {
     final existing = _music;
@@ -202,14 +249,15 @@ class _AuthGateState extends State<AuthGate> {
     if (existing != null) return existing;
     final created = PlayerController(widget.music, widget.engine(), durations: _durations, art: local, levels: widget.levels, hooks: widget.background);
     _player = created;
-    widget.coverTheme?.attach(created);
+    widget.nowPlaying?.attach(created);
     return created;
   }
 
-  LocalMusicController _localController(MusicController music) => _local ??= LocalMusicController(music, widget.saver, durations: _durations, covers: widget.covers)..refresh();
+  LocalMusicController _localController(MusicController music) =>
+      _local ??= LocalMusicController(music, widget.saver, durations: _durations, covers: widget.covers)..refresh();
 
   void _stopMusic() {
-    widget.coverTheme?.detach(); // y la app vuelve a sus colores de siempre
+    widget.nowPlaying?.attach(null);
     _player?.dispose(); // al cerrar sesión la música se para
     _player = null;
     _local?.dispose();
@@ -220,6 +268,8 @@ class _AuthGateState extends State<AuthGate> {
     _tasks = null;
     unawaited(_reminders?.then((c) => c.dispose()));
     _reminders = null;
+    unawaited(_habits?.then((c) => c.dispose()));
+    _habits = null;
   }
 
   @override
@@ -240,7 +290,10 @@ class _AuthGateState extends State<AuthGate> {
             _owner = null;
             _stopMusic();
           }
-          return LoginPage(onSignIn: account.signIn, onSignUp: (u, e, p) => account.signUp(username: u, email: e, password: p));
+          return LoginPage(
+            onSignIn: account.signIn,
+            onSignUp: (u, e, p) => account.signUp(username: u, email: e, password: p),
+          );
         }
         return _RoleResolver(
           key: ValueKey(account.userId),
@@ -256,48 +309,91 @@ class _AuthGateState extends State<AuthGate> {
             final userId = account.userId ?? '';
             final tasks = _taskController(userId);
             final reminders = _reminderController(userId);
+            final habits = _habitController(userId);
             final admin = role == Role.admin;
             // Las secciones, en el orden del menú circular. Se abre en Inicio; Configuración es una opción más del menú (abre su hoja).
             // El pasante no tiene chat.
-            Widget settingsSheet() => SettingsSheet(
-                  music: music,
-                  role: role,
-                  username: username,
-                  onSignOut: _signOut,
-                  background: widget.background,
-                  wallpaper: widget.wallpaper,
-                  weather: widget.weather,
-                  pickImage: widget.pickImage ?? pickCoverImage,
-                );
+            Widget settingsPage({String? tile}) => SettingsPage(
+              music: music,
+              role: role,
+              username: username,
+              onSignOut: _signOut,
+              background: widget.background,
+              weather: widget.weather,
+              dock: widget.dock,
+              wallpaper: widget.wallpaper,
+              initialTile: tile,
+            );
             return SectionHost(
               key: ValueKey('home-${account.userId}'),
               initial: 0,
+              canExit: () => !(widget.dock?.isLauncher ?? false),
+              dock: widget.dock,
               hint: widget.navHint,
               actions: [
-                NavAction(id: 'settings', icon: Icons.settings_outlined, label: 'Configuración', run: (context) => unawaited(showSettingsSheet(context, settingsSheet()))),
+                NavAction(
+                  id: 'settings',
+                  icon: Icons.settings_outlined,
+                  glyph: PixelGlyphs.settings,
+                  label: 'Configuración',
+                  run: (context) => unawaited(showSettings(context, settingsPage())),
+                ),
               ],
               sections: [
                 AppSection(
                   id: 'home',
                   icon: Icons.home_outlined,
+                  glyph: PixelGlyphs.home,
                   label: 'Inicio',
                   builder: (context) => HomePage(
-                    onOpenSettings: () => unawaited(showSettingsSheet(context, settingsSheet())),
-                    tasks: tasks,
+                    onOpenSettings: () => unawaited(showSettings(context, settingsPage(tile: 'weather'))),
                     weather: widget.weather,
+                    dock: widget.dock,
+                    system: widget.system,
+                    player: player,
+                    favorites: widget.favorites,
                     now: widget.now,
                   ),
                 ),
-                if (admin) AppSection(id: 'chat', icon: Icons.chat_bubble_outline_rounded, label: 'Chat', builder: (_) => ChatPage(backend: widget.chat)),
+                if (admin)
+                  AppSection(
+                    id: 'chat',
+                    icon: Icons.cloud_outlined,
+                    glyph: PixelGlyphs.cloud,
+                    label: 'Chat',
+                    builder: (_) => ChatPage(backend: widget.chat),
+                  ),
                 AppSection(
                   id: 'music',
                   icon: Icons.music_note_outlined,
+                  glyph: PixelGlyphs.music,
                   label: 'Música',
                   builder: (_) => MusicPage(controller: music, player: player, local: local, favorites: widget.favorites),
                 ),
-                if (tasks != null) AppSection(id: 'tasks', icon: Icons.checklist_rounded, label: 'Tareas', builder: (_) => _whenReady(tasks, (c) => TasksPage(controller: c))),
-                if (reminders != null)
-                  AppSection(id: 'reminders', icon: Icons.notifications_none_rounded, label: 'Recordatorios', builder: (_) => _whenReady(reminders, (c) => RemindersPage(controller: c))),
+                if (tasks != null || reminders != null || habits != null)
+                  AppSection(
+                    id: 'calendar',
+                    icon: Icons.calendar_month_outlined,
+                    glyph: PixelGlyphs.calendar,
+                    label: 'Calendario',
+                    builder: (_) => CalendarPage(tasks: tasks, reminders: reminders, habits: habits, now: widget.now),
+                  ),
+                if (widget.contacts != null)
+                  AppSection(
+                    id: 'contacts',
+                    icon: Icons.contacts_outlined,
+                    glyph: PixelGlyphs.contacts,
+                    label: 'Contactos',
+                    builder: (_) => ContactsPage(controller: widget.contacts!),
+                  ),
+                if (widget.vault != null)
+                  AppSection(
+                    id: 'vault',
+                    icon: Icons.inventory_2_outlined,
+                    glyph: PixelGlyphs.vault,
+                    label: 'Vault',
+                    builder: (_) => VaultPage(controller: widget.vault!),
+                  ),
               ],
             );
           },

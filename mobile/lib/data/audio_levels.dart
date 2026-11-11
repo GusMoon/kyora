@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// Un trozo de lo que suena: lo que el disco y los aros del reproductor necesitan para reaccionar.
+/// Un trozo de lo que suena: lo que el disco necesita para reaccionar.
 class SoundFrame {
   const SoundFrame({required this.level, this.bass = 0, this.wave = const []});
 
@@ -26,10 +26,7 @@ class SoundFrame {
 
 /// Qué tan fuerte suena el audio en cada momento, para que la pantalla reaccione al sonido.
 abstract class AudioLevels {
-  /// La fuerza del sonido (de 0 a 1), unas 20 veces por segundo, mientras esté encendido.
-  Stream<double> get levels;
-
-  /// Fuerza, bajos y onda, con el mismo ritmo.
+  /// Fuerza, bajos y onda, unas 20 veces por segundo, mientras esté encendido.
   Stream<SoundFrame> get frames;
 
   /// Empieza a escuchar. `false` si no se puede (sin permiso, o el teléfono no lo permite).
@@ -49,9 +46,6 @@ class AndroidAudioLevels implements AudioLevels {
 
   @override
   Stream<SoundFrame> get frames => _frames;
-
-  @override
-  Stream<double> get levels => _frames.map((frame) => frame.level);
 
   @override
   Future<bool> start() async {

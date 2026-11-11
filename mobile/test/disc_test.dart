@@ -2,45 +2,74 @@ import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/data/audio_levels.dart';
-import 'package:kyora_chat/ui/widgets/album_deck.dart';
+import 'package:kyora_chat/data/music_store.dart';
+import 'package:kyora_chat/ui/widgets/deck_math.dart';
 import 'package:kyora_chat/ui/widgets/disc_player.dart';
 import 'package:kyora_chat/ui/widgets/song_arc_list.dart';
 import 'package:kyora_chat/util/sound_shape.dart';
-import 'package:kyora_chat/util/vinyl_marble.dart';
 
 void main() {
   group('la ruleta de álbumes', () {
     test('el de enfrente está a 0° y se reparten la vuelta entera', () {
-      expect(AlbumDeck.angleOf(0, 0, 6), 0);
-      expect(AlbumDeck.angleOf(1, 0, 6), closeTo(math.pi / 3, 1e-9));
-      expect(AlbumDeck.angleOf(5, 0, 6), closeTo(-math.pi / 3, 1e-9)); // la última queda a la izquierda de la primera
-      expect(AlbumDeck.stepFor(6) * 6, closeTo(2 * math.pi, 1e-9));
+      expect(DeckMath.angleOf(0, 0, 6), 0);
+      expect(DeckMath.angleOf(1, 0, 6), closeTo(math.pi / 3, 1e-9));
+      expect(DeckMath.angleOf(5, 0, 6), closeTo(-math.pi / 3, 1e-9)); // la última queda a la izquierda de la primera
+      expect(DeckMath.stepFor(6) * 6, closeTo(2 * math.pi, 1e-9));
     });
 
     test('da vueltas sin tope: la posición puede crecer o bajar sin límite', () {
       for (final pos in [0.0, 6.0, -6.0, 60.0]) {
-        expect(AlbumDeck.frontOf(pos, 6), 0, reason: '$pos');
-        expect(AlbumDeck.angleOf(2, pos, 6), closeTo(2 * math.pi / 3, 1e-9), reason: '$pos');
+        expect(DeckMath.frontOf(pos, 6), 0, reason: '$pos');
+        expect(DeckMath.angleOf(2, pos, 6), closeTo(2 * math.pi / 3, 1e-9), reason: '$pos');
       }
-      expect(AlbumDeck.frontOf(-1, 6), 5);
-      expect(AlbumDeck.frontOf(7, 6), 1);
+      expect(DeckMath.frontOf(-1, 6), 5);
+      expect(DeckMath.frontOf(7, 6), 1);
     });
 
     test('con muchos álbumes el paso no baja de 30°, y sigue sin tope', () {
-      expect(AlbumDeck.stepFor(40), closeTo(math.pi / 6, 1e-9));
-      expect(AlbumDeck.angleOf(39, 0, 40), closeTo(-math.pi / 6, 1e-9));
+      expect(DeckMath.stepFor(40), closeTo(math.pi / 6, 1e-9));
+      expect(DeckMath.angleOf(39, 0, 40), closeTo(-math.pi / 6, 1e-9));
     });
 
     test('con uno solo no hay nada que girar', () {
-      expect(AlbumDeck.stepFor(1), 0);
-      expect(AlbumDeck.angleOf(0, 3, 1), 0);
+      expect(DeckMath.stepFor(1), 0);
+      expect(DeckMath.angleOf(0, 3, 1), 0);
     });
 
     test('al soltar se detiene en un álbum, más lejos cuanto más rápido iba el dedo', () {
-      expect(AlbumDeck.settleAt(1.2, 0), 1);
-      expect(AlbumDeck.settleAt(1.6, 0), 2);
-      expect(AlbumDeck.settleAt(0, -1000), greaterThan(2)); // hacia la izquierda: los siguientes
-      expect(AlbumDeck.settleAt(0, 1000), lessThan(-2));
+      expect(DeckMath.settleAt(1.2, 0), 1);
+      expect(DeckMath.settleAt(1.6, 0), 2);
+      expect(DeckMath.settleAt(0, -2000), greaterThan(2)); // hacia la izquierda: los siguientes
+      expect(DeckMath.settleAt(0, 2000), lessThan(-2));
+    });
+
+    test('por muy rápido que vaya el dedo, la inercia no pasa de 3 álbumes', () {
+      expect(DeckMath.settleAt(0, -100000), DeckMath.maxFling);
+      expect(DeckMath.settleAt(5, 100000), 5 - DeckMath.maxFling);
+    });
+
+    test('la sensibilidad cambia cuánto hay que mover el dedo: lo normal es el doble que antes, y lo más rápido, lo de antes', () {
+      expect(DeckMath.pixelsFor(1), 220);
+      expect(DeckMath.pixelsFor(MusicSettings.deckSpeedMax), 110);
+      expect(DeckMath.pixelsFor(MusicSettings.deckSpeedMin), 440);
+      // y con menos sensibilidad, el mismo lanzamiento avanza menos
+      expect(DeckMath.settleAt(0, -2000, pixels: DeckMath.pixelsFor(0.5)), greaterThan(DeckMath.settleAt(0, -2000, pixels: DeckMath.pixelsFor(2)) - 4));
+      expect(DeckMath.settleAt(0, -1000, pixels: 440), lessThan(DeckMath.settleAt(0, -1000, pixels: 110)));
+    });
+
+    test('con el anillo abierto las tarjetas vecinas no se pisan: queda aire entre ellas, sean cuantas sean', () {
+      const side = 272.0;
+      final card = side * DeckMath.openScale;
+      for (final n in [3, 4, 5, 6, 8, 10, 12, 13, 20, 40]) {
+        final chord = 2 * DeckMath.radiusFor(n, side) * math.sin(DeckMath.stepFor(n) / 2);
+        expect(chord, greaterThanOrEqualTo(card * (1 + DeckMath.gap) - 1e-9), reason: '$n álbumes');
+      }
+    });
+
+    test('con pocos álbumes el anillo no crece de más', () {
+      expect(DeckMath.radiusFor(2, 100), 78);
+      expect(DeckMath.radiusFor(4, 100), 78);
+      expect(DeckMath.radiusFor(12, 100), greaterThan(DeckMath.radiusFor(6, 100)));
     });
   });
 
@@ -69,54 +98,6 @@ void main() {
 
     test('mientras suena da 33⅓ vueltas por minuto', () {
       expect(DiscPlayer.speed * 60 / (2 * math.pi), closeTo(100 / 3, 1e-9));
-    });
-  });
-
-  group('el jaspeado del disco', () {
-    const spec = MarbleSpec(colors: [0xFFB01818, 0xFF1A1A1A], size: 32, seed: 7);
-
-    test('el mismo álbum da siempre el mismo disco; otro álbum, otro', () {
-      expect(marblePixels(spec), marblePixels(spec));
-      const other = MarbleSpec(colors: [0xFFB01818, 0xFF1A1A1A], size: 32, seed: 8);
-      expect(marblePixels(other), isNot(marblePixels(spec)));
-      expect(marbleSeed('Rock'), marbleSeed('Rock'));
-      expect(marbleSeed('Rock'), isNot(marbleSeed('Jazz')));
-    });
-
-    test('sale una imagen opaca y del tamaño pedido', () {
-      final pixels = marblePixels(spec);
-      expect(pixels.length, 32 * 32 * 4);
-      for (var i = 3; i < pixels.length; i += 4) {
-        expect(pixels[i], 255);
-      }
-    });
-
-    test('tiene los colores de la portada: una roja sale roja y una azul, azul', () {
-      (int, int) tint(int color) {
-        final pixels = marblePixels(MarbleSpec(colors: [color], size: 32, seed: 3));
-        var red = 0, blue = 0;
-        for (var i = 0; i < pixels.length; i += 4) {
-          red += pixels[i];
-          blue += pixels[i + 2];
-        }
-        return (red, blue);
-      }
-
-      final (redOfRed, blueOfRed) = tint(0xFFD02020);
-      expect(redOfRed, greaterThan(blueOfRed * 3));
-      final (redOfBlue, blueOfBlue) = tint(0xFF2020D0);
-      expect(blueOfBlue, greaterThan(redOfBlue * 3));
-    });
-
-    test('tiene vetas: no es un color plano', () {
-      final pixels = marblePixels(const MarbleSpec(colors: [0xFFD02020], size: 64, seed: 3));
-      final reds = {for (var i = 0; i < pixels.length; i += 4) pixels[i]};
-      expect(reds.length, greaterThan(20));
-    });
-
-    test('sin colores no falla: un disco oscuro', () {
-      final pixels = marblePixels(const MarbleSpec(colors: [], size: 8, seed: 1));
-      expect(pixels.length, 8 * 8 * 4);
     });
   });
 

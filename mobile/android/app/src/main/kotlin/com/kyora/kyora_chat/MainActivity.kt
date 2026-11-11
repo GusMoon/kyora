@@ -2,6 +2,11 @@ package com.kyora.kyora_chat
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
+import android.bluetooth.BluetoothManager
+import android.os.BatteryManager
+import android.os.StatFs
+import android.app.role.RoleManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -39,6 +44,10 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         configureAudioLevels(flutterEngine)
         configureBackground(flutterEngine)
+        configureApps(flutterEngine)
+        configureSystem(flutterEngine)
+        configureContacts(flutterEngine)
+        configureVault(flutterEngine)
         // Guarda una canción (MP3): en la carpeta que la persona eligió con el selector de Android, o si no hay, en Música o
         // Descargas dentro de una subcarpeta. Lo usa la pantalla de música.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/music_saver").setMethodCallHandler { call, result ->
@@ -94,6 +103,147 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    // ---------- las apps instaladas (el disco de Inicio) ----------
+
+    // El estado del teléfono para Inicio: batería, memoria, almacenamiento, Wi-Fi y Bluetooth; y los paneles del sistema para cambiarlos
+    // (desde Android 10 una app no puede encender el Wi-Fi ni el Bluetooth por su cuenta: se abre el panel del sistema).
+    private fun configureSystem(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/system").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "stats" -> try {
+                    result.success(systemStats())
+                } catch (e: Exception) {
+                    result.error("stats_failed", "No se pudo leer el estado del teléfono.", e.message)
+                }
+                "openWifi" -> result.success(openPanel(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Settings.Panel.ACTION_WIFI else Settings.ACTION_WIFI_SETTINGS))
+                "openBluetooth" -> result.success(openPanel(Settings.ACTION_BLUETOOTH_SETTINGS))
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun systemStats(): Map<String, Any?> {
+        val battery = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val memory = ActivityManager.MemoryInfo()
+        (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(memory)
+        val disk = StatFs(Environment.getDataDirectory().path)
+        val wifi = try {
+            (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).isWifiEnabled
+        } catch (e: Exception) {
+            null
+        }
+        val bluetooth = try {
+            (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.isEnabled
+        } catch (e: Exception) {
+            null
+        }
+        return mapOf(
+            "battery" to battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
+            "charging" to battery.isCharging,
+            "ramTotal" to memory.totalMem,
+            "ramFree" to memory.availMem,
+            "storageTotal" to disk.totalBytes,
+            "storageFree" to disk.availableBytes,
+            "wifi" to wifi,
+            "bluetooth" to bluetooth,
+        )
+    }
+
+    private fun openPanel(action: String): Boolean = try {
+        startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun configureApps(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/apps").setMethodCallHandler { call, result ->
+            when (call.method) {
+                // Las apps que se pueden abrir: `[{package, label, icon (PNG)}]`, por nombre y sin la propia Kyra.
+                "listApps" -> inThread(result, "apps_failed", "No se pudieron leer las apps.") { listLaunchableApps() }
+                // ¿Kyra es la pantalla de inicio del teléfono?
+                "isDefaultLauncher" -> result.success(isDefaultHome())
+                // Pide a Android que Kyra sea la pantalla de inicio: el aviso directo (Android 10 o más) o, si no, la lista de apps de inicio.
+                "chooseLauncher" -> result.success(chooseLauncher())
+                "launch" -> try {
+                    val pkg = call.argument<String>("package") ?: ""
+                    val intent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (intent == null) {
+                        result.success(false)
+                    } else {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    }
+                } catch (e: Exception) {
+                    result.success(false)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun isDefaultHome(): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val info = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        return info?.activityInfo?.packageName == packageName
+    }
+
+    private fun chooseLauncher(): Boolean {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roles = getSystemService(RoleManager::class.java)
+                if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_HOME) && !roles.isRoleHeld(RoleManager.ROLE_HOME)) {
+                    startActivityForResult(roles.createRequestRoleIntent(RoleManager.ROLE_HOME), REQUEST_HOME_ROLE)
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // se prueba con la lista de apps de inicio
+        }
+        for (action in listOf(Settings.ACTION_HOME_SETTINGS, Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) {
+            try {
+                startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return true
+            } catch (e: Exception) {
+                // siguiente
+            }
+        }
+        return false
+    }
+
+    private fun listLaunchableApps(): List<Map<String, Any>> {
+        val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val found = packageManager.queryIntentActivities(query, 0)
+        val seen = HashSet<String>()
+        val apps = ArrayList<Map<String, Any>>()
+        for (info in found) {
+            val pkg = info.activityInfo.packageName
+            if (pkg == packageName || !seen.add(pkg)) continue
+            val icon = try {
+                iconBytes(info.loadIcon(packageManager))
+            } catch (e: Exception) {
+                continue
+            }
+            apps.add(mapOf("package" to pkg, "label" to info.loadLabel(packageManager).toString(), "icon" to icon))
+        }
+        apps.sortBy { (it["label"] as String).lowercase() }
+        return apps
+    }
+
+    /// El icono de una app como PNG de 96 px (los iconos adaptables son vectores: se dibujan sobre un lienzo).
+    private fun iconBytes(drawable: android.graphics.drawable.Drawable): ByteArray {
+        val size = 96
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(canvas)
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        bitmap.recycle()
+        return out.toByteArray()
+    }
+
     // ---------- qué tan fuerte suena (para los aros del reproductor) ----------
 
     private var visualizer: Visualizer? = null
@@ -137,6 +287,12 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == ASK_CONTACTS) {
+            val asked = pendingContacts ?: return
+            pendingContacts = null
+            asked.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+            return
+        }
         if (requestCode != ASK_AUDIO) return
         val result = pendingLevels ?: return
         pendingLevels = null
@@ -741,9 +897,187 @@ class MainActivity : AudioServiceActivity() {
         return shown
     }
 
+    // ---------- Contactos: los del teléfono, llamar y abrir el chat de WhatsApp ----------
+
+    // La respuesta pendiente del permiso de contactos.
+    private var pendingContacts: MethodChannel.Result? = null
+
+    private fun configureContacts(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/contacts").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "hasPermission" -> result.success(hasContactsPermission())
+                "request" -> when {
+                    hasContactsPermission() -> result.success(true)
+                    pendingContacts != null -> result.error("busy", "Ya se está pidiendo el permiso.", null)
+                    else -> {
+                        pendingContacts = result
+                        requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), ASK_CONTACTS)
+                    }
+                }
+                "list" -> inThread(result, "contacts_failed", "No se pudieron leer los contactos.") { listContacts() }
+                // Se abre el marcador con el número ya escrito (sin pedir permiso de llamadas: la persona da el último toque).
+                "call" -> result.success(startIntent(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(call.argument<String>("number") ?: "")))))
+                "whatsapp" -> result.success(openWhatsApp(call.argument<String>("number") ?: ""))
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun hasContactsPermission() = checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+    /// Los contactos con teléfono, por nombre: `[{id, name, phones: [...]}]` (uno por persona, con todos sus números sin repetir).
+    private fun listContacts(): List<Map<String, Any>> {
+        if (!hasContactsPermission()) throw SecurityException("Falta el permiso de contactos.")
+        val phone = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val columns = arrayOf(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+            android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+        )
+        val people = LinkedHashMap<Long, HashMap<String, Any>>()
+        contentResolver.query(phone, columns, null, null, "${android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE NOCASE ASC")?.use {
+            while (it.moveToNext()) {
+                val id = it.getLong(0)
+                val name = it.getString(1) ?: continue
+                val number = it.getString(2)?.trim() ?: continue
+                if (number.isEmpty()) continue
+                val person = people.getOrPut(id) { hashMapOf("id" to id.toString(), "name" to name, "phones" to ArrayList<String>()) }
+                @Suppress("UNCHECKED_CAST")
+                val phones = person["phones"] as ArrayList<String>
+                val digits = number.filter { c -> c.isDigit() }
+                if (phones.none { p -> p.filter { c -> c.isDigit() } == digits }) phones.add(number)
+            }
+        }
+        return people.values.toList()
+    }
+
+    private fun startIntent(intent: Intent): Boolean = try {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /// Abre el chat de WhatsApp con ese número (solo cifras, con el prefijo del país). Primero WhatsApp y, si no, WhatsApp Business o el
+    /// navegador.
+    private fun openWhatsApp(digits: String): Boolean {
+        if (digits.isEmpty()) return false
+        val link = Uri.parse("https://wa.me/$digits")
+        for (pack in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+            if (startIntent(Intent(Intent.ACTION_VIEW, link).setPackage(pack))) return true
+        }
+        return startIntent(Intent(Intent.ACTION_VIEW, link))
+    }
+
+    // ---------- el Vault: ver las carpetas y los archivos de una carpeta elegida ----------
+
+    private fun configureVault(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/vault").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "pickFolder" -> pickFolder(result)
+                "list" -> inThread(result, "list_failed", "No se pudo leer la carpeta.") {
+                    vaultList(Uri.parse(call.argument<String>("treeUri") ?: ""), call.argument<String>("dirUri") ?: "")
+                }
+                "read" -> inThread(result, "read_failed", "No se pudo leer el archivo.") { vaultRead(call.argument<String>("uri") ?: "") }
+                "thumb" -> inThread(result, "thumb_failed", "No se pudo abrir esa imagen.") {
+                    vaultThumb(call.argument<String>("uri") ?: "", call.argument<Int>("side") ?: 480, call.argument<String>("mime") ?: "")
+                }
+                "open" -> result.success(vaultOpen(call.argument<String>("uri") ?: "", call.argument<String>("mime") ?: ""))
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    /// Lo que hay dentro de UNA carpeta (sin bajar a las subcarpetas): `[{uri, name, dir, mime, size, modified}]`, de todo tipo.
+    private fun vaultList(tree: Uri, dirUri: String): List<Map<String, Any?>> {
+        val shown = folderName(tree)
+        val dir = docUri(tree, dirUri)
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        val found = ArrayList<Map<String, Any?>>()
+        childrenOf(tree, dir, columns, shown).use {
+            while (it.moveToNext() && found.size < MAX_VAULT) {
+                val id = it.getString(0) ?: continue
+                val name = it.getString(1) ?: continue
+                val mime = it.getString(2) ?: ""
+                found.add(
+                    mapOf(
+                        "uri" to DocumentsContract.buildDocumentUriUsingTree(tree, id).toString(),
+                        "name" to name,
+                        "dir" to (mime == DocumentsContract.Document.MIME_TYPE_DIR),
+                        "mime" to mime,
+                        "size" to (if (it.isNull(3)) 0L else it.getLong(3)),
+                        "modified" to (if (it.isNull(4)) 0L else it.getLong(4)),
+                    )
+                )
+            }
+        }
+        return found
+    }
+
+    /// El archivo entero, tal cual (así se ve la imagen original).
+    private fun vaultRead(text: String): ByteArray = try {
+        contentResolver.openInputStream(Uri.parse(text))?.use { it.readBytes() } ?: throw IOException("No se pudo abrir el archivo.")
+    } catch (e: SecurityException) {
+        throw FolderLostException("Android ya no deja leer ese archivo: elige la carpeta otra vez.")
+    }
+
+    /// La imagen reducida (de `side` px como mucho) para la cuadrícula, derecha y sin ningún efecto. Las que pueden tener transparencia
+    /// (PNG, WebP, GIF) siguen en PNG; el resto, en JPEG.
+    private fun vaultThumb(text: String, side: Int, mime: String): ByteArray {
+        val uri = Uri.parse(text)
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            val longest = maxOf(bounds.outWidth, bounds.outHeight)
+            if (longest <= 0) throw IOException("No se pudo abrir esa imagen.")
+            var sample = 1
+            while (longest / (sample * 2) >= side) sample *= 2
+            val decoded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+                ?: throw IOException("No se pudo abrir esa imagen.")
+            val degrees = try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    when (ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                        ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                } ?: 0f
+            } catch (e: Exception) {
+                0f
+            }
+            val ready = if (degrees == 0f) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, Matrix().apply { postRotate(degrees) }, true)
+            val alpha = mime.contains("png") || mime.contains("webp") || mime.contains("gif")
+            return ByteArrayOutputStream().also {
+                if (alpha) ready.compress(Bitmap.CompressFormat.PNG, 100, it) else ready.compress(Bitmap.CompressFormat.JPEG, 92, it)
+            }.toByteArray()
+        } catch (e: SecurityException) {
+            throw FolderLostException("Android ya no deja leer esa imagen: elige la carpeta otra vez.")
+        }
+    }
+
+    /// Abre el archivo con la app del teléfono que sepa verlo.
+    private fun vaultOpen(text: String, mime: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(text), if (mime.isEmpty()) "*/*" else mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return startIntent(intent)
+    }
+
     private companion object {
         const val PICK_FOLDER = 4711
+        const val REQUEST_HOME_ROLE = 4713
         const val ASK_AUDIO = 4712
+        const val ASK_CONTACTS = 4714
+        const val MAX_VAULT = 5000
         const val MAX_SONGS = 3000
         const val COVER_SIDE = 1200
     }

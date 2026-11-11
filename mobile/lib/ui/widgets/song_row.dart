@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../util/format.dart';
 import 'cover.dart';
+import 'pixel_glyph.dart';
+import 'cut_border.dart';
 
 /// Una canción de la lista, compacta: `(carátula ▶) Título / Artista   3:21  ♡  ⋯`. La que suena lleva un ecualizador (o una
 /// pausa) sobre la carátula, el título en el color principal y la fila resaltada con un fondo redondeado suave.
@@ -73,14 +75,15 @@ class SongRow extends StatelessWidget {
     final c = context.colors;
     final known = duration != null && duration! > Duration.zero;
     final onBar = barColor != null;
-    const light = Color(0xFFF4F4F6);
+    final light = c.ink;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0.5),
       child: Material(
-        color: barColor ?? (current || selected == true ? c.accent.withValues(alpha: 0.14) : Colors.transparent),
-        borderRadius: BorderRadius.circular(14),
+        // lo que suena o lo marcado, con un recuadro de tinta (sin relleno de color)
+        color: Colors.transparent,
+        shape: CutBorder(cut: 12, side: current || selected == true ? BorderSide(color: c.accent, width: 1.5) : BorderSide.none),
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          customBorder: const CutBorder(cut: 12),
           onTap: onTap,
           onLongPress: onLongPress,
           child: Padding(
@@ -97,13 +100,13 @@ class SongRow extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 15.5, color: onBar ? light : (current ? c.accent : c.ink), fontWeight: FontWeight.w700),
+                        style: TextStyle(fontSize: 15.5, color: c.ink, fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 1),
                       Row(
                         children: [
                           if (saved) ...[
-                            Icon(Icons.check_circle, key: const Key('saved'), size: 13, color: onBar ? light : c.accent),
+                            LcdIcon(Icons.check_circle, key: const Key('saved'), size: 13, color: c.ink),
                             const SizedBox(width: 4),
                           ],
                           Expanded(
@@ -111,7 +114,7 @@ class SongRow extends StatelessWidget {
                               line,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: onBar ? light.withValues(alpha: 0.78) : (warn ? c.warn : c.dim), fontSize: 13),
+                              style: warn ? lcdStatus(color: c.ink) : TextStyle(color: c.ink, fontSize: 15),
                             ),
                           ),
                         ],
@@ -123,7 +126,7 @@ class SongRow extends StatelessWidget {
                 if (known)
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
-                    child: Text(clock(duration!), style: TextStyle(color: onBar ? light : c.ink, fontSize: 13, fontFeatures: const [FontFeature.tabularFigures()])),
+                    child: Text(clock(duration!), style: TextStyle(color: onBar ? light : c.ink, fontSize: 15, fontFeatures: const [FontFeature.tabularFigures()])),
                   ),
                 if (favorite != null)
                   IconButton(
@@ -132,7 +135,7 @@ class SongRow extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     constraints: const BoxConstraints.tightFor(width: 40, height: 40),
                     padding: EdgeInsets.zero,
-                    icon: Icon(favorite! ? Icons.favorite : Icons.favorite_border, color: onBar ? light : (favorite! ? c.accent : c.dim), size: 22),
+                    icon: LcdIcon(favorite! ? Icons.favorite : Icons.favorite_border, color: c.ink, size: 22),
                     onPressed: onFavorite,
                   ),
                 if (trailing != null) SizedBox(width: 40, height: 40, child: trailing),
@@ -175,15 +178,15 @@ class _Disc extends StatelessWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        Cover(url: coverUrl, file: coverFile, size: size, radius: size / 2),
-        if (selected == true) Container(width: size, height: size, decoration: BoxDecoration(color: c.accent.withValues(alpha: 0.85), shape: BoxShape.circle)),
-        if (selected == false) Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c.dim, width: 2))),
+        Cover(url: coverUrl, file: coverFile, size: size, radius: 14),
+        if (selected == true) Container(width: size, height: size, color: c.accent.withValues(alpha: 0.7)),
+        if (selected == false) Container(width: size, height: size, decoration: BoxDecoration(border: Border.all(color: c.dim, width: 2))),
         if (icon != null)
           Container(
-            width: 26,
-            height: 26,
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.38), shape: BoxShape.circle),
-            child: Icon(icon, key: key, size: 20, color: current ? c.accent : Colors.white),
+            width: 28,
+            height: 28,
+            color: c.accent,
+            child: LcdIcon(icon, key: key, size: 20, color: c.onAccent),
           ),
         if (icon == null) SizedBox(key: key, width: 1, height: 1),
       ],

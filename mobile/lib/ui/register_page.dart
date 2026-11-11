@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/chat_backend.dart';
 import '../theme.dart';
+import 'widgets/pixel_glyph.dart';
 
 /// Lo que devuelve la pantalla al cerrarse cuando la cuenta se creó pero Supabase pide confirmar el correo antes de entrar.
 const confirmEmailNotice = 'Cuenta creada. Confirma tu correo y luego entra con él.';
@@ -150,7 +151,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       hintText: 'Contraseña nueva',
                       suffixIcon: IconButton(
                         tooltip: _hide ? 'Mostrar' : 'Ocultar',
-                        icon: Icon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: context.colors.dim),
+                        icon: LcdIcon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: context.colors.dim),
                         onPressed: () => setState(() => _hide = !_hide),
                       ),
                     ),
@@ -203,9 +204,9 @@ class _RuleRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
-          Icon(rule.met ? Icons.check_circle : Icons.radio_button_unchecked, key: Key('rule-${rule.id}-${rule.met ? 'ok' : 'todo'}'), size: 20, color: color),
+          LcdIcon(rule.met ? Icons.check_circle : Icons.radio_button_unchecked, key: Key('rule-${rule.id}-${rule.met ? 'ok' : 'todo'}'), size: 20, color: color),
           const SizedBox(width: 10),
-          Expanded(child: Text(rule.label, style: TextStyle(color: color, fontSize: 14))),
+          Expanded(child: Text(rule.label, style: TextStyle(color: color, fontSize: 15))),
         ],
       ),
     );
