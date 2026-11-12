@@ -1,0 +1,253 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-radius: 0; /* nada redondeado, en ningún sitio */
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.45;
+  font-kerning: normal;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+ul,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: var(--pad);
+  top: -4rem;
+  z-index: 10;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 0.5rem 0.9rem;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.skip:focus {
+  top: var(--pad);
+}
+
+/* Lecturas y etiquetas: la mono de Kyra con cifras tabulares */
+.readout {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.label {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.danger {
+  background: var(--warn);
+  color: var(--on-accent);
+  padding: 0 0.35em;
+}
+
+.icon {
+  inline-size: 1em;
+  block-size: 1em;
+  flex: none;
+}
+
+/* ---------- Botones ---------- */
+.btn-solid {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 0.7rem 1.1rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.btn-solid:hover:not(:disabled) {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.btn-solid:disabled {
+  background: var(--pick);
+  border-color: var(--pick);
+  color: var(--dim);
+  cursor: default;
+}
+
+.btn-quiet {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0.15rem 0.35rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.btn-quiet:hover {
+  background: var(--ink);
+  color: var(--on-accent);
+}
+
+.btn-step {
+  appearance: none;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: inherit;
+  font-family: var(--mono);
+  font-size: var(--step-0);
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.btn-step:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.btn-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---------- Campos ---------- */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  inline-size: 100%;
+  border: 1px solid var(--control);
+  background: var(--field);
+  padding: 0.7rem 0.9rem;
+}
+input[type="text"]:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+textarea {
+  resize: vertical;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--dim);
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  margin: 0;
+  border: 1px solid var(--control);
+  background: var(--field);
+  flex: none;
+  cursor: pointer;
+}
+input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--field);
+}
+
+.form-error:not(:empty)::before {
+  content: "";
+  display: inline-block;
+  inline-size: 0.6em;
+  block-size: 0.6em;
+  margin-inline-end: 0.45em;
+  background: var(--warn);
+}
+.form-error {
+  font-weight: 500;
+  color: var(--warn);
+}
+
+.notice:empty {
+  display: none;
+}
+.notice {
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  padding: 0.5rem 0.75rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+
+.prose {
+  max-inline-size: 64ch;
+  font-size: var(--step-1);
+}
+.prose p + p {
+  margin-block-start: 0.75rem;
+}

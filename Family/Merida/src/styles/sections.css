@@ -1,0 +1,523 @@
+/* ---------- Escritura (tareas y chat) ---------- */
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0;
+}
+.composer input,
+.composer textarea {
+  border-inline-end: 0;
+}
+.composer .btn-solid {
+  white-space: nowrap;
+}
+.composer-inline {
+  max-inline-size: 48rem;
+}
+
+/* ---------- Tareas: el flujo en cuatro columnas ---------- */
+.board-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+}
+
+.column {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  border-inline-end: 1px solid var(--line);
+}
+.column:last-child {
+  border-inline-end: 0;
+}
+
+.column-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-block-end: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.column-head .step {
+  color: var(--accent);
+  font-weight: 500;
+}
+.column-head .count {
+  margin-inline-start: auto;
+  font-size: var(--step-0);
+}
+.column[data-status="doing"] .column-head {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.column[data-status="doing"] .column-head .step {
+  color: var(--on-accent);
+}
+.column[data-status="review"] .column-head {
+  background: repeating-linear-gradient(-45deg, var(--plate) 0 7px, var(--pick) 7px 14px);
+}
+.column[data-status="done"] .column-head {
+  color: var(--dim);
+}
+
+.cards {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  flex: 1;
+  align-content: start;
+}
+
+.column-empty {
+  padding: 0.85rem;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  flex: 1;
+}
+
+/* Cada tarjeta lleva su estado en una banda a la izquierda: gris, lima, rayas o hueca */
+.card {
+  --band: var(--line-strong);
+  position: relative;
+  background: var(--plate);
+  border: 1px solid var(--line);
+  padding: 0.65rem 0.7rem 0.65rem 1.2rem;
+  display: grid;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset-block: -1px;
+  inset-inline-start: -1px;
+  inline-size: 0.4rem;
+  background: var(--band);
+}
+.card[data-status="doing"] {
+  --band: var(--accent);
+  border-color: rgba(200, 247, 58, 0.45);
+}
+.card[data-status="review"] {
+  --band: repeating-linear-gradient(-45deg, var(--accent) 0 3px, var(--plate) 3px 7px);
+}
+.card[data-status="done"] {
+  --band: transparent;
+  background: transparent;
+}
+
+.card-name {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: start;
+  font-weight: 600;
+  font-size: var(--step-0);
+  line-height: 1.25;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.card-name:hover {
+  color: var(--accent);
+}
+.card[data-status="done"] .card-name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--dim);
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.card-actions .btn-step {
+  inline-size: 2rem;
+  block-size: 2rem;
+}
+.btn-delete {
+  margin-inline-start: auto;
+}
+
+.card-detail {
+  display: grid;
+  gap: 0.5rem;
+  border-block-start: 1px solid var(--line);
+  padding-block-start: 0.5rem;
+}
+.card-desc {
+  font-size: var(--step--1);
+  padding: 0.45rem 0.55rem;
+}
+.subs {
+  display: grid;
+  gap: 0.35rem;
+}
+.subs li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: var(--step--1);
+}
+.subs label {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.subs .is-done {
+  text-decoration: line-through;
+  color: var(--dim);
+}
+.sub-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+.sub-form input {
+  padding: 0.35rem 0.5rem;
+  font-size: var(--step--1);
+}
+
+/* ---------- Música: la tabla y el bloque que suena ---------- */
+.music {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--pad);
+  align-items: start;
+}
+
+.tracks-wrap {
+  border: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.tracks {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+.tracks th {
+  text-align: start;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 0.6rem 0.85rem;
+  border-block-end: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.tracks td {
+  padding: 0;
+  border-block-end: 1px solid var(--line);
+  vertical-align: middle;
+}
+.tracks td:not(:first-child) {
+  padding: 0.5rem 0.85rem;
+  white-space: nowrap;
+}
+.tracks .num {
+  text-align: end;
+}
+.tracks tr:last-child td {
+  border-block-end: 0;
+}
+.col-list {
+  color: var(--dim);
+  max-inline-size: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-play {
+  appearance: none;
+  inline-size: 100%;
+  border: 0;
+  background: none;
+  text-align: start;
+  padding: 0.6rem 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tracks tbody tr:hover td {
+  background: var(--pick);
+}
+.tracks tr[aria-current="true"] td {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.tracks tr[aria-current="true"] .col-list {
+  color: var(--on-accent);
+}
+
+.deck {
+  position: sticky;
+  top: 0;
+  border: 1px solid var(--line);
+  background: var(--plate);
+  padding: var(--pad);
+  display: grid;
+  gap: 0.75rem;
+  --bar-fill: var(--accent);
+}
+.deck-cover {
+  aspect-ratio: 1;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background-color: var(--field);
+  /* la pantalla de puntos de Kyra */
+  background-image: radial-gradient(circle at 50% 50%, rgba(200, 247, 58, 0.5) 1.4px, transparent 1.8px);
+  background-size: 13px 13px;
+  border: 1px solid var(--line);
+}
+.deck-cover img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.deck-cover span {
+  font-family: var(--mono);
+  font-size: 7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+.deck-title {
+  font-family: var(--mono);
+  font-size: var(--step-1);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.deck-sub {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.bar {
+  block-size: 1.1rem;
+  border: 1px solid currentColor;
+  position: relative;
+  cursor: pointer;
+  /* marcas cada 10 % */
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), color-mix(in srgb, currentColor 35%, transparent) calc(10% - 1px) 10%);
+}
+.bar-fill {
+  block-size: 100%;
+  background: var(--bar-fill, currentColor);
+  inline-size: 0;
+}
+.deck-times {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.deck-controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+}
+.deck .btn-step {
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+}
+.deck .form-error:empty {
+  display: none;
+}
+
+/* ---------- Chat: un libro de registro ---------- */
+.chat {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  block-size: 100%;
+  min-block-size: 20rem;
+  border: 1px solid var(--line);
+}
+
+.ledger-wrap {
+  overflow-y: auto;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* lo más nuevo queda abajo, pegado a la barra de escritura */
+.ledger {
+  display: grid;
+  margin-block-start: auto;
+}
+.ledger .entry:last-child {
+  border-block-end: 0;
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) 7.5rem;
+  border-block-end: 1px solid var(--line);
+  align-items: stretch;
+}
+.entry-device {
+  padding: 0.6rem 0.85rem;
+  border-inline-end: 1px solid var(--line);
+  font-size: var(--step--1);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+/* quién habla: la PC en gris, el móvil con filo, esta web en lima */
+.entry[data-device="pc"] .entry-device {
+  background: var(--pick);
+  color: var(--ink);
+}
+.entry.is-mine .entry-device {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.entry-body {
+  padding: 0.6rem 0.9rem;
+  max-inline-size: 72ch;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.entry-time {
+  padding: 0.6rem 0.85rem;
+  text-align: end;
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-block-start: 0.35rem;
+}
+.file {
+  appearance: none;
+  display: inline-flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  border: 1px solid var(--line-strong);
+  background: var(--plate);
+  padding: 0.25rem 0.6rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  cursor: pointer;
+  white-space: normal;
+}
+.file:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.composer-chat {
+  border-block-start: 1px solid var(--line-strong);
+}
+.composer-chat textarea {
+  border: 0;
+  border-inline-end: 1px solid var(--line-strong);
+  resize: none;
+}
+.composer-chat .btn-solid {
+  padding-inline: 1.5rem;
+}
+
+/* ---------- Según el ancho de la tesela abierta (no el de la ventana): consultas de contenedor ---------- */
+@container panel (max-width: 720px) {
+  .board-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .column:nth-child(2) {
+    border-inline-end: 0;
+  }
+  .column:nth-child(-n + 2) {
+    border-block-end: 1px solid var(--line);
+  }
+}
+
+@container panel (max-width: 860px) {
+  .music {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .deck {
+    position: static;
+    order: -1;
+    grid-template-columns: 8rem minmax(0, 1fr);
+    align-items: start;
+  }
+  .deck-cover {
+    grid-row: span 3;
+  }
+  .deck-cover span {
+    font-size: 4rem;
+  }
+  .deck > :not(.deck-cover) {
+    grid-column: 2;
+  }
+}
+
+@container panel (max-width: 480px) {
+  .board-flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .column {
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--line);
+  }
+  .column:last-child {
+    border-block-end: 0;
+  }
+  .deck {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .deck-cover {
+    grid-row: auto;
+    max-inline-size: 12rem;
+  }
+  .deck > :not(.deck-cover) {
+    grid-column: 1;
+  }
+  .col-list {
+    display: none;
+  }
+  .entry {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+  }
+  .entry-device {
+    grid-row: span 2;
+  }
+  .entry-time {
+    grid-column: 2;
+    text-align: start;
+    padding-block-start: 0;
+  }
+  .composer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .composer input,
+  .composer textarea {
+    border-inline-end: 1px solid var(--control);
+  }
+  .composer-chat textarea {
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--line-strong);
+  }
+}

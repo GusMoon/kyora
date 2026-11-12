@@ -1,0 +1,669 @@
+/* ---------- El tablero: el mosaico de Inicio y, al abrir una tesela, «una abierta + columna a la izquierda» ---------- */
+.board {
+  display: grid;
+  gap: var(--gap);
+  padding: var(--gap);
+  block-size: 100vh;
+  block-size: 100dvh;
+  min-block-size: 38rem;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+}
+
+/* Inicio: el mosaico (fila inicial / columna inicial / fila final / columna final) */
+.board[data-mode="home"] .tile-tareas {
+  grid-area: 1 / 1 / 5 / 6;
+}
+.board[data-mode="home"] .tile-system {
+  grid-area: 5 / 1 / 7 / 6;
+}
+.board[data-mode="home"] .tile-musica {
+  grid-area: 1 / 6 / 4 / 10;
+}
+.board[data-mode="home"] .tile-play {
+  grid-area: 4 / 6 / 7 / 10;
+}
+.board[data-mode="home"] .tile-chat {
+  grid-area: 1 / 10 / 6 / 13;
+}
+.board[data-mode="home"] .tile-exit {
+  grid-area: 6 / 10 / 7 / 13;
+}
+
+/* Una abierta: ocupa la derecha de arriba abajo; las otras cinco, apiladas en la columna de la izquierda */
+.board[data-mode="focus"] {
+  grid-template-columns: var(--column) minmax(0, 1fr);
+  grid-template-rows: repeat(5, auto) minmax(0, 1fr);
+}
+.board[data-mode="focus"] .tile {
+  grid-column: 1;
+  grid-row: auto;
+}
+.board[data-mode="focus"] .tile.is-active {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+
+/* Cada tesela tiene su nombre para que el navegador la siga de un acomodo al otro y anime cómo crece o se encoge */
+.tile-tareas {
+  view-transition-name: tile-tareas;
+}
+.tile-musica {
+  view-transition-name: tile-musica;
+}
+.tile-chat {
+  view-transition-name: tile-chat;
+}
+.tile-play {
+  view-transition-name: tile-play;
+}
+.tile-system {
+  view-transition-name: tile-system;
+}
+.tile-exit {
+  view-transition-name: tile-exit;
+}
+::view-transition-group(*) {
+  animation-duration: 480ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: clip;
+}
+/* la imagen vieja y la nueva no se estiran: quedan ancladas arriba a la izquierda mientras la caja crece */
+::view-transition-old(*),
+::view-transition-new(*) {
+  block-size: 100%;
+  inline-size: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* ---------- La tesela ---------- */
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 1rem 1.15rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  overflow: hidden;
+}
+/* la marca de esquina de abajo a la izquierda (como las tarjetas de Kyra) */
+.tile::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 6px;
+  inset-block-end: 6px;
+  inline-size: 12px;
+  block-size: 12px;
+  border-inline-start: 1px solid var(--accent);
+  border-block-end: 1px solid var(--accent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.tile-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "num tools"
+    "title tools";
+  align-items: start;
+  column-gap: 1rem;
+  row-gap: 0.25rem;
+}
+.tile-num {
+  grid-area: num;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--accent);
+}
+.tile-title {
+  grid-area: title;
+  font-family: var(--mono);
+  font-size: clamp(1.35rem, 2.1vw, 2.2rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.tile-tools {
+  grid-area: tools;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.tile-key {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 500;
+  inline-size: 1.6rem;
+  block-size: 1.6rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  color: var(--dim);
+}
+/* la caja con la flecha ↗ de las tarjetas de la referencia */
+.tile-arrow {
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+}
+.tile-close {
+  display: none;
+  appearance: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 1.25rem;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+.tile-close:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* toda la tesela es un enlace: el del título se estira por encima */
+.tile-link {
+  color: inherit;
+  text-decoration: none;
+}
+.tile-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.tile-link:focus-visible {
+  outline: none;
+}
+.tile:has(.tile-link:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tile:has(.tile-link):hover {
+  border-color: var(--accent);
+}
+.tile:has(.tile-link):hover .tile-arrow {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.tile-foot {
+  position: relative;
+  margin-block-start: auto;
+  display: grid;
+  gap: 0.35rem;
+  max-inline-size: 28ch;
+}
+.tile-note {
+  font-size: var(--step-0);
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--dim);
+}
+.tile-quote {
+  font-size: var(--step-1);
+  font-weight: 500;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.tile-tag {
+  color: var(--accent);
+}
+.tile-tag::before {
+  content: "> ";
+}
+
+/* Los dibujos: alambre gris con lo vivo en lima */
+.tile-art {
+  position: absolute;
+  inset-inline-end: 1.15rem;
+  inset-block-end: 1rem;
+  inline-size: min(46%, 16rem);
+  block-size: auto;
+  pointer-events: none;
+}
+.art-on {
+  fill: var(--accent);
+}
+.art-off {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+.art-mid {
+  fill: var(--line-strong);
+}
+.art-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: square;
+}
+.art-faint {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+.tile-tareas .tile-art {
+  inline-size: min(50%, 22rem);
+}
+.tile-tareas .tile-foot,
+.tile-musica .tile-foot {
+  max-inline-size: calc(50% - 2rem);
+}
+/* en Chat el dibujo va en el aire de en medio, encima del último mensaje */
+.tile-chat .tile-art {
+  position: static;
+  order: 2;
+  align-self: flex-end;
+  margin-block: auto;
+  inline-size: min(75%, 13rem);
+}
+.tile-chat .tile-foot {
+  order: 3;
+  margin-block-start: 0;
+}
+
+/* las partes de la sección abierta: solo se ven cuando la tesela está abierta */
+.tile-statement,
+.tile-panel {
+  display: none;
+}
+
+/* ---------- /04 Sonando: la única tesela en lima ---------- */
+.tile-play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  --bar-fill: var(--on-accent);
+}
+.tile-play::before {
+  border-color: var(--on-accent);
+}
+.tile-play .tile-num {
+  color: var(--on-accent);
+}
+.play-body {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  min-block-size: 0;
+}
+.play-title {
+  font-family: var(--mono);
+  font-size: clamp(1.25rem, 1.9vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.play-sub:empty {
+  display: none;
+}
+.play-pick {
+  justify-self: start;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+.play-pick:focus-visible {
+  outline-color: var(--on-accent);
+}
+.play-deck {
+  display: grid;
+  gap: 0.6rem;
+  margin-block-start: auto;
+}
+.tile-play .bar {
+  border-color: var(--on-accent);
+}
+.tile-play .bar:focus-visible {
+  outline-color: var(--on-accent);
+}
+.tile-play .btn-step {
+  border-color: var(--on-accent);
+  color: var(--on-accent);
+}
+.tile-play .btn-step:hover:not(:disabled) {
+  background: var(--on-accent);
+  border-color: var(--on-accent);
+  color: var(--accent);
+}
+.tile-play .btn-step:focus-visible,
+.tile-play .btn-play:focus-visible {
+  outline-color: var(--on-accent);
+}
+.tile-play .btn-play {
+  background: var(--on-accent);
+  border-color: var(--on-accent);
+  color: var(--accent);
+}
+.tile-play .btn-play:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--ink);
+}
+.tile-play .btn-play:disabled {
+  background: transparent;
+  color: var(--on-accent);
+  opacity: 0.55;
+}
+
+/* ---------- /05 Sistema: el «system status» de la referencia ---------- */
+.sys {
+  display: grid;
+  margin-block-start: auto;
+}
+.sys-row:last-child {
+  border-block-end: 0;
+}
+.sys-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding-block: 0.35rem;
+  border-block-end: 1px solid var(--line);
+}
+.sys-row.has-meter {
+  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+}
+.sys-row .readout {
+  text-align: end;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sys-label {
+  color: var(--dim);
+}
+.meter {
+  display: block;
+  block-size: 0.55rem;
+  background: repeating-linear-gradient(90deg, var(--line) 0 3px, transparent 3px 5px);
+}
+.meter-fill {
+  display: block;
+  block-size: 100%;
+  inline-size: 0;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 3px, transparent 3px 5px);
+}
+.sys-badge {
+  white-space: nowrap;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.sys-badge[data-state="connecting"] {
+  border-color: var(--line-strong);
+  color: var(--dim);
+  background: transparent;
+}
+.sys-badge[data-state="offline"] {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: transparent;
+}
+
+/* ---------- /06 Salir: la franja de aviso de la referencia ---------- */
+.tile-exit {
+  display: grid;
+  place-items: center;
+  padding: 0.75rem;
+  border-color: var(--accent);
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 16px, var(--bg) 16px 32px);
+  cursor: pointer;
+}
+.tile-exit::before {
+  display: none;
+}
+.exit-label {
+  padding: 0.55rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: var(--step-0);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.exit-label .tile-num {
+  margin-inline-end: 0.35rem;
+}
+.tile-exit:hover .exit-label {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.tile-exit:hover .exit-label .tile-num {
+  color: var(--on-accent);
+}
+.tile-exit:focus-visible {
+  outline-offset: 2px;
+}
+
+/* ---------- Abierta ---------- */
+.tile.is-active {
+  border-color: var(--accent);
+  padding: 1.25rem 1.5rem 1.5rem;
+  gap: 1rem;
+}
+.tile.is-active .tile-link {
+  pointer-events: none;
+}
+.tile.is-active .tile-link::after {
+  display: none;
+}
+.tile.is-active .tile-title {
+  font-size: clamp(2.25rem, 5.5vw, 5rem);
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+.tile.is-active .tile-key,
+.tile.is-active .tile-arrow,
+.tile.is-active .tile-foot,
+.tile.is-active .tile-art {
+  display: none;
+}
+.tile.is-active .tile-close {
+  display: inline-grid;
+}
+.tile.is-active .tile-statement {
+  display: block;
+  max-inline-size: 64ch;
+  font-size: var(--step-1);
+  font-weight: 500;
+  line-height: 1.3;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--line);
+}
+.tile.is-active .tile-panel {
+  container: panel / inline-size; /* las secciones se acomodan según el ancho de la tesela abierta */
+  overflow-anchor: none; /* que el navegador no desplace el panel solo al pintarse la sección */
+  display: grid;
+  gap: var(--pad);
+  align-content: start;
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+}
+.tile-chat.is-active .tile-panel {
+  overflow: hidden;
+  align-content: stretch;
+}
+
+/* ---------- En la columna de la izquierda: compactas ---------- */
+.board[data-mode="focus"] .tile:not(.is-active) {
+  padding: 0.7rem 0.9rem;
+  gap: 0.4rem;
+}
+.board[data-mode="focus"] .tile:not(.is-active) .tile-title,
+.board[data-mode="focus"] .tile-play .play-title {
+  font-size: var(--step-0);
+}
+.board[data-mode="focus"] .tile:not(.is-active) .tile-art,
+.board[data-mode="focus"] .tile:not(.is-active) .tile-quote,
+.board[data-mode="focus"] .tile:not(.is-active) .tile-tag,
+.board[data-mode="focus"] .tile:not(.is-active) .tile-key,
+.board[data-mode="focus"] .tile-play .play-sub,
+.board[data-mode="focus"] .tile-play .play-pick,
+.board[data-mode="focus"] .tile-play .bar,
+.board[data-mode="focus"] .tile-play .deck-times,
+.board[data-mode="focus"] .tile-system .sys {
+  display: none;
+}
+.board[data-mode="focus"] .tile:not(.is-active) .tile-arrow {
+  inline-size: 1.6rem;
+  block-size: 1.6rem;
+  padding: 0.25rem;
+}
+.board[data-mode="focus"] .tile:not(.is-active) .tile-foot {
+  max-inline-size: none;
+  margin: 0;
+}
+.board[data-mode="focus"] .tile:not(.is-active) .tile-note {
+  font-size: var(--step--1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board[data-mode="focus"] .tile-play .play-deck {
+  margin: 0;
+}
+.board[data-mode="focus"] .tile-play .btn-step {
+  inline-size: 2rem;
+  block-size: 2rem;
+}
+.board[data-mode="focus"] .tile-play .btn-play {
+  padding-block: 0.45rem;
+}
+/* Sistema en la columna: la insignia va debajo del título, no a su lado */
+.board[data-mode="focus"] .tile-system .tile-head {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "num"
+    "title"
+    "tools";
+}
+.board[data-mode="focus"] .sys-badge {
+  font-size: 0.7rem;
+  white-space: normal;
+}
+.board[data-mode="focus"] .tile-exit {
+  min-block-size: 3.25rem;
+}
+.board[data-mode="focus"] .exit-label {
+  padding: 0.35rem 0.75rem;
+  font-size: var(--step--1);
+}
+
+/* ---------- Pantallas más pequeñas ---------- */
+@media (max-width: 1100px) {
+  :root {
+    --column: 15rem;
+  }
+  .board[data-mode="home"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+    block-size: auto;
+    min-block-size: 0;
+  }
+  .board[data-mode="home"] .tile {
+    grid-area: auto;
+    min-block-size: 15rem;
+  }
+  .board[data-mode="home"] .tile-tareas,
+  .board[data-mode="home"] .tile-system {
+    grid-column: 1 / -1;
+  }
+  .board[data-mode="home"] .tile-system {
+    min-block-size: 12rem;
+  }
+  .board[data-mode="home"] .tile-exit {
+    grid-column: 1 / -1;
+    min-block-size: 5rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .board[data-mode="home"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board[data-mode="home"] .tile {
+    grid-column: 1 / -1;
+  }
+  .sys-row,
+  .sys-row.has-meter {
+    grid-template-columns: 7rem minmax(0, 1fr) auto;
+  }
+  .tile-tareas .tile-art,
+  .tile-musica .tile-art {
+    inline-size: 38%;
+  }
+  .tile-tareas .tile-foot,
+  .tile-musica .tile-foot {
+    max-inline-size: calc(62% - 2rem);
+  }
+
+  /* abierta en el móvil: la sección arriba a todo lo ancho y las demás, en dos columnas debajo */
+  .board[data-mode="focus"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+    block-size: auto;
+    min-block-size: 0;
+  }
+  .board[data-mode="focus"] .tile {
+    grid-column: auto;
+  }
+  .board[data-mode="focus"] .tile.is-active {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-block-size: 70dvh;
+  }
+  .board[data-mode="focus"] .tile-exit {
+    grid-column: 1 / -1;
+  }
+  .tile.is-active {
+    padding: 1rem;
+  }
+  .tile.is-active .tile-panel {
+    overflow: visible;
+  }
+}

@@ -1,0 +1,41 @@
+/* Merida: el HUD de Kyra con la estructura del Cyber Brutalism. Ver Docs/DISEÑO.md (sección Merida).
+   Grises y texto de Kyra (Family/Kyra/lib/theme.dart) y un solo acento: la paleta Lima de Kyra. */
+:root {
+  /* Superficies (Kyra) */
+  --bg: #08090b;
+  --surface: #111317;
+  --plate: #181a1f;
+  --field: #0c0e11;
+  --pick: #22252b;
+
+  /* Líneas: cajas finas, nunca redondeadas */
+  --line: rgba(255, 255, 255, 0.16);
+  --line-strong: rgba(255, 255, 255, 0.34);
+  --control: #6a717c; /* borde de los campos: 3:1 sobre las tarjetas */
+
+  /* Texto (Kyra) */
+  --ink: #f3f4f6;
+  --dim: #9aa1ac;
+  --warn: #ff6b6b;
+
+  /* Un solo acento de neón */
+  --accent: #c8f73a;
+  --on-accent: #0a0b0d;
+  --accent-soft: rgba(200, 247, 58, 0.14);
+
+  --rule: 1px solid var(--line-strong);
+  --hair: 1px solid var(--line);
+
+  /* Tipo: IBM Plex Mono para títulos, etiquetas y lecturas; Space Grotesk para leer (tareas, mensajes, frases) */
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font: "Space Grotesk Variable", "Space Grotesk", system-ui, sans-serif;
+
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.6rem;
+
+  --gap: 12px;
+  --pad: 1rem;
+  --column: 18rem; /* la columna de la izquierda cuando una tesela está abierta */
+}

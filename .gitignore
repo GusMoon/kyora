@@ -1,23 +1,30 @@
 # Secretos: las credenciales del chat nunca se suben
 .env
 .env.*
-supabase/.env
-supabase/.temp/
+Server/supabase/.env
+Server/supabase/.temp/
 
 # Python
 __pycache__/
 *.pyc
-code/.venv/
+Family/Kyora/.venv/
 .pytest_cache/
 .ruff_cache/
 
 # La app del movil (Flutter): lo que se genera al compilar y los datos de tu proyecto de Supabase
-mobile/env.json
-mobile/build/
-mobile/.dart_tool/
-mobile/.flutter-plugins*
-mobile/android/.gradle/
-mobile/android/local.properties
-mobile/android/captures/
+Family/Kyra/env.json
+Family/Kyra/build/
+Family/Kyra/.dart_tool/
+Family/Kyra/.flutter-plugins*
+Family/Kyra/android/.gradle/
+Family/Kyra/android/local.properties
+Family/Kyra/android/captures/
 *.apk
 *.aab
+
+# Merida (la app web): paquetes y compilado
+Family/Merida/node_modules/
+Family/Merida/dist/
+
+# Capturas y registros de las pruebas en el navegador (Playwright)
+.playwright-mcp/

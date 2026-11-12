@@ -1,0 +1,169 @@
+/* ---------- La consola de acceso: fósforo verde de pantalla CRT ----------
+   Estética de la referencia: negro verdoso, un solo verde brillante con sus tonos, marco fino con cuadros claros en las
+   esquinas, letra de píxeles, líneas de barrido y un brillo suave en el texto. Solo se usa en el acceso. */
+.console-screen {
+  --crt: #5dff86; /* el texto */
+  --crt-dim: #2fbf5c; /* lo secundario: 7:1 sobre el fondo */
+  --crt-line: #35ff6b; /* el marco */
+  --crt-hot: #d9ffe5; /* los cuadros de las esquinas y lo conseguido */
+  --crt-warn: #ff6b6b;
+  --crt-bg: #030804;
+
+  position: relative;
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  display: grid;
+  /* la columna mide lo que la pantalla, no lo que la línea más larga: así la consola nunca se sale por los lados */
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 1.5rem 1rem;
+  background: var(--crt-bg);
+  color: var(--crt);
+  font-family: "VT323", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  text-shadow: 0 0 6px rgba(93, 255, 134, 0.45);
+  overflow: hidden;
+}
+
+/* las líneas de barrido y la sombra de los bordes de la pantalla, por encima de todo */
+.console-screen::before,
+.console-screen::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.console-screen::before {
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.3) 0 1px, transparent 1px 3px);
+}
+.console-screen::after {
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+.console {
+  position: relative;
+  inline-size: min(46rem, 100%);
+  border: 2px solid var(--crt-line);
+  background: rgba(4, 18, 8, 0.82);
+  box-shadow:
+    0 0 28px rgba(53, 255, 107, 0.18),
+    inset 0 0 40px rgba(53, 255, 107, 0.07);
+}
+
+/* los cuadritos claros de las cuatro esquinas del marco */
+.console-corner {
+  position: absolute;
+  inline-size: 10px;
+  block-size: 10px;
+  background: var(--crt-hot);
+  box-shadow: 0 0 6px rgba(217, 255, 229, 0.7);
+}
+.console-corner[data-at="tl"] {
+  inset: -7px auto auto -7px;
+}
+.console-corner[data-at="tr"] {
+  inset: -7px -7px auto auto;
+}
+.console-corner[data-at="bl"] {
+  inset: auto auto -7px -7px;
+}
+.console-corner[data-at="br"] {
+  inset: auto -7px -7px auto;
+}
+
+.console-head,
+.console-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.3rem 1.1rem;
+}
+.console-head {
+  border-block-end: 2px solid var(--crt-line);
+}
+.console-foot {
+  border-block-start: 2px solid var(--crt-line);
+  color: var(--crt-dim);
+  font-size: 1.25rem;
+}
+.console-title {
+  margin: 0;
+  font-size: 2.6rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.console-tag {
+  color: var(--crt-dim);
+}
+
+.console-body {
+  padding: 1rem 1.25rem 1.5rem;
+  min-block-size: 20rem;
+  cursor: text;
+}
+
+.console-line {
+  margin: 0;
+  min-block-size: 1.2em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.console-line.is-dim {
+  color: var(--crt-dim);
+}
+.console-line.is-err {
+  color: var(--crt-warn);
+  text-shadow: 0 0 6px rgba(255, 107, 107, 0.4);
+}
+.console-line.is-ok {
+  color: var(--crt-hot);
+}
+
+/* el renglón donde se escribe: «correo> » y, detrás, un campo sin caja con el cursor en bloque */
+.console-screen .prompt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7ch;
+  margin: 0;
+}
+.console-screen .prompt-row label {
+  white-space: nowrap;
+}
+.console-screen .prompt-row input {
+  flex: 1;
+  min-inline-size: 0;
+  inline-size: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--crt-hot);
+  font: inherit;
+  text-shadow: inherit;
+  caret-color: var(--crt);
+  caret-shape: block;
+  outline: none;
+}
+/* sin caja el foco se ve igual: el renglón se subraya mientras tiene el cursor */
+.console-screen .prompt-row:focus-within {
+  box-shadow: 0 2px 0 -1px var(--crt-dim);
+}
+
+@media (max-width: 600px) {
+  .console-screen {
+    font-size: 1.35rem;
+    padding: 1.25rem 0.75rem;
+  }
+  .console-title {
+    font-size: 2.1rem;
+  }
+  .console-body {
+    padding-inline: 0.9rem;
+    min-block-size: 17rem;
+  }
+}
