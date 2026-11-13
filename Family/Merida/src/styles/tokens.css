@@ -23,6 +23,17 @@
   --on-accent: #0a0b0d;
   --accent-soft: rgba(200, 247, 58, 0.14);
 
+  /* Las líneas de fondo de Kyra (ScanLinesPainter): una raya oscura de 1,6 px cada 4 px y un hilo de luz de 1 px entre ellas.
+     Van SOLO en el fondo y en el fondo de los contenedores: nunca encima del texto ni del contenido de una sección. */
+  --lines: repeating-linear-gradient(
+    180deg,
+    transparent 0 0.2px,
+    rgba(0, 0, 0, 0.3) 0.2px 1.8px,
+    transparent 1.8px 2.5px,
+    rgba(255, 255, 255, 0.05) 2.5px 3.5px,
+    transparent 3.5px 4px
+  );
+
   --rule: 1px solid var(--line-strong);
   --hair: 1px solid var(--line);
 

@@ -280,7 +280,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(account.signedIn, isFalse);
       expect(find.byType(SettingsPage), findsNothing);
-      expect(find.byKey(const Key('login-button')), findsOneWidget); // volvió al acceso
+      expect(find.byKey(const Key('login-button')), findsNothing); // ya no se pide el acceso: la app sigue abierta
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
     });
   });
 }

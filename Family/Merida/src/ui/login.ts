@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { h } from "./dom";
 import { explainError } from "../supabase";
 import { DEVICE } from "../config";
+import { hackText } from "./fx";
 
 type LineKind = "dim" | "err" | "ok" | "";
 
@@ -12,6 +13,8 @@ class Console {
   private readonly log = h("div", { class: "console-log", "aria-live": "polite" });
   private readonly slot = h("div", { class: "console-slot" });
   private readonly hint = h("span", {});
+  private readonly foot: HTMLElement;
+  private readonly frame: HTMLElement;
 
   constructor(title: string, tag: string) {
     const body = h("div", { class: "console-body" }, this.log, this.slot);
@@ -19,25 +22,37 @@ class Console {
     body.addEventListener("click", () => {
       if (!window.getSelection()?.toString()) this.slot.querySelector("input")?.focus();
     });
-    this.root = h(
-      "main",
-      { class: "console-screen", id: "main" },
+    this.foot = h("footer", { class: "console-foot" }, h("span", {}, `dispositivo ${DEVICE}`), this.hint);
+    // el mismo marco de Merida: logo en el acento, /00 ACCESO en mono, caja cuadrada con marcas de esquina
+    this.frame = h(
+      "section",
+      { class: "console", "aria-label": `${title}: ${tag}` },
+      h("span", { class: "console-corner", "data-at": "tl", "aria-hidden": "true" }),
+      h("span", { class: "console-corner", "data-at": "br", "aria-hidden": "true" }),
       h(
-        "section",
-        { class: "console", "aria-label": title },
-        h("span", { class: "console-corner", "data-at": "tl", "aria-hidden": "true" }),
-        h("span", { class: "console-corner", "data-at": "tr", "aria-hidden": "true" }),
-        h("span", { class: "console-corner", "data-at": "bl", "aria-hidden": "true" }),
-        h("span", { class: "console-corner", "data-at": "br", "aria-hidden": "true" }),
-        h("header", { class: "console-head" }, h("h1", { class: "console-title" }, title), h("span", { class: "console-tag" }, tag)),
-        body,
-        h("footer", { class: "console-foot" }, h("span", {}, `dispositivo ${DEVICE}`), this.hint),
+        "header",
+        { class: "console-head" },
+        h("span", { class: "console-logo", "aria-hidden": "true" }, "MERIDA_"),
+        h("h1", { class: "console-title" }, h("span", {}, tag)),
+        h("span", { class: "console-tag" }, title),
       ),
+      body,
+      this.foot,
     );
+    this.root = h("main", { class: "console-screen", id: "main" }, this.frame);
   }
 
-  line(text: string, kind: LineKind = "") {
-    this.log.append(h("p", { class: `console-line${kind ? ` is-${kind}` : ""}` }, text));
+  /** Una línea en la consola. Las informativas se escriben con el efecto hacking; lo que tecleas queda tal cual. */
+  line(text: string, kind: LineKind = "", hack = kind !== "" && kind !== "err") {
+    const el = h("p", { class: `console-line${kind ? ` is-${kind}` : ""}` }, text);
+    this.log.append(el);
+    if (hack && text.trim()) void hackText(el, text);
+  }
+
+  /** Entraste: el pie se vuelve la franja de aviso de Merida con «> acceso concedido_». */
+  granted() {
+    this.frame.classList.add("is-granted");
+    this.foot.replaceChildren(h("span", { class: "console-granted" }, "> acceso concedido_"));
   }
 
   setHint(text: string) {
@@ -92,7 +107,7 @@ class Console {
  * que en la PC y el móvil. La contraseña no se guarda en ningún archivo. Si entra, main.ts se entera por
  * onAuthStateChange y monta la app. */
 export function loginScreen(client: SupabaseClient): HTMLElement {
-  const term = new Console("merida", "acceso");
+  const term = new Console("sesión sin abrir", "acceso");
 
   async function run() {
     term.line("consola de acceso, versión web", "dim");
@@ -100,7 +115,7 @@ export function loginScreen(client: SupabaseClient): HTMLElement {
     term.line(`dispositivo ..... ${DEVICE}`, "dim");
     term.line("sesión .......... sin abrir", "dim");
     term.line("");
-    term.line("Usa la misma cuenta que en la PC y en el móvil.");
+    term.line("Usa la misma cuenta que en la PC y en el móvil.", "", true);
 
     let email = "";
     for (;;) {
@@ -112,7 +127,7 @@ export function loginScreen(client: SupabaseClient): HTMLElement {
         const { error } = await client.auth.signInWithPassword({ email, password });
         if (!error) {
           term.line("acceso concedido", "ok");
-          term.setHint("abriendo");
+          term.granted();
           return;
         }
         term.line(explainError(error), "err");
@@ -128,7 +143,7 @@ export function loginScreen(client: SupabaseClient): HTMLElement {
 
 /** Lo que se ve si falta la configuración del servidor: la misma consola, con el error. */
 export function missingConfigScreen(missing: string[]): HTMLElement {
-  const term = new Console("merida", "sin configurar");
+  const term = new Console("sin configurar", "servidor");
   term.line("consola de acceso, versión web", "dim");
   term.line("servidor ........ sin configurar", "dim");
   term.line("");

@@ -1,6 +1,7 @@
 import { h, shortWhen } from "../ui/dom";
 import { formatSize, formatTime, playlists, type Track } from "../data/music";
 import type { PlayerState } from "../player";
+import { libraryView } from "./library-view";
 import type { Ctx, Section } from "./context";
 
 export function musicStatement(tracks: Track[], loaded: boolean, error?: string): string {
@@ -11,6 +12,9 @@ export function musicStatement(tracks: Track[], loaded: boolean, error?: string)
   const head = tracks.length === 1 ? "1 canción" : `${tracks.length} canciones`;
   return lists ? `${head} en ${lists === 1 ? "1 lista" : `${lists} listas`}.` : `${head}.`;
 }
+
+type MusicTab = "recibidas" | "listas";
+let lastTab: MusicTab = "recibidas"; // se recuerda mientras dure la sesión
 
 export const musicSection: Section = (ctx: Ctx) => {
   const { store, shell, player } = ctx;
@@ -99,12 +103,47 @@ export const musicSection: Section = (ctx: Ctx) => {
     );
   }
 
-  shell.body.append(h("div", { class: "music" }, h("div", { class: "tracks-wrap" }, table), deck));
+  // ----- pestañas: lo que te mandaron (Recibidas) y tus listas de YouTube (Mis listas, por el servicio local)
+  const received = h("div", { class: "music", id: "music-recibidas", role: "tabpanel", "aria-labelledby": "tab-recibidas" }, h("div", { class: "tracks-wrap" }, table), deck);
+  const listsPanel = h("div", { id: "music-listas", role: "tabpanel", "aria-labelledby": "tab-listas" });
+  let library: ReturnType<typeof libraryView> | null = null;
+  const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": "Música" });
+  const tabButtons: Record<MusicTab, HTMLButtonElement> = {
+    recibidas: h("button", { class: "tab", role: "tab", id: "tab-recibidas", "aria-controls": "music-recibidas", type: "button" }, "Recibidas"),
+    listas: h("button", { class: "tab", role: "tab", id: "tab-listas", "aria-controls": "music-listas", type: "button" }, "Mis listas de YouTube"),
+  };
+  const showTab = (tab: MusicTab) => {
+    lastTab = tab;
+    for (const [id, btn] of Object.entries(tabButtons) as [MusicTab, HTMLButtonElement][]) {
+      btn.setAttribute("aria-selected", String(id === tab));
+      btn.tabIndex = id === tab ? 0 : -1;
+    }
+    received.hidden = tab !== "recibidas";
+    listsPanel.hidden = tab !== "listas";
+    if (tab === "listas" && !library) {
+      library = libraryView(ctx);
+      listsPanel.append(library.el);
+    }
+  };
+  for (const [id, btn] of Object.entries(tabButtons) as [MusicTab, HTMLButtonElement][]) {
+    btn.addEventListener("click", () => showTab(id));
+    btn.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      const other: MusicTab = id === "recibidas" ? "listas" : "recibidas";
+      showTab(other);
+      tabButtons[other].focus();
+    });
+    tabs.append(btn);
+  }
+
+  shell.body.append(tabs, received, listsPanel);
+  showTab(lastTab);
   renderList();
   const offStore = store.on((area) => area === "tracks" && renderList());
   const offPlayer = player.on(renderDeck);
   return () => {
     offStore();
     offPlayer();
+    library?.destroy();
   };
 };

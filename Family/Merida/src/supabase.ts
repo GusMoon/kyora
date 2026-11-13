@@ -24,6 +24,10 @@ export function explainError(err: unknown): string {
   if (text.includes("pgrst202") || text.includes("could not find the function")) {
     return "Falta crear la base de datos: ejecuta Server/supabase/schema.sql en Supabase.";
   }
+  if (text.includes("pgrst205") || text.includes("could not find the table")) {
+    return "Falta una tabla en la base de datos: ejecuta de nuevo Server/supabase/schema.sql en Supabase.";
+  }
+  if (info.code === "23505") return "Ya existe un registro igual.";
   if (text.includes("not_authenticated") || info.status === 401) {
     return "La sesión caducó. Vuelve a entrar.";
   }

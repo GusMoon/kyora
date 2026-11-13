@@ -344,100 +344,471 @@
   display: none;
 }
 
-/* ---------- Chat: un libro de registro ---------- */
+/* ---------- Chat: como el de Kyra, sin tabla ni cajas ----------
+   Una barra del acento y el icono del dispositivo por mensaje; los míos (web) a la derecha; separadores de día;
+   la hora y el ✓ en mono; abajo, el prompt «>» con un campo sin caja y el botón de enviar. */
 .chat {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   block-size: 100%;
   min-block-size: 20rem;
-  border: 1px solid var(--line);
 }
 
-.ledger-wrap {
+.chat-live {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block-end: 0.6rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+.chat-live-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  background: var(--dim);
+}
+.chat-live[data-state="live"] {
+  color: var(--accent);
+}
+.chat-live[data-state="live"] .chat-live-dot {
+  background: var(--accent);
+}
+.chat-live[data-state="offline"] {
+  color: var(--warn);
+}
+.chat-live[data-state="offline"] .chat-live-dot {
+  background: var(--warn);
+}
+
+.chat-scroll {
   overflow-y: auto;
   min-block-size: 0;
   display: flex;
   flex-direction: column;
+  padding-block: 0.5rem;
 }
-
-/* lo más nuevo queda abajo, pegado a la barra de escritura */
-.ledger {
+/* lo más nuevo queda abajo, pegado al prompt */
+.chat-log {
   display: grid;
+  gap: 10px;
   margin-block-start: auto;
 }
-.ledger .entry:last-child {
-  border-block-end: 0;
+.chat-older,
+.chat-empty {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+  padding: 0.5rem 0.25rem;
 }
 
-.entry {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr) 7.5rem;
-  border-block-end: 1px solid var(--line);
-  align-items: stretch;
-}
-.entry-device {
-  padding: 0.6rem 0.85rem;
-  border-inline-end: 1px solid var(--line);
+/* el separador de día: ── HOY ── */
+.chat-day {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block: 0.75rem 0.25rem;
+  font-family: var(--mono);
   font-size: var(--step--1);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--dim);
 }
-/* quién habla: la PC en gris, el móvil con filo, esta web en lima */
-.entry[data-device="pc"] .entry-device {
-  background: var(--pick);
-  color: var(--ink);
+.chat-day::before,
+.chat-day::after {
+  content: "";
+  flex: 1;
+  border-block-start: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
-.entry.is-mine .entry-device {
-  background: var(--accent);
-  color: var(--on-accent);
+
+.msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-inline-size: min(70ch, 82%);
+  padding-inline-start: 0.75rem;
+  border-inline-start: 3px solid var(--accent);
 }
-.entry-body {
-  padding: 0.6rem 0.9rem;
-  max-inline-size: 72ch;
+.msg-device {
+  flex: none;
+  padding-block-start: 0.15rem;
+  color: var(--accent);
+}
+.msg-device .icon {
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+}
+.msg-main {
+  display: grid;
+  gap: 0.2rem;
+  min-inline-size: 0;
+}
+.msg-text {
+  font-size: var(--step-0);
+  line-height: 1.4;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.entry-time {
-  padding: 0.6rem 0.85rem;
-  text-align: end;
-  color: var(--dim);
-  font-size: var(--step--1);
-}
-
-.files {
+.msg-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-block-start: 0.35rem;
-}
-.file {
-  appearance: none;
-  display: inline-flex;
+  align-items: center;
   gap: 0.6rem;
-  align-items: baseline;
-  border: 1px solid var(--line-strong);
-  background: var(--plate);
-  padding: 0.25rem 0.6rem;
   font-family: var(--mono);
   font-size: var(--step--1);
-  cursor: pointer;
-  white-space: normal;
+  color: color-mix(in srgb, var(--dim) 75%, transparent);
 }
-.file:hover {
-  border-color: var(--accent);
+.msg-check {
   color: var(--accent);
 }
-
-.composer-chat {
-  border-block-start: 1px solid var(--line-strong);
+.msg-error {
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: var(--step--1);
 }
-.composer-chat textarea {
+/* los míos, a la derecha, con la barra a la derecha */
+.msg.is-mine {
+  align-self: flex-end;
+  margin-inline-start: auto;
+  flex-direction: row-reverse;
+  padding-inline-start: 0;
+  padding-inline-end: 0.75rem;
+  border-inline-start: 0;
+  border-inline-end: 3px solid var(--accent);
+  text-align: end;
+}
+.msg.is-mine .msg-foot {
+  justify-content: flex-end;
+}
+.msg-files {
+  display: grid;
+  gap: 0.15rem;
+}
+.msg-file {
+  appearance: none;
   border: 0;
-  border-inline-end: 1px solid var(--line-strong);
-  resize: none;
+  background: none;
+  padding: 0.1rem 0;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--accent);
+  text-align: start;
+  cursor: pointer;
 }
-.composer-chat .btn-solid {
-  padding-inline: 1.5rem;
+.msg-file:hover {
+  text-decoration: underline;
+}
+.msg-size {
+  margin-inline-start: 0.75rem;
+  color: var(--dim);
+}
+
+.chat-composer {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.5rem;
+  padding-block-start: 0.6rem;
+  border-block-start: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.chat-prompt {
+  padding-block-end: 0.55rem;
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.chat-composer textarea {
+  min-block-size: 2.5rem;
+  overflow-y: auto;
+  border: 0;
+  background: transparent;
+  padding: 0.5rem 0.25rem;
+  resize: none;
+  font-family: var(--mono);
+  caret-color: var(--accent);
+  caret-shape: block;
+  max-block-size: 140px;
+}
+.chat-composer textarea:focus {
+  outline: none;
+}
+.chat-composer:focus-within {
+  border-block-start-color: var(--accent);
+}
+
+/* Sugerencias de «/»: una lista que sale hacia arriba, sobre el campo (no lo mueve ni le quita el foco) */
+.cmd-suggest {
+  position: absolute;
+  z-index: 5;
+  inset-inline: 0;
+  inset-block-end: 100%;
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--accent);
+  background: var(--field);
+}
+.cmd-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: baseline;
+  column-gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 3px solid transparent;
+  cursor: pointer;
+}
+.cmd-option + .cmd-option {
+  border-block-start: 1px solid var(--line);
+}
+.cmd-option[aria-selected="true"],
+.cmd-option:hover {
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmd-option .cmd-url {
+  text-align: end;
+}
+.chat-send {
+  appearance: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.chat-send:disabled {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--dim);
+  cursor: default;
+}
+
+/* ---------- Pestañas (Música) ---------- */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-block-end: 1px solid var(--line);
+}
+.tab {
+  appearance: none;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  background: none;
+  padding: 0.6rem 1rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  color: var(--accent);
+  border-block-end-color: var(--accent);
+}
+.tab:hover {
+  color: var(--ink);
+}
+
+/* ---------- Música: tus listas de YouTube (servicio local) ---------- */
+.lib {
+  display: grid;
+  gap: var(--pad);
+}
+.lib-notice:empty {
+  display: none;
+}
+.lib-notice {
+  display: grid;
+  gap: 0.6rem;
+}
+.lib-warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+.lib-cookies {
+  display: grid;
+  gap: 0.5rem;
+  max-inline-size: 60rem;
+  padding: 1rem;
+  border: 1px solid var(--warn);
+}
+.lib-cookies textarea {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.lib-cookies .btn-solid {
+  justify-self: start;
+}
+.lib-grid {
+  display: grid;
+  grid-template-columns: 17rem minmax(0, 1fr);
+  gap: var(--pad);
+  align-items: start;
+}
+.lib-lists {
+  display: grid;
+  gap: 0.4rem;
+  position: sticky;
+  top: 0;
+}
+.lib-lists ul {
+  display: grid;
+  border: 1px solid var(--line);
+}
+.lib-head {
+  color: var(--dim);
+}
+.lib-list {
+  appearance: none;
+  inline-size: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-block-end: 1px solid var(--line);
+  background: none;
+  text-align: start;
+  cursor: pointer;
+}
+.lib-lists li:last-child .lib-list {
+  border-block-end: 0;
+}
+.lib-list:hover {
+  background: var(--pick);
+}
+.lib-list.is-current {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.lib-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-songs {
+  display: grid;
+  gap: 0.6rem;
+  min-inline-size: 0;
+}
+.lib-songs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.lib-title {
+  margin-inline-end: auto;
+  font-family: var(--mono);
+  font-size: var(--step-1);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.lib-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--step--1);
+  cursor: pointer;
+}
+.lib-dest {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--accent);
+  background: var(--plate);
+}
+.lib-dest-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.lib-rows {
+  display: grid;
+  border: 1px solid var(--line);
+}
+.lib-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 4rem 9rem auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.75rem;
+  border-block-end: 1px solid var(--line);
+}
+.lib-row:last-child {
+  border-block-end: 0;
+}
+.lib-row:hover {
+  background: var(--pick);
+}
+.lib-song {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-dur {
+  color: var(--dim);
+  text-align: end;
+}
+.lib-state {
+  color: var(--dim);
+}
+.lib-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.lib-done .icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+.lib-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.lib-row.is-done .lib-song {
+  color: var(--dim);
+}
+.lib-listen {
+  appearance: none;
+  inline-size: 2rem;
+  block-size: 2rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.lib-listen .icon {
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
+}
+.lib-listen:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 /* ---------- Según el ancho de la tesela abierta (no el de la ventana): consultas de contenedor ---------- */
@@ -450,6 +821,15 @@
   }
   .column:nth-child(-n + 2) {
     border-block-end: 1px solid var(--line);
+  }
+}
+
+@container panel (max-width: 760px) {
+  .lib-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lib-lists {
+    position: static;
   }
 }
 
@@ -498,16 +878,17 @@
   .col-list {
     display: none;
   }
-  .entry {
-    grid-template-columns: 4.5rem minmax(0, 1fr);
+  .msg {
+    max-inline-size: 92%;
   }
-  .entry-device {
-    grid-row: span 2;
+  .lib-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
-  .entry-time {
+  .lib-dur {
+    display: none;
+  }
+  .lib-row > :nth-child(4) {
     grid-column: 2;
-    text-align: start;
-    padding-block-start: 0;
   }
   .composer {
     grid-template-columns: minmax(0, 1fr);
@@ -516,8 +897,63 @@
   .composer textarea {
     border-inline-end: 1px solid var(--control);
   }
-  .composer-chat textarea {
-    border-inline-end: 0;
-    border-block-end: 1px solid var(--line-strong);
+}
+
+/* ---------- Chat: vaciar y borrar mensajes ---------- */
+.chat-bar {
+  display: grid;
+  gap: 0.4rem;
+  padding-block-end: 0.6rem;
+}
+.chat-bar .chat-live {
+  padding-block-end: 0;
+}
+.chat-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.chat-confirm {
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.chat-bar .form-error:empty {
+  display: none;
+}
+.chat-bar:has(.chat-tools) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.chat-bar .form-error {
+  grid-column: 1 / -1;
+}
+.msg-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  opacity: 0;
+}
+.msg-del .icon,
+.chat-tools .icon,
+.cloud-actions .icon {
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
+}
+.msg:hover .msg-del,
+.msg:focus-within .msg-del,
+.msg-del:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .msg-del {
+    opacity: 1;
   }
+}
+.chat-tools .btn-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }

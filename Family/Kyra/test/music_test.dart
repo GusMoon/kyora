@@ -18,6 +18,9 @@ class FakeMusicBackend implements MusicBackend {
   final List<String> downloads = [];
   final List<List<String>> signed = [];
   ChatException? listError;
+
+  /// Cuántas veces se pidió la lista a Supabase.
+  int listCalls = 0;
   ChatException? signError;
   ChatException? downloadError;
   ChatException? confirmError;
@@ -51,6 +54,7 @@ class FakeMusicBackend implements MusicBackend {
 
   @override
   Future<List<Track>> listTracks({int limit = 200}) async {
+    listCalls++;
     if (listError != null) throw listError!;
     return List.of(tracks);
   }

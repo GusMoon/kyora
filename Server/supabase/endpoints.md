@@ -65,6 +65,14 @@ Registro de un pasante: `POST /auth/v1/signup` con `{"email", "password", "data"
 
 `GET /rest/v1/messages?conversation_id=eq.<uuid>&order=sent_at.desc&limit=50&select=*,attachments(*)` (solo lectura recomendada; para escribir, usa `send_message`).
 
+### Comandos del chat: `chat_commands`
+
+Sin RPC, con PostgREST (cada cuenta ve solo lo suyo; crear y cambiar exige ser administrador).
+
+- **Listar**: `GET /rest/v1/chat_commands?select=id,name,command,url&order=command`.
+- **Crear**: `POST /rest/v1/chat_commands` con `{"name": "YouTube", "command": "youtube", "url": "https://youtube.com"}`. `command` va sin «/», en minúsculas, `[a-z0-9_-]{1,24}`; `url` debe empezar por `http://` o `https://`. Repetir un `command` da `23505`.
+- **Quitar**: `DELETE /rest/v1/chat_commands?id=eq.<uuid>`.
+
 ### Tareas: `tasks`, `tags`, `task_tags`
 
 Sin RPC: se usan directamente con PostgREST (cada cuenta solo ve y toca lo suyo; no hace falta ser administrador).

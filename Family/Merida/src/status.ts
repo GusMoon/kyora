@@ -1,15 +1,18 @@
 import type { LiveState } from "./data/chat";
 
 /** Lo que se lee del sistema: quién eres, cuánto tarda el servidor y si el chat está en vivo. Lo ven la franja de las
- * secciones y la tesela «Sistema» del inicio, así los dos dicen siempre lo mismo. */
+ * tesela y la sección de Configuración, así las dos dicen siempre lo mismo. */
 export interface StatusData {
-  account: string;
+  account: string; // «usuario, rol» tal como se enseña
+  username: string;
+  role: string; // admin o pasante
+  email: string;
   latency: number | null | undefined; // undefined = aún sin medir, null = sin respuesta
   live: LiveState;
 }
 
 export class Status {
-  data: StatusData = { account: "…", latency: undefined, live: "connecting" };
+  data: StatusData = { account: "…", username: "", role: "", email: "", latency: undefined, live: "connecting" };
   private listeners = new Set<(s: StatusData) => void>();
 
   on(fn: (s: StatusData) => void): () => void {

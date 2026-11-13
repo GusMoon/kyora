@@ -73,13 +73,16 @@ enum CalendarPanel { day, habits, reminders }
 
 const _panelLabels = {CalendarPanel.day: 'HOY', CalendarPanel.habits: 'HÁBITOS', CalendarPanel.reminders: 'RECORDATORIOS'};
 
-/// El Calendario, como una **consola**: arriba el día elegido en grande (matriz de puntos), su fecha y un resumen (`> 3 tareas · 2 hábitos`);
+/// La agenda (tareas, hábitos, recordatorios y calendario), como una **consola**: arriba el día elegido en grande (matriz de puntos), su fecha y un resumen (`> 3 tareas · 2 hábitos`);
 /// debajo, tres paneles que se pasan **deslizando a los lados**: **Hoy** (lo del día elegido: recordatorios, tareas que vencen y hábitos que
 /// tocan, con su casilla, y el acceso a todas las tareas), **Hábitos** y **Recordatorios**. **Pellizcando** con dos dedos (o con el botón del
 /// calendario) se abre el **mini calendario**: un dial sci-fi con los días del mes y sus marcadores. El «+» crea una tarea, un recordatorio o un
 /// hábito con el día elegido ya puesto. Lo que no esté disponible (sin Supabase de tareas, sin avisos…) no se ofrece.
-class CalendarPage extends StatefulWidget {
-  const CalendarPage({super.key, this.tasks, this.reminders, this.habits, this.now});
+///
+/// Vive dentro de la tesela de la hora de Inicio, que se **expande** al tocarla (`HomeGrid`): ya no es una sección aparte. Con [embedded] va sin
+/// el marco ni la cabecera propios (los pone la tesela) y «atrás» llama a [onClose] cuando no hay mini calendario abierto.
+class AgendaView extends StatefulWidget {
+  const AgendaView({super.key, this.tasks, this.reminders, this.habits, this.now, this.embedded = false, this.onClose});
 
   final Future<TaskController>? tasks;
   final Future<ReminderController>? reminders;
@@ -88,15 +91,21 @@ class CalendarPage extends StatefulWidget {
   /// El reloj (en las pruebas, uno fijo).
   final DateTime Function()? now;
 
+  /// Dentro de la tesela de Inicio: sin el panel ni la línea técnica de la consola.
+  final bool embedded;
+
+  /// Cerrar la agenda (contraer la tesela). Si no es nulo, «atrás» cierra primero el mini calendario y después llama a esto.
+  final VoidCallback? onClose;
+
   /// Cuánto hay que juntar los dedos (de la distancia inicial) para que se abra el mini calendario, y separarlos para cerrarlo.
   static const pinchIn = 0.82;
   static const pinchOut = 1.2;
 
   @override
-  State<CalendarPage> createState() => _CalendarPageState();
+  State<AgendaView> createState() => _AgendaViewState();
 }
 
-class _CalendarPageState extends State<CalendarPage> {
+class _AgendaViewState extends State<AgendaView> {
   TaskController? _tasks;
   ReminderController? _reminders;
   HabitController? _habits;
@@ -123,6 +132,30 @@ class _CalendarPageState extends State<CalendarPage> {
     widget.habits?.then((c) {
       if (mounted) setState(() => _habits = c);
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant AgendaView old) {
+    super.didUpdateWidget(old);
+    // si se cerró sesión (o entró otra cuenta) los controladores son otros: se vuelven a pedir
+    if (old.tasks != widget.tasks) {
+      _tasks = null;
+      widget.tasks?.then((c) {
+        if (mounted) setState(() => _tasks = c);
+      });
+    }
+    if (old.reminders != widget.reminders) {
+      _reminders = null;
+      widget.reminders?.then((c) {
+        if (mounted) setState(() => _reminders = c);
+      });
+    }
+    if (old.habits != widget.habits) {
+      _habits = null;
+      widget.habits?.then((c) {
+        if (mounted) setState(() => _habits = c);
+      });
+    }
   }
 
   @override
@@ -174,10 +207,10 @@ class _CalendarPageState extends State<CalendarPage> {
     final now = _spread();
     if (start == null || now == null || start < 1) return;
     final ratio = now / start;
-    if (!_dialOpen && ratio < CalendarPage.pinchIn) {
+    if (!_dialOpen && ratio < AgendaView.pinchIn) {
       _pinchStart = null;
       _openDial();
-    } else if (_dialOpen && ratio > CalendarPage.pinchOut) {
+    } else if (_dialOpen && ratio > AgendaView.pinchOut) {
       _pinchStart = null;
       _closeDial();
     }
@@ -261,10 +294,15 @@ class _CalendarPageState extends State<CalendarPage> {
         final panel = _panel.clamp(0, panels.length - 1);
         final canAdd = widget.tasks != null || widget.reminders != null || widget.habits != null;
         return PopScope(
-          // «atrás» cierra primero el mini calendario
-          canPop: !_dialOpen,
+          // «atrás» cierra primero el mini calendario y, dentro de Inicio, después contrae la agenda
+          canPop: !_dialOpen && widget.onClose == null,
           onPopInvokedWithResult: (didPop, _) {
-            if (!didPop) _closeDial();
+            if (didPop) return;
+            if (_dialOpen) {
+              _closeDial();
+            } else {
+              widget.onClose?.call();
+            }
           },
           child: Scaffold(
             backgroundColor: Colors.transparent,
@@ -291,6 +329,7 @@ class _CalendarPageState extends State<CalendarPage> {
                             withReminders: widget.reminders != null,
                           ),
                           progress: _progressOf(_selected),
+                          embedded: widget.embedded,
                           onOpenDial: _openDial,
                           onAdd: canAdd ? _add : null,
                         ),
@@ -360,7 +399,10 @@ class _CalendarPageState extends State<CalendarPage> {
 /// puntos con el **anillo de avance** del día (hechos / total), la fecha y una línea con lo que hay ese día. A la derecha, abrir el mini
 /// calendario y el «+».
 class _Console extends StatelessWidget {
-  const _Console({required this.selected, required this.today, required this.summary, required this.progress, required this.onOpenDial, required this.onAdd});
+  const _Console({required this.selected, required this.today, required this.summary, required this.progress, required this.onOpenDial, required this.onAdd, this.embedded = false});
+
+  /// Dentro de la tesela de Inicio: sin el panel propio ni la línea «KYRA // AGENDA» (la tesela ya es el panel).
+  final bool embedded;
 
   final DateTime selected;
   final DateTime today;
@@ -374,7 +416,7 @@ class _Console extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final top = MediaQuery.paddingOf(context).top;
+    final top = embedded ? 0.0 : MediaQuery.paddingOf(context).top;
     final isToday = selected == today;
     final mono = TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim);
     final square = IconButton.styleFrom(
@@ -382,11 +424,12 @@ class _Console extends StatelessWidget {
       padding: EdgeInsets.zero,
       shape: CutBorder(side: BorderSide(color: c.accent.withValues(alpha: 0.55))),
     );
-    return Padding(
-      padding: EdgeInsets.fromLTRB(12, top + 10, 12, 8),
-      child: CyberPanel(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
+    Widget framed(Widget content) => embedded
+        ? Padding(padding: const EdgeInsets.fromLTRB(2, 0, 2, 4), child: content)
+        : Padding(padding: EdgeInsets.fromLTRB(12, top + 10, 12, 8), child: CyberPanel(child: content));
+    return framed(
+        Padding(
+          padding: embedded ? const EdgeInsets.fromLTRB(10, 4, 4, 6) : const EdgeInsets.fromLTRB(18, 14, 10, 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -394,14 +437,16 @@ class _Console extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Text('KYRA // AGENDA', style: hudLabel(color: c.dim)),
-                        const SizedBox(width: 10),
-                        HudBars(values: const [0.4, 0.8, 0.55, 1, 0.3, 0.7], height: 12, barWidth: 3, gap: 3, color: c.accent.withValues(alpha: 0.7)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
+                    if (!embedded) ...[
+                      Row(
+                        children: [
+                          Text('KYRA // AGENDA', style: hudLabel(color: c.dim)),
+                          const SizedBox(width: 10),
+                          HudBars(values: const [0.4, 0.8, 0.55, 1, 0.3, 0.7], height: 12, barWidth: 3, gap: 3, color: c.accent.withValues(alpha: 0.7)),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -458,7 +503,6 @@ class _Console extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 }

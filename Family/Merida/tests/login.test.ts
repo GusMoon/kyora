@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loginScreen, missingConfigScreen } from "../src/ui/login";
+import { fxConfig } from "../src/ui/fx";
+
+// estas pruebas leen el texto de las líneas: sin el efecto hacking, que lo escribe poco a poco
+fxConfig.hack = false;
+fxConfig.holo = false;
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

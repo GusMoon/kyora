@@ -24,7 +24,13 @@ abstract class AccountBackend {
 }
 
 /// Recuerda el rol de la última vez para poder abrir la vista correcta aunque no haya internet al arrancar.
+///
+/// También recuerda **quién** fue la última cuenta que entró: así, sin sesión (la app abre igual, como launcher), se siguen abriendo
+/// sus tareas, hábitos y recordatorios locales; solo se pausa lo que necesita el servidor.
 abstract class RoleCache {
   Future<Role?> read(String userId);
   Future<void> write(String userId, Role role);
+
+  /// La última cuenta que entró y su rol, o `null` si nunca entró ninguna en este teléfono.
+  Future<({String userId, Role role})?> readLast();
 }

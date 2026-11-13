@@ -1,50 +1,54 @@
-/* ---------- El tablero: el mosaico de Inicio y, al abrir una tesela, «una abierta + columna a la izquierda» ---------- */
+/* ---------- El tablero ----------
+   Inicio: un mosaico de cinco teselas, simétrico, con Configuración en el centro exacto y sin huecos.
+   Una abierta: ocupa toda la pantalla; las otras se esconden en el borde izquierdo como cuadrados con su icono. */
 .board {
+  --dock: 3.5rem; /* el lado de cada cuadrado del dock */
+  --dock-gap: 8px;
   display: grid;
   gap: var(--gap);
   padding: var(--gap);
   block-size: 100vh;
   block-size: 100dvh;
-  min-block-size: 38rem;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: repeat(6, minmax(0, 1fr));
+  min-block-size: 36rem;
 }
 
-/* Inicio: el mosaico (fila inicial / columna inicial / fila final / columna final) */
-.board[data-mode="home"] .tile-tareas {
-  grid-area: 1 / 1 / 5 / 6;
+/* Inicio: un molinete alrededor de Configuración. Columnas y filas son «1fr · núcleo · 1fr», así el cuadrado del
+   centro (el núcleo) es el centro exacto de la pantalla y las demás giran a su alrededor sin dejar ni un hueco:
+   Tareas a la izquierda (arriba y al centro), Música arriba, Chat a la derecha (centro y abajo), Nube abajo. */
+.board {
+  --core: clamp(8rem, 24vh, 12rem); /* el lado del cuadrado de Configuración */
 }
-.board[data-mode="home"] .tile-system {
-  grid-area: 5 / 1 / 7 / 6;
+.board[data-mode="home"] {
+  grid-template-columns: minmax(0, 1fr) var(--core) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--core) minmax(0, 1fr);
+}
+.board[data-mode="home"] .tile-tareas {
+  grid-area: 1 / 1 / 3 / 2;
 }
 .board[data-mode="home"] .tile-musica {
-  grid-area: 1 / 6 / 4 / 10;
+  grid-area: 1 / 2 / 2 / 4;
 }
-.board[data-mode="home"] .tile-play {
-  grid-area: 4 / 6 / 7 / 10;
+.board[data-mode="home"] .tile-configuracion {
+  grid-area: 2 / 2 / 3 / 3;
+}
+.board[data-mode="home"] .tile-nube {
+  grid-area: 3 / 1 / 4 / 3;
 }
 .board[data-mode="home"] .tile-chat {
-  grid-area: 1 / 10 / 6 / 13;
-}
-.board[data-mode="home"] .tile-exit {
-  grid-area: 6 / 10 / 7 / 13;
+  grid-area: 2 / 3 / 4 / 4;
 }
 
-/* Una abierta: ocupa la derecha de arriba abajo; las otras cinco, apiladas en la columna de la izquierda */
+/* Una abierta: toda la pantalla */
 .board[data-mode="focus"] {
-  grid-template-columns: var(--column) minmax(0, 1fr);
-  grid-template-rows: repeat(5, auto) minmax(0, 1fr);
-}
-.board[data-mode="focus"] .tile {
-  grid-column: 1;
-  grid-row: auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 .board[data-mode="focus"] .tile.is-active {
-  grid-column: 2;
-  grid-row: 1 / -1;
+  grid-area: 1 / 1 / 2 / 2;
 }
 
-/* Cada tesela tiene su nombre para que el navegador la siga de un acomodo al otro y anime cómo crece o se encoge */
+/* Cada tesela tiene su nombre para que el navegador la siga de un acomodo al otro: crece hasta la pantalla, o se
+   encoge hasta su cuadrado del dock */
 .tile-tareas {
   view-transition-name: tile-tareas;
 }
@@ -54,21 +58,18 @@
 .tile-chat {
   view-transition-name: tile-chat;
 }
-.tile-play {
-  view-transition-name: tile-play;
+.tile-nube {
+  view-transition-name: tile-nube;
 }
-.tile-system {
-  view-transition-name: tile-system;
-}
-.tile-exit {
-  view-transition-name: tile-exit;
+.tile-configuracion {
+  view-transition-name: tile-configuracion;
 }
 ::view-transition-group(*) {
   animation-duration: 480ms;
   animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow: clip;
 }
-/* la imagen vieja y la nueva no se estiran: quedan ancladas arriba a la izquierda mientras la caja crece */
+/* la imagen vieja y la nueva no se estiran: quedan ancladas arriba a la izquierda mientras la caja cambia */
 ::view-transition-old(*),
 ::view-transition-new(*) {
   block-size: 100%;
@@ -93,7 +94,8 @@
   min-inline-size: 0;
   min-block-size: 0;
   padding: 1rem 1.15rem;
-  background: var(--surface);
+  background-color: var(--surface);
+  background-image: var(--lines); /* las líneas de Kyra, en el fondo del contenedor (detrás del texto) */
   border: 1px solid var(--line);
   color: var(--ink);
   font: inherit;
@@ -118,18 +120,22 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "num tools"
+    "mark tools"
     "title tools";
   align-items: start;
   column-gap: 1rem;
-  row-gap: 0.25rem;
+  row-gap: 0.3rem;
 }
-.tile-num {
-  grid-area: num;
-  font-family: var(--mono);
-  font-size: var(--step--1);
-  font-weight: 500;
+.tile-mark {
+  grid-area: mark;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--accent);
+}
+.tile-icon {
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
 }
 .tile-title {
   grid-area: title;
@@ -186,7 +192,7 @@
   color: var(--on-accent);
 }
 
-/* toda la tesela es un enlace: el del título se estira por encima */
+/* en el mosaico toda la tesela es un enlace: el del título se estira por encima */
 .tile-link {
   color: inherit;
   text-decoration: none;
@@ -243,7 +249,7 @@
   content: "> ";
 }
 
-/* Los dibujos: alambre gris con lo vivo en lima */
+/* Los dibujos: alambre gris con lo vivo en el acento */
 .tile-art {
   position: absolute;
   inset-inline-end: 1.15rem;
@@ -274,122 +280,91 @@
   stroke: var(--line-strong);
   stroke-width: 1.5;
 }
-.tile-tareas .tile-art {
-  inline-size: min(50%, 22rem);
-}
-.tile-tareas .tile-foot,
-.tile-musica .tile-foot {
+.tile-musica .tile-foot,
+.tile-nube .tile-foot {
   max-inline-size: calc(50% - 2rem);
 }
-/* en Chat el dibujo va en el aire de en medio, encima del último mensaje */
+/* Música es baja: el disco no pasa de la línea de las teclas */
+.tile-musica .tile-art,
+.tile-nube .tile-art {
+  inline-size: min(40%, 12rem);
+  max-block-size: calc(100% - 5rem);
+}
+/* Tareas y Chat son altas y estrechas: el dibujo va en el aire de en medio, encima del texto */
+.tile-tareas .tile-art,
 .tile-chat .tile-art {
   position: static;
   order: 2;
   align-self: flex-end;
   margin-block: auto;
-  inline-size: min(75%, 13rem);
+  inline-size: min(78%, 15rem);
 }
+.tile-tareas .tile-foot,
 .tile-chat .tile-foot {
   order: 3;
   margin-block-start: 0;
 }
 
-/* las partes de la sección abierta: solo se ven cuando la tesela está abierta */
+/* las partes de la sección abierta y la cara del dock: solo se ven cuando toca */
 .tile-statement,
-.tile-panel {
+.tile-panel,
+.dock-face {
   display: none;
 }
 
-/* ---------- /04 Sonando: la única tesela en lima ---------- */
-.tile-play {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  --bar-fill: var(--on-accent);
-}
-.tile-play::before {
-  border-color: var(--on-accent);
-}
-.tile-play .tile-num {
-  color: var(--on-accent);
-}
-.play-body {
-  display: grid;
-  gap: 0.3rem;
-  align-content: start;
-  min-block-size: 0;
-}
-.play-title {
-  font-family: var(--mono);
-  font-size: clamp(1.25rem, 1.9vw, 2rem);
-  font-weight: 700;
-  line-height: 1.1;
-  text-transform: uppercase;
-  overflow-wrap: anywhere;
-}
-.play-sub:empty {
+/* ---------- Configuración (centro): un cuadrado con su icono, nada más ---------- */
+.tile-glyph {
   display: none;
 }
-.play-pick {
-  justify-self: start;
-  font-family: var(--mono);
-  font-size: var(--step--1);
-  font-weight: 700;
-  text-transform: uppercase;
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
-}
-.play-pick:focus-visible {
-  outline-color: var(--on-accent);
-}
-.play-deck {
+.board[data-mode="home"] .tile-configuracion {
+  padding: 0;
+  gap: 0;
   display: grid;
-  gap: 0.6rem;
-  margin-block-start: auto;
+  place-items: center;
 }
-.tile-play .bar {
-  border-color: var(--on-accent);
+/* el enlace sigue ahí (estirado sobre todo el cuadrado) pero sin texto a la vista */
+.board[data-mode="home"] .tile-configuracion .tile-head {
+  position: absolute;
+  inset: 0;
+  display: block;
 }
-.tile-play .bar:focus-visible {
-  outline-color: var(--on-accent);
+.board[data-mode="home"] .tile-configuracion .tile-mark,
+.board[data-mode="home"] .tile-configuracion .tile-tools {
+  display: none;
 }
-.tile-play .btn-step {
-  border-color: var(--on-accent);
-  color: var(--on-accent);
+.board[data-mode="home"] .tile-configuracion .tile-title {
+  font-size: 0;
+  line-height: 0;
 }
-.tile-play .btn-step:hover:not(:disabled) {
-  background: var(--on-accent);
-  border-color: var(--on-accent);
+.board[data-mode="home"] .tile-configuracion .tile-glyph {
+  display: grid;
+  place-items: center;
   color: var(--accent);
 }
-.tile-play .btn-step:focus-visible,
-.tile-play .btn-play:focus-visible {
-  outline-color: var(--on-accent);
+.tile-glyph .icon {
+  inline-size: calc(var(--core) * 0.42);
+  block-size: calc(var(--core) * 0.42);
+  transition: rotate 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.tile-play .btn-play {
-  background: var(--on-accent);
-  border-color: var(--on-accent);
-  color: var(--accent);
+.board[data-mode="home"] .tile-configuracion:hover,
+.board[data-mode="home"] .tile-configuracion:focus-within {
+  background-color: var(--accent);
 }
-.tile-play .btn-play:hover:not(:disabled) {
-  background: var(--bg);
-  color: var(--ink);
-}
-.tile-play .btn-play:disabled {
-  background: transparent;
+.board[data-mode="home"] .tile-configuracion:hover .tile-glyph,
+.board[data-mode="home"] .tile-configuracion:focus-within .tile-glyph {
   color: var(--on-accent);
-  opacity: 0.55;
+}
+.board[data-mode="home"] .tile-configuracion:hover .tile-glyph .icon,
+.board[data-mode="home"] .tile-configuracion:focus-within .tile-glyph .icon {
+  rotate: 60deg;
+}
+.tile.is-active .tile-glyph {
+  display: none;
 }
 
-/* ---------- /05 Sistema: el «system status» de la referencia ---------- */
+/* ---------- Filas con medidor (Configuración) ---------- */
 .sys {
   display: grid;
-  margin-block-start: auto;
-}
-.sys-row:last-child {
-  border-block-end: 0;
 }
 .sys-row {
   display: grid;
@@ -398,6 +373,9 @@
   gap: 0.75rem;
   padding-block: 0.35rem;
   border-block-end: 1px solid var(--line);
+}
+.sys-row:last-child {
+  border-block-end: 0;
 }
 .sys-row.has-meter {
   grid-template-columns: 8.5rem minmax(0, 1fr) auto;
@@ -440,47 +418,10 @@
   background: transparent;
 }
 
-/* ---------- /06 Salir: la franja de aviso de la referencia ---------- */
-.tile-exit {
-  display: grid;
-  place-items: center;
-  padding: 0.75rem;
-  border-color: var(--accent);
-  background: repeating-linear-gradient(-45deg, var(--accent) 0 16px, var(--bg) 16px 32px);
-  cursor: pointer;
-}
-.tile-exit::before {
-  display: none;
-}
-.exit-label {
-  padding: 0.55rem 1rem;
-  background: var(--bg);
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  font-family: var(--mono);
-  font-weight: 700;
-  font-size: var(--step-0);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.exit-label .tile-num {
-  margin-inline-end: 0.35rem;
-}
-.tile-exit:hover .exit-label {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.tile-exit:hover .exit-label .tile-num {
-  color: var(--on-accent);
-}
-.tile-exit:focus-visible {
-  outline-offset: 2px;
-}
-
-/* ---------- Abierta ---------- */
+/* ---------- Abierta: toda la pantalla ---------- */
 .tile.is-active {
   border-color: var(--accent);
-  padding: 1.25rem 1.5rem 1.5rem;
+  padding: 1.25rem 1.5rem 1.5rem 2.25rem;
   gap: 1rem;
 }
 .tile.is-active .tile-link {
@@ -490,7 +431,7 @@
   display: none;
 }
 .tile.is-active .tile-title {
-  font-size: clamp(2.25rem, 5.5vw, 5rem);
+  font-size: clamp(2.25rem, 5vw, 4.5rem);
   letter-spacing: -0.04em;
   line-height: 0.95;
 }
@@ -505,7 +446,7 @@
 }
 .tile.is-active .tile-statement {
   display: block;
-  max-inline-size: 64ch;
+  max-inline-size: 70ch;
   font-size: var(--step-1);
   font-weight: 500;
   line-height: 1.3;
@@ -527,76 +468,113 @@
   align-content: stretch;
 }
 
-/* ---------- En la columna de la izquierda: compactas ---------- */
-.board[data-mode="focus"] .tile:not(.is-active) {
-  padding: 0.7rem 0.9rem;
-  gap: 0.4rem;
-}
-.board[data-mode="focus"] .tile:not(.is-active) .tile-title,
-.board[data-mode="focus"] .tile-play .play-title {
-  font-size: var(--step-0);
-}
-.board[data-mode="focus"] .tile:not(.is-active) .tile-art,
-.board[data-mode="focus"] .tile:not(.is-active) .tile-quote,
-.board[data-mode="focus"] .tile:not(.is-active) .tile-tag,
-.board[data-mode="focus"] .tile:not(.is-active) .tile-key,
-.board[data-mode="focus"] .tile-play .play-sub,
-.board[data-mode="focus"] .tile-play .play-pick,
-.board[data-mode="focus"] .tile-play .bar,
-.board[data-mode="focus"] .tile-play .deck-times,
-.board[data-mode="focus"] .tile-system .sys {
+/* ---------- El dock: las demás, cuadrados con su icono escondidos en el borde izquierdo ---------- */
+/* el sensor: una franja invisible a lo largo del borde izquierdo */
+.edge {
   display: none;
 }
-.board[data-mode="focus"] .tile:not(.is-active) .tile-arrow {
-  inline-size: 1.6rem;
-  block-size: 1.6rem;
-  padding: 0.25rem;
+.board[data-mode="focus"] .edge {
+  display: block;
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 16px;
+  z-index: 29;
 }
-.board[data-mode="focus"] .tile:not(.is-active) .tile-foot {
-  max-inline-size: none;
-  margin: 0;
+.board[data-mode="focus"] .tile:not(.is-active) {
+  position: fixed;
+  z-index: 30;
+  inset-inline-start: var(--gap);
+  /* apilados y centrados en vertical: el bloque entero mide n·lado + (n−1)·hueco */
+  inset-block-start: calc(50% - (var(--dock-n, 4) * var(--dock) + (var(--dock-n, 4) - 1) * var(--dock-gap)) / 2 + var(--dock-i, 0) * (var(--dock) + var(--dock-gap)));
+  inline-size: var(--dock);
+  block-size: var(--dock);
+  padding: 0;
+  gap: 0;
+  overflow: visible;
+  background-color: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+  /* escondidos: asoman 4 px para que se sepa que están ahí */
+  transform: translateX(calc(-100% - var(--gap) + 4px));
+  transition: transform 140ms ease-out;
 }
-.board[data-mode="focus"] .tile:not(.is-active) .tile-note {
-  font-size: var(--step--1);
-  white-space: nowrap;
+.board[data-mode="focus"] .tile:not(.is-active)::before {
+  display: none;
+}
+.board[data-mode="focus"] .tile:not(.is-active) > :not(.dock-face) {
+  display: none;
+}
+/* aparecen al pasar el cursor por el borde, por el propio dock, o al llegar con el tabulador */
+.board[data-mode="focus"]:has(.edge:hover, .tile:not(.is-active):hover, .tile:not(.is-active):focus-within) .tile:not(.is-active) {
+  transform: none;
+}
+.board[data-mode="focus"] .tile:not(.is-active) .dock-face {
+  display: grid;
+  place-items: center;
+  inline-size: 100%;
+  block-size: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.dock-icon {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+}
+.board[data-mode="focus"] .tile:not(.is-active):hover,
+.board[data-mode="focus"] .tile:not(.is-active):focus-within {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+.dock-face:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.dock-face:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+/* el nombre sale a la derecha del cuadrado al pasar por él */
+.dock-label {
+  position: absolute;
+  inset-inline-start: calc(100% + 10px);
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  padding: 0.3rem 0.6rem;
+  max-inline-size: 18rem;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.board[data-mode="focus"] .tile-play .play-deck {
-  margin: 0;
-}
-.board[data-mode="focus"] .tile-play .btn-step {
-  inline-size: 2rem;
-  block-size: 2rem;
-}
-.board[data-mode="focus"] .tile-play .btn-play {
-  padding-block: 0.45rem;
-}
-/* Sistema en la columna: la insignia va debajo del título, no a su lado */
-.board[data-mode="focus"] .tile-system .tile-head {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    "num"
-    "title"
-    "tools";
-}
-.board[data-mode="focus"] .sys-badge {
-  font-size: 0.7rem;
-  white-space: normal;
-}
-.board[data-mode="focus"] .tile-exit {
-  min-block-size: 3.25rem;
-}
-.board[data-mode="focus"] .exit-label {
-  padding: 0.35rem 0.75rem;
+  white-space: nowrap;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--mono);
   font-size: var(--step--1);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+  opacity: 0;
+}
+.board[data-mode="focus"] .tile:not(.is-active):hover .dock-label,
+.board[data-mode="focus"] .tile:not(.is-active):focus-within .dock-label {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board[data-mode="focus"] .tile:not(.is-active) {
+    transition: none;
+  }
 }
 
 /* ---------- Pantallas más pequeñas ---------- */
 @media (max-width: 1100px) {
-  :root {
-    --column: 15rem;
-  }
+  /* dos columnas: arriba Música y Nube, en medio Configuración a lo ancho, abajo Tareas y Chat */
   .board[data-mode="home"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
@@ -608,16 +586,24 @@
     grid-area: auto;
     min-block-size: 15rem;
   }
-  .board[data-mode="home"] .tile-tareas,
-  .board[data-mode="home"] .tile-system {
-    grid-column: 1 / -1;
+  .board[data-mode="home"] .tile-musica {
+    grid-area: 1 / 1;
   }
-  .board[data-mode="home"] .tile-system {
-    min-block-size: 12rem;
+  .board[data-mode="home"] .tile-nube {
+    grid-area: 1 / 2;
   }
-  .board[data-mode="home"] .tile-exit {
-    grid-column: 1 / -1;
-    min-block-size: 5rem;
+  .board[data-mode="home"] .tile-configuracion {
+    grid-area: 2 / 1 / 3 / 3;
+    min-block-size: 6rem;
+    block-size: 6rem;
+  }
+  .board[data-mode="home"] .tile-tareas {
+    grid-area: 3 / 1;
+    min-block-size: 22rem;
+  }
+  .board[data-mode="home"] .tile-chat {
+    grid-area: 3 / 2;
+    min-block-size: 22rem;
   }
 }
 
@@ -625,40 +611,41 @@
   .board[data-mode="home"] {
     grid-template-columns: minmax(0, 1fr);
   }
-  .board[data-mode="home"] .tile {
-    grid-column: 1 / -1;
+  .board[data-mode="home"] .tile-musica,
+  .board[data-mode="home"] .tile-nube,
+  .board[data-mode="home"] .tile-configuracion,
+  .board[data-mode="home"] .tile-tareas,
+  .board[data-mode="home"] .tile-chat {
+    grid-area: auto;
   }
   .sys-row,
   .sys-row.has-meter {
     grid-template-columns: 7rem minmax(0, 1fr) auto;
   }
-  .tile-tareas .tile-art,
   .tile-musica .tile-art {
     inline-size: 38%;
   }
-  .tile-tareas .tile-foot,
   .tile-musica .tile-foot {
     max-inline-size: calc(62% - 2rem);
   }
 
-  /* abierta en el móvil: la sección arriba a todo lo ancho y las demás, en dos columnas debajo */
+  /* sin cursor no hay borde que tocar: el dock es una tira fija abajo, siempre visible */
   .board[data-mode="focus"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: none;
-    grid-auto-rows: auto;
     block-size: auto;
-    min-block-size: 0;
+    min-block-size: 100dvh;
+    padding-block-end: calc(var(--dock) + 2 * var(--gap));
   }
-  .board[data-mode="focus"] .tile {
-    grid-column: auto;
+  .board[data-mode="focus"] .edge {
+    display: none;
   }
-  .board[data-mode="focus"] .tile.is-active {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    min-block-size: 70dvh;
+  .board[data-mode="focus"] .tile:not(.is-active) {
+    inset-block-start: auto;
+    inset-block-end: var(--gap);
+    inset-inline-start: calc(50% - (var(--dock-n, 4) * var(--dock) + (var(--dock-n, 4) - 1) * var(--dock-gap)) / 2 + var(--dock-i, 0) * (var(--dock) + var(--dock-gap)));
+    transform: none;
   }
-  .board[data-mode="focus"] .tile-exit {
-    grid-column: 1 / -1;
+  .dock-label {
+    display: none;
   }
   .tile.is-active {
     padding: 1rem;
@@ -666,4 +653,54 @@
   .tile.is-active .tile-panel {
     overflow: visible;
   }
+}
+
+/* ---------- Los iconos de cada sección se animan un poco al pasar el cursor (o al llegar con el tabulador) ----------
+   Una vez por pasada y distinta en cada una: las marcas de Tareas saltan, el disco de Música gira, la Nube flota, el globo del
+   Chat se agita y el engranaje de Configuración da un giro. Valen para el icono de la tesela y para el cuadrado del dock. */
+.tile-icon,
+.dock-icon {
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tile-tareas:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-hop 560ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .tile-musica:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-spin 800ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .tile-nube:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-float 900ms ease-in-out;
+  }
+  .tile-chat:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-wiggle 520ms ease-in-out;
+  }
+  .tile-configuracion:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-turn 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+@keyframes icon-hop {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+  55% { transform: translateY(1.5px); }
+  75% { transform: translateY(-1.5px); }
+  100% { transform: translateY(0); }
+}
+@keyframes icon-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes icon-float {
+  0% { transform: translateY(0); }
+  35% { transform: translateY(-4px); }
+  70% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+@keyframes icon-wiggle {
+  0% { transform: rotate(0); }
+  25% { transform: rotate(-10deg) scale(1.1); }
+  60% { transform: rotate(8deg) scale(1.1); }
+  100% { transform: rotate(0); }
+}
+@keyframes icon-turn {
+  to { transform: rotate(90deg); }
 }

@@ -21,6 +21,14 @@ class PrefsRoleCache implements RoleCache {
   }
 
   @override
+  Future<({String userId, Role role})?> readLast() async {
+    final stored = _prefs.getString(_key);
+    final cut = stored?.lastIndexOf(':') ?? -1; // el id (uuid) no lleva «:»; el rol, tampoco
+    if (stored == null || cut <= 0) return null;
+    return (userId: stored.substring(0, cut), role: roleFromName(stored.substring(cut + 1)));
+  }
+
+  @override
   Future<void> write(String userId, Role role) async {
     await _prefs.setString(_key, '$userId:${role.name}');
   }

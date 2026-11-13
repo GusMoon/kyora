@@ -86,11 +86,11 @@ export async function defaultConversation(client: SupabaseClient): Promise<strin
 export async function listMessages(
   client: SupabaseClient,
   conversationId: string,
-  opts: { after?: string | null; limit?: number } = {},
+  opts: { after?: string | null; before?: string | null; limit?: number } = {},
 ): Promise<Message[]> {
   const { data, error } = await client.rpc("list_messages", {
     p_conversation_id: conversationId,
-    p_before: null,
+    p_before: opts.before ?? null, // cargar más hacia atrás: los enviados antes de esa hora
     p_after: opts.after ?? null,
     p_limit: opts.limit ?? 50,
   });
@@ -140,4 +140,45 @@ export function watchMessages(
   return () => {
     void client.removeChannel(channel);
   };
+}
+
+const CHUNK = 100; // cuántos mensajes se borran por tanda (la dirección de la petición no puede crecer sin fin)
+
+/** Borra mensajes del servidor **de verdad** (no «borrado suave»): primero los archivos de sus adjuntos en Storage (y
+ * sus miniaturas) y luego las filas (los adjuntos caen en cascada). Si falla el almacenamiento no se toca la base, así se
+ * puede reintentar. Devuelve los ids que se borraron. Las otras apps (Kyora y Kyra) quitan el mensaje al recibir el aviso. */
+export async function deleteMessages(client: SupabaseClient, ids: string[]): Promise<string[]> {
+  const deleted: string[] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const part = ids.slice(i, i + CHUNK);
+    const atts = await client.from("attachments").select("storage_path, thumb_path").in("message_id", part);
+    if (atts.error) throw atts.error;
+    const paths = [...new Set((atts.data ?? []).flatMap((a: { storage_path: string | null; thumb_path: string | null }) => [a.storage_path, a.thumb_path]).filter((p): p is string => !!p))];
+    if (paths.length) {
+      const removed = await client.storage.from(BUCKET).remove(paths);
+      if (removed.error) throw removed.error;
+    }
+    const gone = await client.from("messages").delete().in("id", part).select("id");
+    if (gone.error) throw gone.error;
+    deleted.push(...(gone.data ?? []).map((r: { id: string }) => r.id));
+  }
+  return deleted;
+}
+
+/** Los ids de todos los mensajes de una conversación (de mil en mil). */
+export async function conversationMessageIds(client: SupabaseClient, conversationId: string): Promise<string[]> {
+  const ids: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await client.from("messages").select("id").eq("conversation_id", conversationId).order("created_at").range(from, from + 999);
+    if (error) throw error;
+    ids.push(...(data ?? []).map((r: { id: string }) => r.id));
+    if ((data ?? []).length < 1000) return ids;
+  }
+}
+
+/** Vacía la conversación: todos sus mensajes y los archivos de sus adjuntos. Devuelve cuántos se borraron y cuántos había. */
+export async function clearConversation(client: SupabaseClient, conversationId: string): Promise<{ deleted: number; total: number }> {
+  const ids = await conversationMessageIds(client, conversationId);
+  const deleted = await deleteMessages(client, ids);
+  return { deleted: deleted.length, total: ids.length };
 }

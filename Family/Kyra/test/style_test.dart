@@ -13,7 +13,7 @@ import 'package:kyora_chat/state/reminder_controller.dart';
 import 'package:kyora_chat/state/task_controller.dart';
 import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
-import 'package:kyora_chat/ui/calendar_page.dart';
+import 'package:kyora_chat/ui/agenda_view.dart';
 import 'package:kyora_chat/ui/home_page.dart';
 import 'package:kyora_chat/ui/music_page.dart';
 import 'package:kyora_chat/ui/settings_page.dart';
@@ -110,7 +110,7 @@ void main() {
       await reminders.start();
       await reminders.add('Llamar', DateTime(2026, 11, 3, 8).toUtc());
     });
-    await show(tester, CalendarPage(tasks: Future.value(tasks), reminders: Future.value(reminders), now: () => DateTime(2026, 11, 3, 9)));
+    await show(tester, AgendaView(tasks: Future.value(tasks), reminders: Future.value(reminders), now: () => DateTime(2026, 11, 3, 9)));
     await tester.pump();
     expectStyle(tester);
   });

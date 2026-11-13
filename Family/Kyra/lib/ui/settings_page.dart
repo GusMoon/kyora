@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../data/account_backend.dart';
 import '../data/background_playback.dart';
 import '../models/profile.dart';
 import '../state/dock_controller.dart';
@@ -42,6 +44,9 @@ class SettingsPage extends StatefulWidget {
     required this.music,
     required this.role,
     required this.onSignOut,
+    this.account,
+    this.expired,
+    this.onSignIn,
     this.username,
     this.background,
     this.weather,
@@ -57,6 +62,15 @@ class SettingsPage extends StatefulWidget {
   final String? username;
 
   final Future<void> Function() onSignOut;
+
+  /// La cuenta, para saber si hay sesión (la ficha se actualiza sola al entrar o salir). Sin esto se da por hecho que hay sesión.
+  final AccountBackend? account;
+
+  /// `true` si la sesión se perdió sola (caducó) y toca volver a entrar para sincronizar.
+  final ValueListenable<bool>? expired;
+
+  /// Abre el acceso (entrar o crear cuenta). Sin esto no sale la opción «Iniciar sesión».
+  final VoidCallback? onSignIn;
 
   /// El estado de la batería para la música en segundo plano. Sin esto no sale esa fila.
   final BackgroundPlayback? background;
@@ -243,6 +257,19 @@ class _SettingsPageState extends State<SettingsPage> {
     ]),
   );
 
+  /// Pinta la ficha según haya sesión o no (escucha la cuenta: al entrar o salir cambia sola).
+  Widget _live(Widget Function(bool signedIn, bool expired) build) {
+    final account = widget.account;
+    if (account == null) return build(true, false);
+    return StreamBuilder<void>(
+      stream: account.authChanges,
+      builder: (context, _) => ListenableBuilder(
+        listenable: widget.expired ?? const _Never(),
+        builder: (context, _) => build(account.signedIn, widget.expired?.value ?? false),
+      ),
+    );
+  }
+
   MosaicEntry _account() => MosaicEntry(
     id: 'account',
     title: widget.username ?? 'Tu cuenta',
@@ -250,34 +277,52 @@ class _SettingsPageState extends State<SettingsPage> {
     icon: Icons.person_outline,
     colSpan: 1,
     rowSpan: 2,
-    summary: (context, height) {
+    summary: (context, height) => _live((signedIn, expired) {
       final c = context.colors;
+      final text = !signedIn ? (expired ? 'SESIÓN CADUCADA' : 'SIN SESIÓN') : (widget.role == Role.admin ? 'ADMIN' : 'PASANTE');
       return Align(
         alignment: Alignment.bottomLeft,
-        child: Text(widget.role == Role.admin ? 'ADMIN' : 'PASANTE', style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.5, color: c.accent)),
+        child: Text(text, style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.5, color: signedIn ? c.accent : c.warn)),
       );
-    },
-    detail: (context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
-      _hint(context, 'Con quién has entrado.'),
-      SettingsRow(
-        key: const Key('settings-account'),
-        icon: Icons.person_outline,
-        title: widget.username ?? 'Tu cuenta',
-        subtitle: widget.role == Role.admin ? 'Administrador' : 'Pasante',
+    }),
+    detail: (context) => _live((signedIn, expired) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+      _hint(
+        context,
+        signedIn
+            ? 'Con quién has entrado.'
+            : expired
+                ? 'La sesión caducó. Kyra sigue funcionando; entra de nuevo para el chat, la música de la PC y sincronizar.'
+                : 'Kyra funciona sin sesión. Entra para el chat, la música de la PC y sincronizar tus tareas.',
       ),
-      Divider(height: 1, thickness: 1, color: context.colors.edge),
-      SettingsRow(
-        key: const Key('settings-sign-out'),
-        icon: Icons.logout,
-        title: 'Cerrar sesión',
-        danger: true,
-        onTap: () async {
-          // la pantalla de acceso aparece en la base de la pila: se cierra lo que haya encima
-          Navigator.of(context).popUntil((route) => route.isFirst);
-          await widget.onSignOut();
-        },
-      ),
-    ]),
+      if (signedIn) ...[
+        SettingsRow(
+          key: const Key('settings-account'),
+          icon: Icons.person_outline,
+          title: widget.username ?? 'Tu cuenta',
+          subtitle: widget.role == Role.admin ? 'Administrador' : 'Pasante',
+        ),
+        Divider(height: 1, thickness: 1, color: context.colors.edge),
+        SettingsRow(
+          key: const Key('settings-sign-out'),
+          icon: Icons.logout,
+          title: 'Cerrar sesión',
+          danger: true,
+          onTap: () async {
+            // sigue en Inicio, ya sin sesión: se cierra lo que haya encima
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            await widget.onSignOut();
+          },
+        ),
+      ] else if (widget.onSignIn != null)
+        SettingsRow(
+          key: const Key('settings-sign-in'),
+          icon: Icons.login,
+          title: 'Iniciar sesión',
+          subtitle: 'O crear una cuenta',
+          trailing: LcdIcon(Icons.chevron_right, color: context.colors.dim),
+          onTap: widget.onSignIn,
+        ),
+    ])),
   );
 
   // ---- piezas ----
@@ -349,4 +394,15 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+}
+
+/// Un `Listenable` que nunca avisa (cuando no hay nada que escuchar).
+class _Never implements Listenable {
+  const _Never();
+
+  @override
+  void addListener(VoidCallback listener) {}
+
+  @override
+  void removeListener(VoidCallback listener) {}
 }

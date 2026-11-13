@@ -20,7 +20,7 @@ import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/chat_page.dart';
 import 'package:kyora_chat/ui/home_page.dart';
 import 'package:kyora_chat/ui/music_page.dart';
-import 'package:kyora_chat/ui/calendar_page.dart';
+import 'package:kyora_chat/ui/agenda_view.dart';
 import 'package:kyora_chat/ui/tasks_page.dart';
 import 'package:kyora_chat/ui/widgets/composer.dart';
 import 'package:kyora_chat/ui/widgets/section_motion.dart';
@@ -162,7 +162,7 @@ void main() {
     final reminders = ReminderController(MemoryReminderStore(), FakeScheduler());
     addTearDown(reminders.dispose);
     await tester.runAsync(reminders.start);
-    await show(tester, CalendarPage(reminders: Future.value(reminders), now: () => DateTime(2026, 11, 5, 9)));
+    await show(tester, AgendaView(reminders: Future.value(reminders), now: () => DateTime(2026, 11, 5, 9)));
     await tester.pump();
     expect(edgeOf(tester, find.byKey(const Key('cal-title'))), MotionEdge.top);
     expect(edgeOf(tester, find.byKey(const Key('cal-summary'))), MotionEdge.top);

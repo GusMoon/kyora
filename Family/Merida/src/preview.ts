@@ -1,6 +1,7 @@
-// Vista previa del diseño SIN servidor: monta el marco y las tres secciones con datos de ejemplo.
+// Vista previa del diseño SIN Supabase: monta el tablero y las secciones con datos de ejemplo.
 // Solo existe en desarrollo (http://127.0.0.1:5180/preview.html#/tareas); no entra en `npm run build`
-// ni toca Supabase: el cliente de aquí es un sustituto que no hace nada.
+// ni toca Supabase: el cliente de aquí es un sustituto que no hace nada. «Mis listas» sí usa el servicio local de
+// música si está abierto (solo lee; descargar sigue pidiendo confirmar el destino).
 import "@fontsource-variable/space-grotesk/wght.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
@@ -9,10 +10,21 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/sections.css";
 import "./styles/board.css";
+import "./styles/settings.css";
+import "./styles/fx.css";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Store } from "./store";
 import { Status } from "./status";
+import { PrefsStore, applyAccent } from "./prefs";
+import { Library } from "./data/library";
+import { Backdrop } from "./backdrop";
+import "./styles/backdrop.css";
+import "./styles/cloud.css";
+import { mergeCloud } from "./data/cloud";
+import { cloudSection, cloudStatement } from "./sections/cloud";
+import { fxConfig, hideBlocks, resetHidden, revealBlocks } from "./ui/fx";
+import { settingsSection, settingsStatement } from "./sections/settings";
 import { Shell, ROUTES, type RouteId } from "./ui/shell";
 import { newTask, type Task } from "./data/tasks";
 import type { Track } from "./data/music";
@@ -70,8 +82,19 @@ const messages = [
   { ...msg("5", "web", "Este se está enviando.", 13), local: "sending" as const },
 ];
 
+// la nube de ejemplo: lo que se mandó por el chat y las canciones que subió la PC
+const files = mergeCloud(
+  [
+    { id: "f1", storage_path: "u/c/m1/pizarron.jpg", file_name: "pizarron.jpg", mime_type: "image/jpeg", size_bytes: 482113, created_at: at(11), message: { sender_device: "pc", deleted_at: null } },
+    { id: "f2", storage_path: "u/c/m2/contrato-casa.pdf", file_name: "contrato-casa.pdf", mime_type: "application/pdf", size_bytes: 1894400, created_at: at(10, -1), message: { sender_device: "movil", deleted_at: null } },
+    { id: "f3", storage_path: "u/c/m3/captura.png", file_name: "captura.png", mime_type: "image/png", size_bytes: 920000, created_at: at(9, -3), message: { sender_device: "web", deleted_at: null } },
+  ],
+  tracks.map((tr) => ({ ...tr, owner_id: "me", recipient_id: "me", title: tr.title })),
+  "me",
+);
+
 const store = new Store();
-Object.assign(store, { tasks, tracks, messages, conversationId: "c", loaded: { tasks: true, tracks: true, messages: true } });
+Object.assign(store, { tasks, tracks, messages, files, conversationId: "c", loaded: { tasks: true, tracks: true, messages: true, files: true } });
 
 let listeners: ((s: Player["state"]) => void)[] = [];
 let state: Player["state"] = { track: tracks[1], playing: true, loading: false, time: 74, duration: 258, error: null };
@@ -85,37 +108,74 @@ const player = {
 
 const status = new Status();
 const signOut = () => alert("Vista previa: no hay sesión que cerrar.");
-const shell = new Shell({ store, player, status, signOut });
-status.set({ account: "gustavo, admin", latency: 84, live: "live" });
+const shell = new Shell({ store });
+status.set({ account: "gustavo, admin", username: "gustavo", role: "admin", email: "gustavo@ejemplo.com", latency: 84, live: "live" });
+const prefs = new PrefsStore();
+const backdrop = new Backdrop();
+document.body.prepend(backdrop.el);
+const applyPrefs = () => {
+  applyAccent((prefs.value.tint && backdrop.accent ? (backdrop.accent as `#${string}`) : null) ?? prefs.value.accent);
+  fxConfig.hack = prefs.value.hack;
+  fxConfig.holo = prefs.value.holo;
+};
+applyPrefs();
+prefs.on(applyPrefs);
+backdrop.on(applyPrefs);
 
-const ctx: Ctx = { client: stub, shell, store, player, status, signOut, reload: async () => {} };
+// la portada de lo que suena es el fondo (en la vista previa, una portada de ejemplo dibujada aquí)
+const demoCover = "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='320' height='180'><rect width='320' height='180' fill='#d4237a'/><circle cx='230' cy='60' r='70' fill='#ff8a3d'/><rect x='0' y='120' width='320' height='60' fill='#401060'/></svg>");
+const syncCover = () => backdrop.setCover(prefs.value.cover && state.playing && state.track ? demoCover : null);
+player.on(syncCover);
+prefs.on(syncCover);
+
+const ctx: Ctx = { client: stub, shell, store, player, status, prefs, backdrop, library: new Library(), signOut, reload: async () => {} };
 const SECTIONS: Record<RouteId, [Section, () => string]> = {
   inicio: [() => () => {}, () => ""],
+  configuracion: [settingsSection, () => settingsStatement(status.data)],
   tareas: [tasksSection, () => tasksStatement(tasks, true)],
   musica: [musicSection, () => musicStatement(tracks, true)],
+  nube: [cloudSection, () => cloudStatement(files, true)],
   chat: [chatSection, () => chatStatement(messages, true)],
 };
 let unmount: (() => void) | null = null;
 let first = true;
-// igual que main.ts: la tesela crece y las demás se apilan a la izquierda con View Transitions
+let seq = 0;
+// igual que main.ts: sale como holograma; la tesela crece (View Transitions) y a la vez lo nuevo entra como holograma
 function route() {
   const id = (location.hash.replace(/^#\/?/, "") || "inicio") as RouteId;
   const key = ROUTES.some((r) => r.id === id) ? id : "inicio";
   if (!first && key === shell.route) return;
+  const previous = shell.route;
+  const token = ++seq;
+  const firstTime = first;
   const swap = () => {
     unmount?.();
     shell.setSection(key, SECTIONS[key][1]());
     unmount = SECTIONS[key][0](ctx);
     shell.body.scrollTop = 0;
+    resetHidden();
+    const { blocks, texts } = shell.fxTargets(key);
+    void revealBlocks(key === "inicio" && !firstTime ? [] : blocks, texts);
   };
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (first || reduce || !("startViewTransition" in document)) swap();
-  else document.startViewTransition(swap);
-  first = false;
+  if (first) {
+    first = false;
+    swap();
+    return;
+  }
+  const leaving = previous === "inicio" ? Promise.resolve() : hideBlocks(shell.fxTargets(previous).blocks, shell.fxTargets(previous).texts);
+  void leaving.then(() => {
+    if (token !== seq) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || !("startViewTransition" in document)) swap();
+    else document.startViewTransition(swap);
+  });
 }
 window.addEventListener("hashchange", route);
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") location.hash = "#/inicio";
+  const target = e.target as HTMLElement | null;
+  if (e.ctrlKey || e.metaKey || e.altKey || (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+  const r = e.key === "Escape" ? ROUTES[0] : ROUTES.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
+  if (r) location.hash = `#/${r.id}`;
 });
 document.getElementById("app")!.replaceChildren(shell.root);
 route();

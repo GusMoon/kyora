@@ -241,13 +241,19 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('el administrador llega a las tareas en el Calendario y lo anotado sube a Supabase', (tester) async {
+    /// Toca la hora de Inicio: se expande y enseña la agenda.
+    Future<void> openAgenda(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('home-time-tile')));
+      await tester.pumpAndSettle();
+      await settle(tester);
+    }
+
+    testWidgets('el administrador llega a las tareas en la hora de Inicio y lo anotado sube a Supabase', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)));
       final options = await menuOptions(tester);
-      expect(options, contains('calendar'));
+      expect(options, isNot(contains('calendar'))); // ya no es una sección
       expect(options, isNot(contains('tasks')));
-      await goToSection(tester, 'calendar');
-      await settle(tester);
+      await openAgenda(tester);
       await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
       await tester.tap(find.byKey(const Key('cal-all-tasks')));
       await settle(tester);
@@ -258,18 +264,18 @@ void main() {
       expect(backend.tasks.values.single.name, 'Desde el móvil');
     });
 
-    testWidgets('el pasante también las alcanza en el Calendario', (tester) async {
+    testWidgets('el pasante también las alcanza en la hora de Inicio', (tester) async {
       await gate(tester, FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern)));
-      await goToSection(tester, 'calendar');
-      await settle(tester);
+      await openAgenda(tester);
       await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
       await tester.tap(find.byKey(const Key('cal-all-tasks')));
       await settle(tester);
       expect(find.byType(TasksView), findsOneWidget);
     });
 
-    testWidgets('sin tareas, recordatorios ni hábitos no hay Calendario', (tester) async {
+    testWidgets('sin tareas, recordatorios ni hábitos la hora no se expande', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)), withTasks: false);
+      expect(find.byKey(const Key('home-time-tile')), findsNothing);
       expect(await menuOptions(tester), isNot(contains('calendar')));
     });
   });

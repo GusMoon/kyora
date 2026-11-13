@@ -39,15 +39,39 @@ class MusicController extends ChangeNotifier {
   /// Avisos cortos (por ejemplo, «Guardada en Música/Kyora: …»): salen como una barra inferior.
   Stream<String> get notices => _notices.stream;
 
-  Future<void> start() async {
+  /// Con `remote: false` (sin sesión) solo carga lo local: los ajustes y las canciones ya guardadas; no habla con Supabase hasta `connect()`.
+  Future<void> start({bool remote = true}) async {
     settings = await _store.loadSettings();
     _saved.addAll(await _store.loadSaved());
     _autoSince = await _store.autoSince();
+    if (remote) {
+      await connect();
+    } else {
+      loading = false;
+      _tell();
+    }
+  }
+
+  /// Empieza a escuchar a Supabase y pide la lista (al entrar con la cuenta). Si ya estaba conectada, no hace nada.
+  Future<void> connect() async {
+    if (_disposed || _changes != null) return;
     _changes = _backend.trackChanges().listen((_) => unawaited(refresh()), onError: (Object e) {
       error = e.toString();
       _tell();
     });
     await refresh();
+  }
+
+  /// Deja de hablar con Supabase (la sesión se cerró o caducó). Lo ya guardado en el teléfono sigue ahí.
+  Future<void> disconnect() async {
+    final sub = _changes;
+    if (sub == null) return;
+    _changes = null;
+    await sub.cancel();
+    tracks = const [];
+    error = null;
+    loading = false;
+    _tell();
   }
 
   TrackState stateOf(Track track) {

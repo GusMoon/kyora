@@ -1,0 +1,57 @@
+/* ---------- El fondo de pantalla (como Kyra): imagen, portada que suena, oscurecido plano y líneas ---------- */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  background: var(--bg);
+}
+.backdrop-wall,
+.backdrop-cover,
+.backdrop-dim,
+.backdrop-lines {
+  position: absolute;
+  inset: 0;
+}
+.backdrop-wall,
+.backdrop-cover {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.backdrop-cover {
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+.backdrop-cover.in {
+  opacity: 1;
+}
+/* el oscurecido plano (0,42), igual en toda la pantalla: lo justo para que se lea */
+.backdrop-dim {
+  background: rgba(0, 0, 0, 0.42);
+}
+/* las líneas de barrido de Kyra, sobre el fondo (y el oscurecido), detrás de todo lo demás */
+.backdrop-lines {
+  background-image: var(--lines);
+}
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-cover {
+    transition: none;
+  }
+}
+
+/* Con un fondo puesto, las superficies son grises muy oscuros que dejan ver el fondo (sin desenfocar), con las líneas encima.
+   Lo que flota sobre otras cosas (el dock) se queda sólido. */
+:root {
+  --surface-solid: #111317;
+}
+:root[data-backdrop] {
+  --surface: rgba(17, 19, 23, 0.74);
+  --plate: rgba(24, 26, 31, 0.8);
+  --field: rgba(12, 14, 17, 0.82);
+  --pick: rgba(34, 37, 43, 0.86);
+}
+:root[data-backdrop] .board[data-mode="focus"] .tile:not(.is-active) {
+  background-color: var(--surface-solid);
+}

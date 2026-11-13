@@ -54,6 +54,31 @@ export class Player {
     }
   }
 
+  /** Escuchar algo que no está en Supabase: una canción de tus listas de YouTube, por el enlace que da el servicio local. */
+  async playUrl(item: { id: string; title: string; playlist?: string | null }, url: string) {
+    const track: Track = {
+      id: `yt:${item.id}`,
+      title: item.title,
+      file_name: "",
+      storage_path: "",
+      mime_type: "audio/mpeg",
+      size_bytes: 0,
+      playlist: item.playlist ?? null,
+      cover_url: `https://i.ytimg.com/vi/${encodeURIComponent(item.id)}/mqdefault.jpg`,
+      created_at: new Date().toISOString(),
+      received_at: null,
+    };
+    this.queue = [track];
+    this.index = 0;
+    this.set({ track, playing: false, loading: true, time: 0, duration: 0, error: null });
+    try {
+      this.audio.src = url;
+      await this.audio.play();
+    } catch (err) {
+      if (this.state.track?.id === track.id) this.set({ loading: false, playing: false, error: explainError(err) });
+    }
+  }
+
   toggle() {
     if (!this.state.track) return;
     if (this.audio.paused) void this.audio.play().catch(() => undefined);

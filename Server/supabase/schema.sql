@@ -818,4 +818,41 @@ create policy "habit_checks: owner insert" on public.habit_checks for insert to 
 create policy "habit_checks: owner update" on public.habit_checks for update to authenticated
   using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
 
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 10. Comandos del chat: atajos que se escriben en el chat con «/» para activar una función. Por ahora, abrir una página web:
+--     en Configuración pones el nombre de la web, el comando (sin la «/») y la URL; al escribir «/comando» en el chat se abre
+--     esa URL en lugar de mandar un mensaje. Pensada para crecer: más adelante se le puede añadir una columna «action».
+--    - command: en minúsculas, de 1 a 24 letras, números, «-» o «_» (se guarda sin la «/»). No se repite por dueño.
+--    - url: solo http:// o https://.
+--    Cada quien ve y toca solo lo suyo (owner_id); crear comandos exige ser administrador, como el chat.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.chat_commands (
+  id          uuid        primary key default gen_random_uuid(),
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  name        text        not null check (char_length(btrim(name)) between 1 and 60),       -- el nombre de la web («YouTube»)
+  command     text        not null check (command ~ '^[a-z0-9_-]{1,24}$'),                  -- lo que se escribe tras la «/»
+  url         text        not null check (char_length(url) <= 2048 and url ~* '^https?://[^[:space:]]+$'),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists chat_commands_owner_command_key on public.chat_commands (owner_id, command);
+
+alter table public.chat_commands enable row level security;
+revoke all on public.chat_commands from anon;
+
+drop policy if exists "chat_commands: owner select" on public.chat_commands;
+drop policy if exists "chat_commands: owner insert" on public.chat_commands;
+drop policy if exists "chat_commands: owner update" on public.chat_commands;
+drop policy if exists "chat_commands: owner delete" on public.chat_commands;
+create policy "chat_commands: owner select" on public.chat_commands for select to authenticated
+  using (owner_id = (select auth.uid()));
+create policy "chat_commands: owner insert" on public.chat_commands for insert to authenticated
+  with check (owner_id = (select auth.uid()) and (select public.is_admin()));
+create policy "chat_commands: owner update" on public.chat_commands for update to authenticated
+  using (owner_id = (select auth.uid()) and (select public.is_admin()))
+  with check (owner_id = (select auth.uid()) and (select public.is_admin()));
+create policy "chat_commands: owner delete" on public.chat_commands for delete to authenticated
+  using (owner_id = (select auth.uid()));
+
 -- Fin. Ahora crea tu usuario en Authentication > Users (ver Server/supabase/README.md).

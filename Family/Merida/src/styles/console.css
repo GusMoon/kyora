@@ -1,15 +1,8 @@
-/* ---------- La consola de acceso: fósforo verde de pantalla CRT ----------
-   Estética de la referencia: negro verdoso, un solo verde brillante con sus tonos, marco fino con cuadros claros en las
-   esquinas, letra de píxeles, líneas de barrido y un brillo suave en el texto. Solo se usa en el acceso. */
+/* ---------- La consola de acceso, con el diseño de Merida ----------
+   Mismo flujo de consola (correo> y luego contraseña>), en el lenguaje de la web: fondo de Kyra, una caja cuadrada de
+   línea fina con marcas de esquina en el acento, MERIDA_ en un bloque de acento, /00 ACCESO en mono y, al entrar, la
+   franja de aviso a rayas con «> acceso concedido_». */
 .console-screen {
-  --crt: #5dff86; /* el texto */
-  --crt-dim: #2fbf5c; /* lo secundario: 7:1 sobre el fondo */
-  --crt-line: #35ff6b; /* el marco */
-  --crt-hot: #d9ffe5; /* los cuadros de las esquinas y lo conseguido */
-  --crt-warn: #ff6b6b;
-  --crt-bg: #030804;
-
-  position: relative;
   min-block-size: 100vh;
   min-block-size: 100dvh;
   display: grid;
@@ -17,153 +10,170 @@
   grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 1.5rem 1rem;
-  background: var(--crt-bg);
-  color: var(--crt);
-  font-family: "VT323", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  font-size: 1.6rem;
-  line-height: 1.2;
-  text-shadow: 0 0 6px rgba(93, 255, 134, 0.45);
-  overflow: hidden;
-}
-
-/* las líneas de barrido y la sombra de los bordes de la pantalla, por encima de todo */
-.console-screen::before,
-.console-screen::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-}
-.console-screen::before {
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.3) 0 1px, transparent 1px 3px);
-}
-.console-screen::after {
-  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.7) 100%);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 .console {
   position: relative;
-  inline-size: min(46rem, 100%);
-  border: 2px solid var(--crt-line);
-  background: rgba(4, 18, 8, 0.82);
-  box-shadow:
-    0 0 28px rgba(53, 255, 107, 0.18),
-    inset 0 0 40px rgba(53, 255, 107, 0.07);
+  inline-size: min(44rem, 100%);
+  background-color: var(--surface);
+  background-image: var(--lines); /* las líneas de Kyra, solo en el fondo de la caja */
+  border: 1px solid var(--line-strong);
 }
 
-/* los cuadritos claros de las cuatro esquinas del marco */
+/* las marcas de esquina en el acento (arriba a la izquierda y abajo a la derecha, como en Kyra) */
 .console-corner {
   position: absolute;
-  inline-size: 10px;
-  block-size: 10px;
-  background: var(--crt-hot);
-  box-shadow: 0 0 6px rgba(217, 255, 229, 0.7);
+  inline-size: 14px;
+  block-size: 14px;
+  pointer-events: none;
 }
 .console-corner[data-at="tl"] {
-  inset: -7px auto auto -7px;
-}
-.console-corner[data-at="tr"] {
-  inset: -7px -7px auto auto;
-}
-.console-corner[data-at="bl"] {
-  inset: auto auto -7px -7px;
+  inset: -1px auto auto -1px;
+  border-block-start: 2px solid var(--accent);
+  border-inline-start: 2px solid var(--accent);
 }
 .console-corner[data-at="br"] {
-  inset: auto -7px -7px auto;
+  inset: auto -1px -1px auto;
+  border-block-end: 2px solid var(--accent);
+  border-inline-end: 2px solid var(--accent);
 }
 
-.console-head,
-.console-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 0.3rem 1.1rem;
-}
 .console-head {
-  border-block-end: 2px solid var(--crt-line);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-block-end: 1px solid var(--line);
 }
-.console-foot {
-  border-block-start: 2px solid var(--crt-line);
-  color: var(--crt-dim);
-  font-size: 1.25rem;
+.console-logo {
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 0.3rem 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 .console-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
   margin: 0;
-  font-size: 2.6rem;
-  font-weight: 400;
-  letter-spacing: 0.08em;
+  font-size: 1.5rem;
+  font-weight: 700;
   line-height: 1;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
 }
 .console-tag {
-  color: var(--crt-dim);
+  margin-inline-start: auto;
+  color: var(--dim);
+  font-size: var(--step--1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .console-body {
-  padding: 1rem 1.25rem 1.5rem;
-  min-block-size: 20rem;
+  padding: 1.1rem 1.25rem 1.4rem;
+  min-block-size: 19rem;
   cursor: text;
 }
 
 .console-line {
   margin: 0;
-  min-block-size: 1.2em;
+  min-block-size: 1.5em;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .console-line.is-dim {
-  color: var(--crt-dim);
+  color: var(--dim);
 }
 .console-line.is-err {
-  color: var(--crt-warn);
-  text-shadow: 0 0 6px rgba(255, 107, 107, 0.4);
+  color: var(--warn);
 }
 .console-line.is-ok {
-  color: var(--crt-hot);
+  color: var(--accent);
+  font-weight: 700;
 }
 
-/* el renglón donde se escribe: «correo> » y, detrás, un campo sin caja con el cursor en bloque */
+/* el renglón donde se escribe: «correo>» en el acento y, detrás, un campo sin caja con el cursor en bloque */
 .console-screen .prompt-row {
   display: flex;
   align-items: baseline;
-  gap: 0.7ch;
+  gap: 1ch;
   margin: 0;
+  border-block-end: 1px solid var(--line);
 }
 .console-screen .prompt-row label {
   white-space: nowrap;
+  color: var(--accent);
+  font-weight: 700;
 }
 .console-screen .prompt-row input {
   flex: 1;
   min-inline-size: 0;
   inline-size: auto;
   margin: 0;
-  padding: 0;
+  padding: 0.2rem 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
-  color: var(--crt-hot);
+  color: var(--ink);
   font: inherit;
-  text-shadow: inherit;
-  caret-color: var(--crt);
+  caret-color: var(--accent);
   caret-shape: block;
   outline: none;
 }
-/* sin caja el foco se ve igual: el renglón se subraya mientras tiene el cursor */
+/* sin caja el foco se ve igual: la línea de debajo se enciende en el acento */
 .console-screen .prompt-row:focus-within {
-  box-shadow: 0 2px 0 -1px var(--crt-dim);
+  border-block-end-color: var(--accent);
+}
+
+.console-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  min-block-size: 2.6rem;
+  padding: 0.5rem 1rem;
+  border-block-start: 1px solid var(--line);
+  color: var(--dim);
+  font-size: var(--step--1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* entraste: el pie es la franja de aviso de la referencia */
+.console.is-granted {
+  border-color: var(--accent);
+}
+.console.is-granted .console-foot {
+  justify-content: center;
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, var(--bg) 14px 28px);
+  border-block-start-color: var(--accent);
+}
+.console-granted {
+  padding: 0.3rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
 }
 
 @media (max-width: 600px) {
   .console-screen {
-    font-size: 1.35rem;
-    padding: 1.25rem 0.75rem;
+    padding: 1rem 0.75rem;
   }
   .console-title {
-    font-size: 2.1rem;
+    font-size: 1.2rem;
+  }
+  .console-tag {
+    display: none;
   }
   .console-body {
     padding-inline: 0.9rem;
-    min-block-size: 17rem;
+    min-block-size: 16rem;
   }
 }

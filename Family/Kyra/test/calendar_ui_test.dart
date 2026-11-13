@@ -9,7 +9,7 @@ import 'package:kyora_chat/state/habit_controller.dart';
 import 'package:kyora_chat/state/reminder_controller.dart';
 import 'package:kyora_chat/state/task_controller.dart';
 import 'package:kyora_chat/theme.dart';
-import 'package:kyora_chat/ui/calendar_page.dart';
+import 'package:kyora_chat/ui/agenda_view.dart';
 import 'package:kyora_chat/ui/tasks_page.dart';
 import 'package:kyora_chat/util/calendar_marks.dart';
 import 'package:kyora_chat/ui/widgets/month_dial.dart';
@@ -53,7 +53,7 @@ void main() {
     });
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(),
-      home: CalendarPage(
+      home: AgendaView(
         tasks: withTasks ? Future.value(tasks) : null,
         reminders: withReminders ? Future.value(reminders) : null,
         habits: withHabits ? Future.value(habits) : null,

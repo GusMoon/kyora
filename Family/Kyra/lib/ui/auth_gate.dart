@@ -19,7 +19,9 @@ import '../data/reminder_scheduler.dart';
 import '../data/reminder_store.dart';
 import '../data/task_backend.dart';
 import '../data/task_store.dart';
+import '../models/habit.dart';
 import '../models/profile.dart';
+import '../models/task.dart';
 import '../state/contacts_controller.dart';
 import '../state/dock_controller.dart';
 import '../state/habit_controller.dart';
@@ -34,7 +36,6 @@ import '../state/vault_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
-import 'calendar_page.dart';
 import 'chat_page.dart';
 import 'contacts_page.dart';
 import 'home_page.dart';
@@ -46,9 +47,11 @@ import 'vault_page.dart';
 import 'widgets/app_section.dart';
 import 'widgets/pixel_glyph.dart';
 
-/// La puerta de entrada: sin sesión pide el acceso (o crear una cuenta); con sesión mira qué rol tiene la cuenta y abre
-/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Calendario
-/// (tareas, recordatorios y hábitos) · Contactos · Vault; el pasante, lo mismo sin el chat. La configuración se abre desde el menú. Con sesión también arranca la música: las canciones que lleguen se guardan solas
+/// La puerta de entrada. **La app siempre abre** (también como launcher): sin sesión se ve Inicio, la música ya guardada, los contactos, el Vault y
+/// las tareas, hábitos y recordatorios locales de la última cuenta; solo se pausa lo que necesita el servidor (el chat, la música que manda la
+/// PC y la sincronización). El acceso (o crear una cuenta) se abre desde Configuración → cuenta. Con sesión mira qué rol tiene la cuenta y abre
+/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Contactos · Vault;
+/// el pasante, lo mismo sin el chat. Las tareas, recordatorios y hábitos (y el calendario) viven en la hora de Inicio: tocarla la expande. La configuración se abre desde el menú. Con sesión también arranca la música: las canciones que lleguen se guardan solas
 /// aunque estés en otra sección.
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -168,20 +171,64 @@ class _AuthGateState extends State<AuthGate> {
   late final DurationCache _durations = widget.durations ?? MemoryDurationCache();
 
   /// La persona pidió cerrar sesión (Ajustes o la pantalla de error): ahí sí se para la música. Si la sesión caduca sola (Supabase no
-  /// pudo renovarla al volver a la app) la música sigue sonando: se pide entrar otra vez, pero no se corta lo que suena.
+  /// pudo renovarla al volver a la app) la música sigue sonando y todo sigue abierto: Configuración avisa de que hay que volver a entrar.
   bool _signingOut = false;
+
+  /// La sesión se perdió sola (no la cerró la persona). Configuración lo avisa para que vuelva a entrar y se retome la sincronización.
+  final ValueNotifier<bool> _expired = ValueNotifier<bool>(false);
 
   /// De quién es lo que hay abierto: si entra otra cuenta, no se hereda lo de la anterior.
   String? _owner;
+
+  StreamSubscription<void>? _authSub;
+
+  // Las tareas y los hábitos hablan con Supabase a través de estas puertas: sin sesión no llaman a nadie (y no dan error), y al volver
+  // a entrar se ponen al día solos.
+  late final TaskBackend? _tasksGate = widget.tasks == null ? null : _GatedTasks(widget.tasks!, widget.account);
+  late final HabitBackend? _habitsGate = widget.habits == null ? null : _GatedHabits(widget.habits!, widget.account);
+
+  @override
+  void initState() {
+    super.initState();
+    _authSub = widget.account.authChanges.listen((_) => _onAuth());
+  }
+
+  /// La sesión cambió: al entrar se conecta la música de la PC y se sincroniza; al salir (o caducar) se pausa lo del servidor.
+  void _onAuth() {
+    if (!mounted) return;
+    final account = widget.account;
+    if (account.signedIn) {
+      _expired.value = false;
+      unawaited(_music?.connect());
+      unawaited(_tasks?.then((c) => c.sync()));
+      unawaited(_habits?.then((c) => c.sync()));
+      return;
+    }
+    if (_signingOut) {
+      // la persona cerró sesión: se para lo que suena y se cierra lo abierto (se vuelve a abrir, ya sin servidor, al reconstruir)
+      _signingOut = false;
+      _expired.value = false;
+      _owner = null;
+      _stopMusic();
+    } else {
+      _expired.value = true;
+      unawaited(_music?.disconnect());
+    }
+  }
 
   Future<void> _signOut() {
     _signingOut = true;
     return widget.account.signOut();
   }
 
+  /// Abre el acceso (o crear una cuenta) desde Configuración. Se cierra solo al entrar.
+  Future<void> _openLogin(BuildContext context) => Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => _LoginRoute(account: widget.account)),
+  );
+
   /// Las tareas de esta cuenta: se abren una vez (empiezan a ponerse al día con Supabase al instante) y se cierran al cerrar sesión.
   Future<TaskController>? _taskController(String userId) {
-    final backend = widget.tasks;
+    final backend = _tasksGate;
     if (backend == null) return null;
     return _tasks ??= () async {
       TaskStore store;
@@ -214,7 +261,7 @@ class _AuthGateState extends State<AuthGate> {
 
   /// Los hábitos de esta cuenta: como las tareas, se abren una vez y se ponen al día con Supabase.
   Future<HabitController>? _habitController(String userId) {
-    final backend = widget.habits;
+    final backend = _habitsGate;
     if (backend == null) return null;
     return _habits ??= () async {
       HabitStore store;
@@ -240,7 +287,7 @@ class _AuthGateState extends State<AuthGate> {
     if (existing != null) return existing;
     final created = MusicController(widget.music, widget.musicStore, widget.saver);
     _music = created;
-    created.start();
+    created.start(remote: widget.account.signedIn); // sin sesión solo lo local
     return created;
   }
 
@@ -274,6 +321,8 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   void dispose() {
+    unawaited(_authSub?.cancel());
+    _expired.dispose();
     _stopMusic();
     super.dispose();
   }
@@ -284,33 +333,22 @@ class _AuthGateState extends State<AuthGate> {
     return StreamBuilder<void>(
       stream: account.authChanges,
       builder: (context, _) {
-        if (!account.signedIn) {
-          if (_signingOut) {
-            _signingOut = false;
-            _owner = null;
-            _stopMusic();
-          }
-          return LoginPage(
-            onSignIn: account.signIn,
-            onSignUp: (u, e, p) => account.signUp(username: u, email: e, password: p),
-          );
-        }
         return _RoleResolver(
-          key: ValueKey(account.userId),
+          key: const ValueKey('role-resolver'),
           account: account,
           cache: widget.roleCache,
           onSignOut: _signOut,
-          builder: (context, role, username) {
-            if (_owner != null && _owner != account.userId) _stopMusic(); // otra cuenta: empieza de cero
-            _owner = account.userId;
+          builder: (context, role, username, ownerId) {
+            if (_owner != null && _owner != ownerId) _stopMusic(); // otra cuenta: empieza de cero
+            _owner = ownerId;
+            final signedIn = account.signedIn;
             final music = _musicController();
             final local = _localController(music);
             final player = _playerController(local);
-            final userId = account.userId ?? '';
-            final tasks = _taskController(userId);
-            final reminders = _reminderController(userId);
-            final habits = _habitController(userId);
-            final admin = role == Role.admin;
+            final tasks = _taskController(ownerId);
+            final reminders = _reminderController(ownerId);
+            final habits = _habitController(ownerId);
+            final admin = role == Role.admin && signedIn; // el chat vive en el servidor: sin sesión no sale
             // Las secciones, en el orden del menú circular. Se abre en Inicio; Configuración es una opción más del menú (abre su hoja).
             // El pasante no tiene chat.
             Widget settingsPage({String? tile}) => SettingsPage(
@@ -318,6 +356,9 @@ class _AuthGateState extends State<AuthGate> {
               role: role,
               username: username,
               onSignOut: _signOut,
+              account: account,
+              expired: _expired,
+              onSignIn: () => _openLogin(context),
               background: widget.background,
               weather: widget.weather,
               dock: widget.dock,
@@ -325,7 +366,7 @@ class _AuthGateState extends State<AuthGate> {
               initialTile: tile,
             );
             return SectionHost(
-              key: ValueKey('home-${account.userId}'),
+              key: ValueKey('home-$ownerId'),
               initial: 0,
               canExit: () => !(widget.dock?.isLauncher ?? false),
               dock: widget.dock,
@@ -353,6 +394,9 @@ class _AuthGateState extends State<AuthGate> {
                     player: player,
                     favorites: widget.favorites,
                     now: widget.now,
+                    tasks: tasks,
+                    reminders: reminders,
+                    habits: habits,
                   ),
                 ),
                 if (admin)
@@ -370,14 +414,6 @@ class _AuthGateState extends State<AuthGate> {
                   label: 'Música',
                   builder: (_) => MusicPage(controller: music, player: player, local: local, favorites: widget.favorites),
                 ),
-                if (tasks != null || reminders != null || habits != null)
-                  AppSection(
-                    id: 'calendar',
-                    icon: Icons.calendar_month_outlined,
-                    glyph: PixelGlyphs.calendar,
-                    label: 'Calendario',
-                    builder: (_) => CalendarPage(tasks: tasks, reminders: reminders, habits: habits, now: widget.now),
-                  ),
                 if (widget.contacts != null)
                   AppSection(
                     id: 'contacts',
@@ -403,77 +439,225 @@ class _AuthGateState extends State<AuthGate> {
   }
 }
 
-/// Averigua el rol de la cuenta con sesión. Sin internet usa el de la última vez; si no hay ninguno, lo dice y deja reintentar.
+/// Averigua quién es y qué rol tiene. Con sesión pregunta por el perfil (sin internet usa el rol de la última vez; si no hay ninguno,
+/// lo dice y deja reintentar). **Sin sesión no bloquea nada**: usa la última cuenta que entró en este teléfono (o un perfil local si nunca
+/// entró ninguna) para abrir sus datos locales. Cuando la sesión cambia no tira lo que hay abierto: solo actualiza el rol y el nombre.
 class _RoleResolver extends StatefulWidget {
   const _RoleResolver({super.key, required this.account, required this.cache, required this.builder, required this.onSignOut});
 
   final AccountBackend account;
   final RoleCache cache;
   final Future<void> Function() onSignOut;
-  final Widget Function(BuildContext context, Role role, String? username) builder;
+
+  /// `ownerId` es de quién son los datos locales que se abren (la cuenta con sesión, la última que entró, o `local`).
+  final Widget Function(BuildContext context, Role role, String? username, String ownerId) builder;
 
   @override
   State<_RoleResolver> createState() => _RoleResolverState();
 }
 
-class _RoleResolverState extends State<_RoleResolver> {
-  late Future<Role> _role = _resolve();
-  String? _username;
+/// El dueño de los datos locales cuando nunca entró nadie en este teléfono.
+const _localOwner = 'local';
 
-  Future<Role> _resolve() async {
-    final id = widget.account.userId ?? '';
-    try {
-      final profile = await widget.account.myProfile();
-      _username = profile?.username;
-      final role = profile?.role ?? Role.intern;
-      await widget.cache.write(id, role);
-      return role;
-    } on ChatException {
-      final cached = await widget.cache.read(id);
-      if (cached != null) return cached;
-      rethrow;
+class _RoleResolverState extends State<_RoleResolver> {
+  Role? _role;
+  String? _username;
+  String? _ownerId;
+  ChatException? _error;
+  StreamSubscription<void>? _sub;
+  bool _attached = false;
+  int _token = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.account.authChanges.listen((_) => unawaited(_resolve()));
+    unawaited(_resolve());
+    _attached = true;
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  void _set(VoidCallback change) {
+    if (_attached) {
+      setState(change);
+    } else {
+      change(); // dentro de initState no hace falta (ni se puede) repintar
     }
   }
 
-  void _retry() {
-    final next = _resolve();
-    setState(() {
-      _role = next;
-    });
+  Future<void> _resolve() async {
+    final token = ++_token;
+    final account = widget.account;
+    final id = account.userId;
+    if (id == null) {
+      if (_role != null) return; // se perdió la sesión: sigue lo que había abierto
+      final last = await widget.cache.readLast();
+      if (!mounted || token != _token) return;
+      _set(() {
+        _role = last?.role ?? Role.intern;
+        _ownerId = last?.userId ?? _localOwner;
+        _error = null;
+      });
+      return;
+    }
+    if (_ownerId != id) {
+      // otra cuenta (o la primera con sesión): no se hereda nada de la anterior
+      _set(() {
+        _role = null;
+        _username = null;
+        _ownerId = id;
+        _error = null;
+      });
+    }
+    try {
+      final profile = await account.myProfile();
+      final role = profile?.role ?? Role.intern;
+      await widget.cache.write(id, role);
+      if (!mounted || token != _token) return;
+      _set(() {
+        _username = profile?.username;
+        _role = role;
+        _error = null;
+      });
+    } on ChatException catch (e) {
+      final cached = await widget.cache.read(id);
+      if (!mounted || token != _token) return;
+      _set(() {
+        if (cached != null) {
+          _role = cached;
+          _error = null;
+        } else if (_role == null) {
+          _error = e;
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Role>(
-      future: _role,
-      builder: (context, snapshot) {
-        if (snapshot.hasData) return widget.builder(context, snapshot.data!, _username);
-        if (snapshot.hasError) {
-          final error = snapshot.error;
-          return Scaffold(
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      error is ChatException ? error.message : 'No se pudo abrir tu cuenta.',
-                      key: const Key('role-error'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: context.colors.warn),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(key: const Key('role-retry'), onPressed: _retry, child: const Text('Reintentar')),
-                    TextButton(onPressed: widget.onSignOut, child: const Text('Cerrar sesión')),
-                  ],
-                ),
+    final role = _role;
+    final owner = _ownerId;
+    if (role != null && owner != null) return widget.builder(context, role, _username, owner);
+    final error = _error;
+    if (error == null) return const Scaffold(body: Center(child: CircularProgressIndicator(strokeWidth: 2.4)));
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                error.message,
+                key: const Key('role-error'),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.colors.warn),
               ),
-            ),
-          );
-        }
-        return const Scaffold(body: Center(child: CircularProgressIndicator(strokeWidth: 2.4)));
-      },
+              const SizedBox(height: 8),
+              TextButton(key: const Key('role-retry'), onPressed: () => unawaited(_resolve()), child: const Text('Reintentar')),
+              TextButton(onPressed: widget.onSignOut, child: const Text('Cerrar sesión')),
+            ],
+          ),
+        ),
+      ),
     );
   }
+}
+
+/// El acceso que se abre desde Configuración: la pantalla de entrada de siempre (y crear cuenta), con una X para cerrarla. Se cierra sola
+/// al entrar.
+class _LoginRoute extends StatefulWidget {
+  const _LoginRoute({required this.account});
+
+  final AccountBackend account;
+
+  @override
+  State<_LoginRoute> createState() => _LoginRouteState();
+}
+
+class _LoginRouteState extends State<_LoginRoute> {
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.account.authChanges.listen((_) {
+      if (!mounted || !widget.account.signedIn) return;
+      final route = ModalRoute.of(context);
+      if (route == null) return;
+      // si «crear cuenta» está encima, esa se cierra sola después: aquí solo se quita esta pantalla
+      if (route.isCurrent) {
+        Navigator.of(context).pop();
+      } else {
+        Navigator.of(context).removeRoute(route);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final account = widget.account;
+    return Stack(
+      children: [
+        LoginPage(
+          onSignIn: account.signIn,
+          onSignUp: (u, e, p) => account.signUp(username: u, email: e, password: p),
+        ),
+        SafeArea(
+          child: Align(
+            alignment: Alignment.topRight,
+            child: IconButton(
+              key: const Key('login-close'),
+              tooltip: 'Cerrar',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: Icon(Icons.close_rounded, color: context.colors.ink),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+const _noSession = ChatException('Sin sesión: entra desde Configuración para sincronizar.', retryable: true, code: 'no_session');
+
+/// Las tareas hablan con Supabase solo si hay sesión; sin ella avisan de que no hay conexión (sin llamar a nadie) y siguen guardando en el teléfono.
+class _GatedTasks implements TaskBackend {
+  _GatedTasks(this._inner, this._account);
+
+  final TaskBackend _inner;
+  final AccountBackend _account;
+
+  @override
+  Future<void> push(TaskData changes) => _account.signedIn ? _inner.push(changes) : Future<void>.error(_noSession);
+
+  @override
+  Future<TaskData> pull({String? tasksSince, String? tagsSince, String? linksSince}) => _account.signedIn
+      ? _inner.pull(tasksSince: tasksSince, tagsSince: tagsSince, linksSince: linksSince)
+      : Future<TaskData>.error(_noSession);
+}
+
+class _GatedHabits implements HabitBackend {
+  _GatedHabits(this._inner, this._account);
+
+  final HabitBackend _inner;
+  final AccountBackend _account;
+
+  @override
+  Future<void> pushHabits(HabitData changes) => _account.signedIn ? _inner.pushHabits(changes) : Future<void>.error(_noSession);
+
+  @override
+  Future<HabitData> pullHabits({String? habitsSince, String? checksSince}) =>
+      _account.signedIn ? _inner.pullHabits(habitsSince: habitsSince, checksSince: checksSince) : Future<HabitData>.error(_noSession);
 }

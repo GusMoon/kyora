@@ -264,13 +264,14 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('al caducar la sesión se pide entrar otra vez, pero el reproductor sigue vivo', (tester) async {
+    testWidgets('al caducar la sesión la app sigue abierta (sin pedir el acceso) y el reproductor sigue vivo', (tester) async {
       await gate(tester);
       expect(engines.length, 1);
       account.expire();
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('login-button')), findsOneWidget);
+      expect(find.byKey(const Key('login-button')), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
       expect(engines.single.disposed, isFalse);
     });
 
@@ -311,8 +312,9 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pumpAndSettle();
       expect(account.signedIn, isFalse);
-      expect(find.byKey(const Key('login-button')), findsOneWidget);
-      expect(engines.single.disposed, isTrue);
+      expect(find.byKey(const Key('login-button')), findsNothing); // la app sigue abierta, ya sin sesión
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      expect(engines.first.disposed, isTrue); // lo que sonaba se paró (Inicio abre un reproductor nuevo, vacío)
     });
 
     testWidgets('tras cerrar sesión y entrar de nuevo la música empieza de cero', (tester) async {
@@ -327,8 +329,9 @@ void main() {
       account.restore('u2');
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pumpAndSettle();
-      expect(engines.length, 2);
+      expect(engines.length, 2); // el de antes de cerrar sesión y el de después (la misma persona no estrena otro al volver a entrar)
       expect(engines.first.disposed, isTrue);
+      expect(engines.last.disposed, isFalse);
     });
   });
 

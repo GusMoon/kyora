@@ -94,11 +94,32 @@ class FakeAccount implements AccountBackend {
 class MemoryRoleCache implements RoleCache {
   final Map<String, Role> roles = {};
 
+  /// La última cuenta que entró (como la guarda el teléfono).
+  String? last;
+
   @override
   Future<Role?> read(String userId) async => roles[userId];
 
   @override
-  Future<void> write(String userId, Role role) async => roles[userId] = role;
+  Future<void> write(String userId, Role role) async {
+    roles[userId] = role;
+    last = userId;
+  }
+
+  @override
+  Future<({String userId, Role role})?> readLast() async {
+    final id = last;
+    final role = id == null ? null : roles[id];
+    return id == null || role == null ? null : (userId: id, role: role);
+  }
+}
+
+/// Cierra Configuración con la X: si hay una ficha abierta, la primera vez cierra la ficha y la segunda, la página.
+Future<void> closeSettings(WidgetTester tester) async {
+  for (var i = 0; i < 2 && find.byKey(const Key('settings-close')).evaluate().isNotEmpty; i++) {
+    await tester.tap(find.byKey(const Key('settings-close')));
+    await tester.pumpAndSettle();
+  }
 }
 
 Future<void> settle(WidgetTester tester, [int ms = 60]) async {
@@ -136,10 +157,61 @@ void main() {
   }
 
   group('puerta por rol', () {
-    testWidgets('sin sesión enseña el acceso con la opción de crear cuenta', (tester) async {
+    testWidgets('sin sesión la app abre igual (Inicio, música...) pero sin chat', (tester) async {
+      cache
+        ..roles['user-1'] = Role.admin
+        ..last = 'user-1';
       await openGate(tester, FakeAccount());
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      final options = await menuOptions(tester);
+      expect(options, containsAll(['home', 'music', 'settings']));
+      expect(options, isNot(contains('chat'))); // el chat vive en el servidor
+      expect(chat.calls, isEmpty);
+      expect(music.listCalls, 0); // la música de la PC tampoco se pide sin sesión
+    });
+
+    testWidgets('sin sesión y sin haber entrado nunca también abre (perfil local)', (tester) async {
+      await openGate(tester, FakeAccount());
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      expect(await menuOptions(tester), isNot(contains('chat')));
+    });
+
+    testWidgets('desde Configuración se abre el acceso; al entrar se cierra solo y aparece el chat', (tester) async {
+      cache
+        ..roles['user-1'] = Role.admin
+        ..last = 'user-1';
+      final account = FakeAccount(profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
+      await openGate(tester, account);
+      await goToSection(tester, 'settings');
+      await tester.pumpAndSettle();
+      await openSettingsTile(tester, 'account');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings-sign-out')), findsNothing);
+      await tester.tap(find.byKey(const Key('settings-sign-in')));
+      await tester.pumpAndSettle();
       expect(find.byType(LoginPage), findsOneWidget);
-      expect(find.byKey(const Key('create-account')), findsOneWidget);
+      await account.signIn('yo@correo.com', 'secreta1');
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginPage), findsNothing); // se cerró sola
+      expect(find.byKey(const Key('settings-sign-out')), findsOneWidget); // la ficha ya enseña que hay sesión
+      await closeSettings(tester);
+      expect(await menuOptions(tester), contains('chat'));
+    });
+
+    testWidgets('si la sesión caduca sola nada se cierra: sigue en Inicio y Configuración lo avisa', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
+      await openGate(tester, account);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      account.expire();
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      await goToSection(tester, 'settings');
+      await tester.pumpAndSettle();
+      expect(find.text('SESIÓN CADUCADA'), findsOneWidget);
     });
 
     testWidgets('el administrador entra a Inicio, y tiene inicio, chat y música para deslizar', (tester) async {
@@ -232,7 +304,7 @@ void main() {
       expect(find.byKey(const Key('role-error')), findsOneWidget);
     });
 
-    testWidgets('cerrar sesión vuelve al acceso', (tester) async {
+    testWidgets('cerrar sesión deja la app abierta, ya sin sesión, y ofrece entrar otra vez', (tester) async {
       final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
       await openGate(tester, account);
       await goToSection(tester, 'settings');
@@ -242,13 +314,24 @@ void main() {
       await tester.tap(find.byKey(const Key('settings-sign-out')));
       await settle(tester);
       await tester.pumpAndSettle();
-      expect(find.byType(LoginPage), findsOneWidget);
+      expect(find.byType(LoginPage), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      await goToSection(tester, 'settings');
+      await tester.pumpAndSettle();
+      await openSettingsTile(tester, 'account');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings-sign-in')), findsOneWidget);
     });
   });
 
   group('crear cuenta', () {
     Future<void> openRegister(WidgetTester tester, FakeAccount account) async {
       await openGate(tester, account);
+      await goToSection(tester, 'settings'); // el acceso se abre desde Configuración → cuenta
+      await tester.pumpAndSettle();
+      await openSettingsTile(tester, 'account');
+      await tester.tap(find.byKey(const Key('settings-sign-in')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('create-account')));
       await tester.pumpAndSettle();
       expect(find.byType(RegisterPage), findsOneWidget);
@@ -359,7 +442,8 @@ void main() {
       expect(account.signUps, [('María 01', 'ana@correo.com', 'secreta1')]);
       await tester.pumpAndSettle(); // termina la animación de cerrar la pantalla
       expect(find.byType(RegisterPage), findsNothing);
-      expect(find.byType(LoginPage), findsNothing);
+      expect(find.byType(LoginPage), findsNothing); // el acceso también se cerró solo
+      await closeSettings(tester);
       expect(find.byKey(const Key('home-time')), findsOneWidget); // entra en Inicio
       expect(await menuOptions(tester), isNot(contains('chat')));
     });

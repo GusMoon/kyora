@@ -1,0 +1,100 @@
+/* ---------- Efectos de Kyra: texto hacking y holograma (los mueve src/ui/fx.ts) ---------- */
+
+/* el texto hacking: el ruido en mono del acento; lo que falta, transparente para que nada salte de sitio */
+.hack-noise {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+.hack-rest {
+  color: transparent;
+}
+
+/* el holograma: encima del bloque, líneas de barrido (1 px cada 3 px) y 4 bandas de interferencia (acento y negro)
+   que saltan de sitio en 9 pasos y se apagan mientras el bloque aparece (o se encienden mientras se va) */
+.holo {
+  position: relative;
+}
+.holo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--accent) 18%, transparent) 0 1px, transparent 1px 3px),
+    linear-gradient(color-mix(in srgb, var(--accent) 35%, transparent), color-mix(in srgb, var(--accent) 35%, transparent)),
+    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)),
+    linear-gradient(color-mix(in srgb, var(--accent) 35%, transparent), color-mix(in srgb, var(--accent) 35%, transparent)),
+    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55));
+  background-size:
+    100% 100%,
+    100% 3px,
+    100% 7px,
+    100% 4px,
+    100% 2px;
+  background-repeat: no-repeat;
+  animation: holo-bands var(--holo-ms, 240ms) linear var(--holo-delay, 0ms) both;
+}
+.holo-out::after {
+  animation-direction: reverse;
+}
+
+/* posiciones precalculadas (deterministas, como el ruido de Kyra): un salto por paso */
+@keyframes holo-bands {
+  0% {
+    opacity: 1;
+    background-position: 0 0, -12% 14%, 9% 63%, 4% 37%, -6% 88%;
+    animation-timing-function: steps(1, end);
+  }
+  11% {
+    opacity: 0.9;
+    background-position: 0 0, 7% 71%, -10% 22%, 12% 90%, 3% 48%;
+    animation-timing-function: steps(1, end);
+  }
+  22% {
+    opacity: 0.8;
+    background-position: 0 0, -4% 33%, 13% 81%, -9% 9%, 8% 60%;
+    animation-timing-function: steps(1, end);
+  }
+  33% {
+    opacity: 0.7;
+    background-position: 0 0, 10% 92%, -3% 41%, 6% 66%, -12% 17%;
+    animation-timing-function: steps(1, end);
+  }
+  44% {
+    opacity: 0.6;
+    background-position: 0 0, -8% 5%, 11% 57%, -5% 28%, 2% 79%;
+    animation-timing-function: steps(1, end);
+  }
+  55% {
+    opacity: 0.45;
+    background-position: 0 0, 5% 52%, -12% 95%, 9% 12%, -2% 39%;
+    animation-timing-function: steps(1, end);
+  }
+  66% {
+    opacity: 0.32;
+    background-position: 0 0, -11% 76%, 4% 30%, -7% 61%, 12% 3%;
+    animation-timing-function: steps(1, end);
+  }
+  77% {
+    opacity: 0.2;
+    background-position: 0 0, 3% 19%, -6% 70%, 10% 45%, -9% 86%;
+    animation-timing-function: steps(1, end);
+  }
+  88% {
+    opacity: 0.1;
+    background-position: 0 0, -2% 84%, 8% 11%, -12% 53%, 6% 31%;
+    animation-timing-function: steps(1, end);
+  }
+  100% {
+    opacity: 0;
+    background-position: 0 0, 0 50%, 0 50%, 0 50%, 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo::after {
+    animation: none;
+    opacity: 0;
+  }
+}

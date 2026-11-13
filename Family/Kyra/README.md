@@ -11,7 +11,7 @@ Kyora (PC)  ──►  Supabase (base de datos + archivos + tiempo real)  ──
 1. En la PC, ejecuta **`Scripts\Kyra\compilar_movil.bat`**. Crea el archivo **`Family\Kyra\KyoraChat.apk`** (la primera vez tarda varios minutos).
 2. Pasa el APK al teléfono (cable USB, Google Drive, WhatsApp, correo…).
 3. En el teléfono, ábrelo. Android pedirá permiso para **instalar apps desconocidas** desde la app que usaste (Archivos, Drive…): actívalo solo para esa app.
-4. Abre **Kyra** y entra con **el mismo correo y contraseña** que pusiste en `Server\supabase\.env` (el usuario de Authentication > Users). La sesión queda guardada: no te la vuelve a pedir.
+4. Abre **Kyra** y entra con **el mismo correo y contraseña** que pusiste en `Server\supabase\.env` (el usuario de Authentication > Users). La sesión queda guardada. Kyra **abre siempre**, también sin sesión (es un launcher): Inicio, la música ya guardada, contactos, Vault y tus tareas, hábitos y recordatorios locales siguen ahí; solo se pausan el chat, la música que manda la PC y la sincronización. Si la sesión caduca, Configuración → tu cuenta lo avisa y deja volver a entrar sin cerrar nada.
 
 La app no lleva tu correo ni tu contraseña: solo la URL de tu proyecto y su clave pública (que salen de `Server\supabase\.env` al compilar).
 

@@ -1,0 +1,127 @@
+/* ---------- Nube: los archivos compartidos por Supabase que hay en el servidor ---------- */
+.cloud-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cloud-filters {
+  flex: 1 1 auto;
+}
+.cloud-filters .tab[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.cloud-filters .tab .readout {
+  opacity: 0.75;
+}
+.cloud-refresh .icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin-inline-end: 0.4rem;
+}
+.cloud-help {
+  max-inline-size: 70ch;
+}
+.cloud-empty:empty {
+  display: none;
+}
+.cloud-empty {
+  color: var(--dim);
+  padding-block: 1rem;
+}
+.cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--pad);
+}
+.cloud-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  min-inline-size: 0;
+  background: var(--plate);
+  border: 1px solid var(--line);
+}
+.cloud-card:hover {
+  border-color: var(--accent);
+}
+.cloud-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.35rem;
+  block-size: 7.5rem;
+  overflow: hidden;
+  background: var(--field);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+.cloud-thumb img {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.cloud-thumb:has(img) .cloud-kind,
+.cloud-thumb:has(img) .cloud-ext {
+  display: none;
+}
+.cloud-kind {
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+}
+.cloud-ext {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.cloud-meta {
+  display: grid;
+  gap: 0.2rem;
+  min-inline-size: 0;
+}
+.cloud-name {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cloud-sub {
+  color: var(--dim);
+  font-size: var(--step--1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.cloud-actions .btn-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.cloud-actions .icon {
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
+}
+
+/* eliminar: la confirmación ocupa el lugar de los botones */
+.cloud-confirm {
+  flex: 1 1 100%;
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  line-height: 1.35;
+}

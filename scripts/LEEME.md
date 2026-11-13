@@ -14,7 +14,7 @@ Aquí están solo los scripts esenciales. Para abrir Kyora a diario no hace falt
 | `iniciar_movil.bat` | Ejecuta la app en un teléfono Android conectado por USB (con la depuración USB activada). | Para probar cambios en la app sin crear el APK. |
 | `instalar_inicio.bat` | Hace que Kyora arranque sola al iniciar sesión: registra una **tarea programada** de Windows (ver `ARRANQUE.md`). No necesita administrador. | Una vez, si quieres que Kyora arranque con el equipo. |
 | `quitar_inicio.bat` | Quita ese arranque automático (borra la tarea programada). | Si ya no quieres que Kyora arranque sola. |
-| `Merida\iniciar_merida.bat` | Abre Merida, la app web local (tareas, música y chat), en `http://127.0.0.1:5180`. La primera vez instala sus paquetes (necesita Node.js). Ver `Family\Merida\README.md`. | Cuando quieras usar Merida en el navegador. Cierra la ventana para apagarla. |
+| `Merida\iniciar_merida.bat` | Abre Merida, la app web local (tareas, música, nube, chat y configuración), en `http://127.0.0.1:5180`, junto con su servicio de música (tus listas de YouTube, con el Python de Kyora). La primera vez instala sus paquetes (necesita Node.js). Si Merida ya está abierta, solo abre el navegador. Ver `Family\Merida\README.md`. | Cuando quieras usar Merida en el navegador. Cierra la ventana para apagar Merida y su servicio. |
 
 ## Qué hace cada uno, paso a paso
 

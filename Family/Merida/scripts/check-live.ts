@@ -48,10 +48,19 @@ try {
   const tracks = (await call("POST", "/rest/v1/rpc/list_music_tracks", { p_limit: 500 })).data;
   console.log(`Canciones: ${tracks.length}`);
 
+  // la nube: los archivos que hay ahora en el servidor (adjuntos del chat y canciones), solo conteo y tamaño
+  const atts = (await call("GET", "/rest/v1/attachments?select=id,storage_path,file_name,mime_type,size_bytes,created_at,message:messages(sender_device,deleted_at)&order=created_at.desc&limit=500")).data as { size_bytes: number; mime_type: string; message: { sender_device: string | null } | null }[];
+  const songs = (await call("GET", "/rest/v1/music_tracks?select=storage_path,size_bytes&limit=500")).data as { storage_path: string; size_bytes: number }[];
+  const byDevice = atts.reduce<Record<string, number>>((m, a) => ((m[a.message?.sender_device ?? "?"] = (m[a.message?.sender_device ?? "?"] ?? 0) + 1), m), {});
+  console.log(`Adjuntos por dispositivo: ${JSON.stringify(byDevice)}`);
+  const paths = new Set(songs.map((s) => s.storage_path));
+  const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
+  console.log(`Nube: ${atts.length} adjuntos del chat (${mb(atts.reduce((a, x) => a + Number(x.size_bytes || 0), 0))}) y ${paths.size} canciones (${mb(songs.reduce((a, x) => a + Number(x.size_bytes || 0), 0))} contando repetidas)`);
+
   const conv = (await call("POST", "/rest/v1/rpc/ensure_default_conversation", {})).data;
   const messages = (await call("POST", "/rest/v1/rpc/list_messages", { p_conversation_id: conv, p_before: null, p_after: null, p_limit: 100 })).data;
   console.log(`Mensajes (últimos 100): ${messages.length}`);
-  console.log("Todo bien: Merida puede leer tareas, música y chat.");
+  console.log("Todo bien: Merida puede leer tareas, música, chat y la nube.");
 } catch (err) {
   console.error(`Falló: ${(err as Error).message}`);
   process.exit(1);

@@ -7,7 +7,7 @@ import 'package:kyora_chat/models/reminder.dart';
 import 'package:kyora_chat/state/reminder_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
-import 'package:kyora_chat/ui/calendar_page.dart';
+import 'package:kyora_chat/ui/agenda_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_gate_test.dart' show FakeAccount, MemoryRoleCache;
@@ -192,7 +192,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.runAsync(c.start);
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: CalendarPage(reminders: Future.value(c), now: () => day)));
+      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: AgendaView(reminders: Future.value(c), now: () => day)));
       await tester.pumpAndSettle();
     }
 
@@ -287,13 +287,13 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pump();
       final options = await menuOptions(tester);
-      expect(options, contains('calendar'));
+      expect(options, isNot(contains('calendar'))); // tampoco es sección: vive en la hora de Inicio
       expect(options, isNot(contains('tasks')));
-      expect(options, isNot(contains('reminders'))); // ya no son secciones: viven en el Calendario
-      await goToSection(tester, 'calendar');
+      expect(options, isNot(contains('reminders'))); // ya no son secciones: viven en la agenda de la hora
+      await tester.tap(find.byKey(const Key('home-time-tile')));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
       await tester.pumpAndSettle();
-      expect(find.byType(CalendarPage), findsOneWidget);
+      expect(find.byType(AgendaView), findsOneWidget);
       expect(find.byKey(const Key('cal-tab-tasks')), findsNothing); // sin Supabase de tareas no hay pestaña de tareas
       expect(scheduler.inits, 1);
     });

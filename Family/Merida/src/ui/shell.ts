@@ -1,37 +1,29 @@
 import { h, s } from "./dom";
+import { icon, type IconName } from "./icons";
 import type { Store } from "../store";
-import type { Player } from "../player";
-import { LIVE_TEXT, latencyText, type Status } from "../status";
 import { blocksFor, lastMessage, lineWidths, statusCounts } from "../data/home";
-import { formatTime } from "../data/music";
-import { summary } from "../data/tasks";
+import { cloudStatement } from "../data/cloud";
 import { tasksStatement } from "../sections/tasks";
 import { musicStatement } from "../sections/music";
 import { chatStatement } from "../sections/chat";
 
-export type RouteId = "inicio" | "tareas" | "musica" | "chat";
+export type RouteId = "inicio" | "tareas" | "musica" | "nube" | "chat" | "configuracion";
 export type SectionId = Exclude<RouteId, "inicio">;
 
 export const ROUTES: { id: RouteId; title: string; key: string }[] = [
   { id: "inicio", title: "Inicio", key: "I" },
   { id: "tareas", title: "Tareas", key: "T" },
   { id: "musica", title: "Música", key: "M" },
+  { id: "nube", title: "Nube", key: "N" },
   { id: "chat", title: "Chat", key: "C" },
+  { id: "configuracion", title: "Configuración", key: "A" },
 ];
 
 export interface ShellDeps {
   store: Store;
-  player: Player;
-  status: Status;
-  signOut: () => void;
 }
 
 const SLOTS = 5; // bloques que caben por columna en el dibujo de Tareas
-
-const svgIcon = (d: string, cls = "icon") =>
-  s("svg", { viewBox: "0 0 24 24", class: cls, "aria-hidden": "true", focusable: "false" }, s("path", { d, fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "square" }));
-const arrowIcon = () => svgIcon("M7 17 L17 7 M9 7 H17 V15", "icon tile-arrow");
-const closeIcon = () => svgIcon("M6 6 L18 18 M18 6 L6 18");
 
 /** Las columnas de Tareas: cada columna es un estado y se llena con tantos bloques como tareas hay (hasta 5). */
 function tasksArt() {
@@ -46,8 +38,7 @@ function tasksArt() {
         group.append(s("line", { x1: x, y1: 122, x2: x + 36, y2: 122, stroke: "currentColor", "stroke-width": 2 }));
         for (let slot = 0; slot < SLOTS; slot++) {
           const y = 98 - slot * 23;
-          const on = slot < count;
-          group.append(s("rect", { x, y, width: 36, height: 19, class: on ? "art-on" : "art-off" }));
+          group.append(s("rect", { x, y, width: 36, height: 19, class: slot < count ? "art-on" : "art-off" }));
         }
       });
     },
@@ -86,130 +77,107 @@ function terminalArt() {
   };
 }
 
+/** Una nube en alambre con tres archivos colgando: el más nuevo, en el acento. */
+function cloudArt() {
+  return s(
+    "svg",
+    { viewBox: "0 0 150 112", class: "tile-art", "aria-hidden": "true", focusable: "false" },
+    s("path", { d: "M34 68 A19 19 0 0 1 36 30 A28 28 0 0 1 90 24 A22 22 0 0 1 112 68 Z", class: "art-line" }),
+    s("rect", { x: 30, y: 84, width: 26, height: 22, class: "art-off" }),
+    s("rect", { x: 62, y: 84, width: 26, height: 22, class: "art-off" }),
+    s("rect", { x: 94, y: 84, width: 26, height: 22, class: "art-on" }),
+    s("path", { d: "M43 68 V84 M75 68 V84 M107 68 V84", class: "art-faint" }),
+  );
+}
+
 interface SectionTile {
   el: HTMLElement;
   link: HTMLAnchorElement;
   statement: HTMLElement;
   panel: HTMLElement;
+  face: HTMLElement; // el cuadrado del dock
 }
 
-/** Una tesela que abre una sección. En el mosaico y en la columna, toda ella es un enlace (el del título se estira);
- * abierta, deja de serlo: muestra el enunciado, la sección y el botón de cerrar. */
-function sectionTile(route: SectionId, num: string, title: string, key: string, onClose: () => void, foot: HTMLElement, art: Element): SectionTile {
+/** Una tesela que abre una sección. En el mosaico toda ella es un enlace (el del título se estira); abierta, ocupa la
+ * pantalla con su sección; cuando otra está abierta, se encoge a un cuadrado con su icono en el borde izquierdo. */
+function sectionTile(route: SectionId, title: string, key: string, iconName: IconName, onClose: () => void, ...body: (Element | null)[]): SectionTile {
   const link = h("a", { class: "tile-link", href: `#/${route}` }, title);
   const statement = h("p", { class: "tile-statement", "aria-live": "polite" });
   const panel = h("div", { class: "tile-panel" });
+  const face = h("a", { class: "dock-face", href: `#/${route}`, "aria-label": `${title} (tecla ${key})` }, icon(iconName, "icon dock-icon"), h("span", { class: "dock-label", "aria-hidden": "true" }, title));
   const el = h(
     "section",
     { class: `tile tile-${route}`, "data-route": route, "aria-labelledby": `tile-${route}-title` },
     h(
       "header",
       { class: "tile-head" },
-      h("span", { class: "tile-num" }, `/${num}`),
+      h("span", { class: "tile-mark" }, icon(iconName, "icon tile-icon")),
       h("h2", { class: "tile-title", id: `tile-${route}-title` }, link),
-      h("span", { class: "tile-tools" }, h("kbd", { class: "tile-key", title: `Tecla ${key}` }, key), arrowIcon(), h("button", { class: "tile-close", type: "button", "aria-label": "Cerrar y volver al inicio", title: "Cerrar (Esc)", onClick: onClose }, closeIcon())),
+      h(
+        "span",
+        { class: "tile-tools" },
+        h("kbd", { class: "tile-key", title: `Tecla ${key}` }, key),
+        icon("arrow", "icon tile-arrow"),
+        h("button", { class: "tile-close", type: "button", "aria-label": "Cerrar y volver al inicio", title: "Cerrar (Esc)", onClick: onClose }, icon("close")),
+      ),
     ),
     statement,
-    foot,
-    art,
+    ...body,
     panel,
+    face,
   );
-  return { el, link, statement, panel };
+  return { el, link, statement, panel, face };
 }
 
-/** El tablero de Merida: seis teselas siempre montadas. En Inicio forman un mosaico a pantalla completa; al abrir una
- * sección, su tesela crece hasta ocupar la derecha y las demás se apilan en una columna a la izquierda (el CSS decide
- * con `data-mode`, y main.ts anima el cambio con View Transitions). */
+/** El tablero de Merida: cinco teselas siempre montadas. En Inicio forman un mosaico con Configuración en el centro
+ * exacto; al abrir una sección su tesela ocupa toda la pantalla y las demás se esconden en el borde izquierdo como
+ * cuadrados con su icono (salen al pasar el cursor por el borde o al llegar con el tabulador). */
 export class Shell {
   readonly root: HTMLElement;
   private current: RouteId = "inicio";
   private readonly sections: Record<SectionId, SectionTile>;
   private readonly idle = h("div");
   private readonly cleanups: (() => void)[] = [];
+  private readonly order: HTMLElement[]; // las teselas en el orden del documento
 
   constructor(deps: ShellDeps) {
-    const { store, player, status, signOut } = deps;
+    const { store } = deps;
     const goHome = () => {
       location.hash = "#/inicio";
     };
 
-    // ----- /01 Tareas
+    // ----- Tareas
     const tasksNote = h("p", { class: "tile-note" });
     const tasks = tasksArt();
-    const tareas = sectionTile("tareas", "01", "Tareas", "T", goHome, h("div", { class: "tile-foot" }, tasksNote), tasks.el);
+    const tareas = sectionTile("tareas", "Tareas", "T", "tasks", goHome, h("div", { class: "tile-foot" }, tasksNote), tasks.el);
 
-    // ----- /02 Música
+    // ----- Música
     const musicNote = h("p", { class: "tile-note" });
-    const musica = sectionTile("musica", "02", "Música", "M", goHome, h("div", { class: "tile-foot" }, musicNote), discArt());
+    const musica = sectionTile("musica", "Música", "M", "music", goHome, h("div", { class: "tile-foot" }, musicNote), discArt());
 
-    // ----- /03 Chat
+    // ----- Chat
     const chatDevice = h("span", { class: "tile-tag label" });
     const chatText = h("p", { class: "tile-quote" });
     const chatNote = h("p", { class: "tile-note" });
     const terminal = terminalArt();
-    const chat = sectionTile("chat", "03", "Chat", "C", goHome, h("div", { class: "tile-foot" }, chatDevice, chatText, chatNote), terminal.el);
+    const chat = sectionTile("chat", "Chat", "C", "chat", goHome, h("div", { class: "tile-foot" }, chatDevice, chatText, chatNote), terminal.el);
 
-    // ----- /04 Sonando (en lima: lo único que está vivo todo el tiempo)
-    const playTitle = h("p", { class: "play-title" });
-    const playSub = h("p", { class: "play-sub label" });
-    const elapsed = h("span", { class: "readout" }, "0:00");
-    const total = h("span", { class: "readout" }, "0:00");
-    const fill = h("div", { class: "bar-fill" });
-    const bar = h("div", { class: "bar", role: "slider", tabindex: 0, "aria-label": "Avance de la canción", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": 0 }, fill);
-    bar.addEventListener("click", (e) => {
-      const r = bar.getBoundingClientRect();
-      player.seek((e.clientX - r.left) / r.width);
-    });
-    bar.addEventListener("keydown", (e) => {
-      const p = player.state;
-      if (!p.duration) return;
-      if (e.key === "ArrowRight") player.seek((p.time + 5) / p.duration);
-      else if (e.key === "ArrowLeft") player.seek((p.time - 5) / p.duration);
-      else return;
-      e.preventDefault();
-    });
-    const prev = h("button", { class: "btn-step", type: "button", "aria-label": "Anterior", onClick: () => player.previous() }, "⏮");
-    const toggle = h("button", { class: "btn-solid btn-play", type: "button", onClick: () => player.toggle() }, "Reproducir");
-    const next = h("button", { class: "btn-step", type: "button", "aria-label": "Siguiente", onClick: () => player.next() }, "⏭");
-    const pick = h("a", { class: "play-pick", href: "#/musica" }, "Elegir una canción");
-    const sonando = h(
-      "section",
-      { class: "tile tile-play", "aria-labelledby": "tile-play-title" },
-      h("header", { class: "tile-head" }, h("span", { class: "tile-num" }, "/04"), h("h2", { class: "tile-title", id: "tile-play-title" }, "Sonando")),
-      h("div", { class: "play-body" }, playTitle, playSub, pick),
-      h("div", { class: "play-deck" }, bar, h("div", { class: "deck-times" }, elapsed, total), h("div", { class: "deck-controls" }, prev, toggle, next)),
-    );
+    // ----- Configuración (en el centro): un cuadrado con su icono, nada más; todo lo demás está dentro de la sección
+    const configuracion = sectionTile("configuracion", "Configuración", "A", "settings", goHome, h("span", { class: "tile-glyph", "aria-hidden": "true" }, icon("settings", "icon")));
 
-    // ----- /05 Sistema
-    const sysAccount = h("span", { class: "readout" });
-    const sysLatency = h("span", { class: "readout" });
-    const sysLatencyBar = h("span", { class: "meter-fill" });
-    const sysDone = h("span", { class: "readout" });
-    const sysDoneBar = h("span", { class: "meter-fill" });
-    const sysClock = h("span", { class: "readout" });
-    const badge = h("span", { class: "sys-badge label" });
-    const sysRow = (label: string, value: HTMLElement, meter?: HTMLElement) =>
-      h("div", { class: `sys-row${meter ? " has-meter" : ""}` }, h("span", { class: "label sys-label" }, label), meter ? h("span", { class: "meter", "aria-hidden": "true" }, meter) : null, value);
-    const sistema = h(
-      "section",
-      { class: "tile tile-system", "aria-labelledby": "tile-system-title" },
-      h("header", { class: "tile-head" }, h("span", { class: "tile-num" }, "/05"), h("h2", { class: "tile-title", id: "tile-system-title" }, "Sistema"), h("span", { class: "tile-tools" }, badge)),
-      h("div", { class: "sys" }, sysRow("Cuenta", sysAccount), sysRow("Servidor", sysLatency, sysLatencyBar), sysRow("Tareas hechas", sysDone, sysDoneBar), sysRow("Hora", sysClock)),
-    );
+    // ----- Nube (los archivos compartidos por Supabase que hay ahora en el servidor)
+    const cloudNote = h("p", { class: "tile-note" });
+    const nube = sectionTile("nube", "Nube", "N", "cloud", goHome, h("div", { class: "tile-foot" }, cloudNote), cloudArt());
 
-    // ----- /06 Salir
-    const salir = h(
-      "button",
-      { class: "tile tile-exit", type: "button", onClick: signOut },
-      h("span", { class: "exit-label" }, h("span", { class: "tile-num" }, "/06"), " > salir_"),
-    );
-
-    this.sections = { tareas, musica, chat };
-    this.root = h("div", { class: "board", "data-mode": "home", "data-active": "inicio" }, tareas.el, sistema, musica.el, sonando, chat.el, salir);
+    this.sections = { tareas, musica, nube, chat, configuracion };
+    this.order = [tareas.el, musica.el, configuracion.el, nube.el, chat.el];
+    // el sensor del borde izquierdo: al pasar el cursor por ahí aparece el dock
+    const edge = h("div", { class: "edge", "aria-hidden": "true" });
+    this.root = h("div", { class: "board", "data-mode": "home", "data-active": "inicio" }, ...this.order, edge);
 
     // ----- Datos en las teselas
     const renderStore = () => {
-      const { tasks: t, tracks, messages, loaded, errors } = store;
+      const { tasks: t, tracks, messages, files, loaded, errors } = store;
       tasksNote.textContent = tasksStatement(t, loaded.tasks, errors.tasks);
       tasks.update(blocksFor(statusCounts(t), SLOTS));
       musicNote.textContent = musicStatement(tracks, loaded.tracks, errors.tracks);
@@ -220,49 +188,10 @@ export class Shell {
       chatText.hidden = !last;
       chatNote.textContent = chatStatement(messages, loaded.messages, errors.messages);
       terminal.update(lineWidths(messages, 5));
-      const sum = summary(t);
-      const total = sum.open + sum.done;
-      const pct = total ? Math.round((sum.done / total) * 100) : 0;
-      sysDone.textContent = loaded.tasks ? `${pct}%` : "—";
-      sysDoneBar.style.inlineSize = `${loaded.tasks ? pct : 0}%`;
+      cloudNote.textContent = cloudStatement(files, loaded.files, errors.files);
     };
     renderStore();
     this.cleanups.push(store.on(renderStore));
-
-    this.cleanups.push(
-      player.on((p) => {
-        const t = p.track;
-        sonando.dataset.empty = String(!t);
-        playTitle.textContent = t ? t.title : "Nada sonando";
-        playSub.textContent = t ? (t.playlist ?? "sin lista") : "";
-        pick.hidden = !!t;
-        toggle.textContent = p.loading ? "Cargando" : p.playing ? "Pausar" : "Reproducir";
-        toggle.disabled = !t || p.loading;
-        prev.disabled = next.disabled = !t;
-        const pct = p.duration ? (p.time / p.duration) * 100 : 0;
-        fill.style.width = `${pct}%`;
-        bar.setAttribute("aria-valuenow", String(Math.round(pct)));
-        bar.setAttribute("aria-valuetext", `${formatTime(p.time)} de ${formatTime(p.duration)}`);
-        elapsed.textContent = formatTime(p.time);
-        total.textContent = formatTime(p.duration);
-      }),
-    );
-
-    this.cleanups.push(
-      status.on((st) => {
-        sysAccount.textContent = st.account;
-        sysLatency.textContent = latencyText(st.latency);
-        // la barra se llena más cuanto más rápido responde (1 s o más = vacía)
-        const ms = typeof st.latency === "number" ? st.latency : null;
-        sysLatencyBar.style.inlineSize = `${ms === null ? 0 : Math.max(4, Math.min(100, 100 - ms / 10))}%`;
-        badge.dataset.state = st.live;
-        badge.textContent = st.live === "live" ? "chat en vivo, todo en línea" : `chat ${LIVE_TEXT[st.live]}`;
-      }),
-    );
-    const tick = () => (sysClock.textContent = new Date().toLocaleTimeString("es", { hour12: false }));
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    this.cleanups.push(() => window.clearInterval(timer));
   }
 
   /** Dónde monta su contenido la sección abierta (en Inicio no hay nada que montar). */
@@ -272,6 +201,18 @@ export class Shell {
 
   get route(): RouteId {
     return this.current;
+  }
+
+  /** Lo que entra y sale con los efectos: los bloques (holograma) y los textos (hacking). */
+  fxTargets(route: RouteId = this.current): { blocks: HTMLElement[]; texts: HTMLElement[] } {
+    if (route === "inicio") {
+      const texts = this.order.flatMap((tile) => [...tile.querySelectorAll<HTMLElement>(".tile-link")]);
+      return { blocks: [...this.order], texts };
+    }
+    const tile = this.sections[route];
+    const blocks = [tile.el.querySelector<HTMLElement>(".tile-head")!, tile.statement, ...([...tile.panel.children] as HTMLElement[])];
+    const texts = [tile.link, tile.statement, ...tile.panel.querySelectorAll<HTMLElement>("[data-hack]")];
+    return { blocks: blocks.filter(Boolean), texts };
   }
 
   /** Abre una sección (o vuelve al mosaico con "inicio"). */
@@ -290,6 +231,10 @@ export class Shell {
       if (active) tile.link.setAttribute("aria-current", "page");
       else tile.link.removeAttribute("aria-current");
     }
+    // el puesto de cada una en el dock (las que no están abiertas, en su orden)
+    const docked = this.order.filter((tile) => !tile.classList.contains("is-active"));
+    this.root.style.setProperty("--dock-n", String(docked.length));
+    docked.forEach((tile, i) => tile.style.setProperty("--dock-i", String(i)));
     const r = ROUTES.find((x) => x.id === route)!;
     document.title = route === "inicio" ? "Merida" : `${r.title} | Merida`;
     if (returnFocus) this.sections[previous as SectionId].link.focus({ preventScroll: true });

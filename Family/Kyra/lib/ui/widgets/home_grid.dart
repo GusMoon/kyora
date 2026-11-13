@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -15,8 +17,21 @@ import 'section_motion.dart';
 
 /// El tablero de Inicio: una **cuadrícula de 2 × 2** paneles ciberpunk — la hora, el clima, el estado del sistema (batería, memoria y
 /// almacenamiento) y los accesos rápidos (Wi-Fi y Bluetooth). Cada panel aparece en su turno.
-class HomeGrid extends StatelessWidget {
-  const HomeGrid({super.key, required this.now, this.weather, this.system, this.onNeedCity});
+///
+/// Con [agenda], **tocar la hora la expande**: la tesela de la hora crece hasta ocupar el tablero —ahí vive la agenda: tareas, y deslizando,
+/// hábitos y recordatorios, con el calendario— y las otras tres se reacomodan en una franja compacta debajo, con lo esencial de cada una.
+class HomeGrid extends StatefulWidget {
+  const HomeGrid({
+    super.key,
+    required this.now,
+    this.weather,
+    this.system,
+    this.onNeedCity,
+    this.agenda,
+    this.expanded = false,
+    this.onToggle,
+    this.expandedHeight,
+  });
 
   final DateTime now;
 
@@ -29,34 +44,145 @@ class HomeGrid extends StatelessWidget {
   /// Se toca el clima cuando falta la ciudad (abre la configuración).
   final VoidCallback? onNeedCity;
 
+  /// Lo que se ve dentro de la hora expandida (la agenda). Sin esto la hora no se puede expandir.
+  final Widget? agenda;
+
+  /// Si la hora está expandida.
+  final bool expanded;
+
+  /// Se toca la hora para expandirla (o el botón de contraerla).
+  final VoidCallback? onToggle;
+
+  /// El alto del tablero expandido (el de la pantalla visible). Nunca baja de [minExpandedHeight].
+  final double? expandedHeight;
+
   /// El alto de cada fila y el hueco entre paneles.
   static const rowHeight = 176.0;
   static const gap = 10.0;
 
+  /// El alto de la franja de las teselas pequeñas cuando la hora está expandida, y lo mínimo que mide el tablero entonces.
+  static const stripHeight = 104.0;
+  static const minExpandedHeight = 500.0;
+
+  /// El tablero normal mide dos filas y el hueco.
+  static const collapsedHeight = rowHeight * 2 + gap;
+
+  @override
+  State<HomeGrid> createState() => _HomeGridState();
+}
+
+class _HomeGridState extends State<HomeGrid> with SingleTickerProviderStateMixin {
+  late final AnimationController _open = AnimationController(vsync: this, duration: const Duration(milliseconds: 420), value: widget.expanded ? 1 : 0);
+  late final Animation<double> _t = CurvedAnimation(parent: _open, curve: Curves.easeInOutCubic);
+
+  @override
+  void didUpdateWidget(covariant HomeGrid old) {
+    super.didUpdateWidget(old);
+    if (widget.expanded != old.expanded) {
+      if (widget.expanded) {
+        unawaited(_open.forward());
+      } else {
+        unawaited(_open.reverse());
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _open.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    Widget cell(int order, MotionEdge edge, Widget child) =>
-        Expanded(child: FlyIn(edge: edge, order: order, child: CyberPanel(child: SizedBox(height: rowHeight, child: child))));
-    return Column(
-      key: const Key('home-grid'),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            cell(0, MotionEdge.left, _TimeTile(now: now)),
-            const SizedBox(width: gap),
-            cell(1, MotionEdge.right, _WeatherTile(controller: weather, onNeedCity: onNeedCity)),
-          ],
-        ),
-        const SizedBox(height: gap),
-        Row(
-          children: [
-            cell(2, MotionEdge.left, _SystemTile(controller: system)),
-            const SizedBox(width: gap),
-            cell(3, MotionEdge.right, _QuickTile(controller: system)),
-          ],
-        ),
-      ],
+    final canExpand = widget.agenda != null;
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = box.maxWidth;
+        final cw = (w - HomeGrid.gap) / 2; // ancho de una celda de la cuadrícula normal
+        final sw = (w - HomeGrid.gap * 2) / 3; // ancho de una tesela de la franja
+        final expandedH = math.max(widget.expandedHeight ?? HomeGrid.minExpandedHeight, HomeGrid.minExpandedHeight);
+        final stripY = expandedH - HomeGrid.stripHeight;
+
+        final cTime = Rect.fromLTWH(0, 0, cw, HomeGrid.rowHeight);
+        final cWeather = Rect.fromLTWH(cw + HomeGrid.gap, 0, cw, HomeGrid.rowHeight);
+        final cSystem = Rect.fromLTWH(0, HomeGrid.rowHeight + HomeGrid.gap, cw, HomeGrid.rowHeight);
+        final cQuick = Rect.fromLTWH(cw + HomeGrid.gap, HomeGrid.rowHeight + HomeGrid.gap, cw, HomeGrid.rowHeight);
+
+        final eTime = Rect.fromLTWH(0, 0, w, stripY - HomeGrid.gap);
+        final eWeather = Rect.fromLTWH(0, stripY, sw, HomeGrid.stripHeight);
+        final eSystem = Rect.fromLTWH(sw + HomeGrid.gap, stripY, sw, HomeGrid.stripHeight);
+        final eQuick = Rect.fromLTWH((sw + HomeGrid.gap) * 2, stripY, sw, HomeGrid.stripHeight);
+
+        return AnimatedBuilder(
+          animation: _t,
+          builder: (context, _) {
+            final t = _t.value;
+            Rect at(Rect a, Rect b) => Rect.lerp(a, b, t)!;
+
+            /// Una tesela pequeña: a medio camino la tesela entera se encoge hasta caber; al final enseña su versión compacta.
+            Widget small(Rect from, Widget full, Widget compact) {
+              if (t == 0) return full;
+              if (t >= 0.5) return ClipRect(child: compact);
+              return ClipRect(
+                child: FittedBox(
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(width: from.width, height: from.height, child: full),
+                ),
+              );
+            }
+
+            Widget panel(Rect rect, int order, MotionEdge edge, Widget child, {double active = 0}) => Positioned.fromRect(
+              rect: rect,
+              child: FlyIn(edge: edge, order: order, child: CyberPanel(active: active, child: child)),
+            );
+
+            final time = t < 0.5
+                ? _TimeTile(now: widget.now, onTap: canExpand ? widget.onToggle : null, fade: 1 - t * 2)
+                : const SizedBox.shrink();
+            final agendaShown = canExpand && t > 0.15;
+            return SizedBox(
+              key: const Key('home-grid'),
+              height: lerpDouble(HomeGrid.collapsedHeight, expandedH, t),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  panel(
+                    at(cTime, eTime),
+                    0,
+                    MotionEdge.left,
+                    Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        time,
+                        if (agendaShown)
+                          // la agenda se maqueta ya con su tamaño final y la tesela solo la va descubriendo (así no se desborda ni se recoloca a mitad)
+                          Opacity(
+                            opacity: ((t - 0.15) * 1.8).clamp(0.0, 1.0),
+                            child: ClipRect(
+                              child: OverflowBox(
+                                alignment: Alignment.topLeft,
+                                minWidth: eTime.width,
+                                maxWidth: eTime.width,
+                                minHeight: eTime.height,
+                                maxHeight: eTime.height,
+                                child: _AgendaTile(now: widget.now, onClose: widget.onToggle, child: widget.agenda!),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    active: t,
+                  ),
+                  panel(at(cWeather, eWeather), 1, MotionEdge.right, small(cWeather, _WeatherTile(controller: widget.weather, onNeedCity: widget.onNeedCity), _WeatherCompact(controller: widget.weather, onNeedCity: widget.onNeedCity))),
+                  panel(at(cSystem, eSystem), 2, MotionEdge.left, small(cSystem, _SystemTile(controller: widget.system), _SystemCompact(controller: widget.system))),
+                  panel(at(cQuick, eQuick), 3, MotionEdge.right, small(cQuick, _QuickTile(controller: widget.system), _QuickCompact(controller: widget.system))),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -80,20 +206,25 @@ class _TileHeader extends StatelessWidget {
   }
 }
 
+/// La hora (con su fecha). Con [onTap] se puede tocar para expandirla: ahí se abre la agenda.
 class _TimeTile extends StatelessWidget {
-  const _TimeTile({required this.now});
+  const _TimeTile({required this.now, this.onTap, this.fade = 1});
 
   final DateTime now;
+  final VoidCallback? onTap;
+
+  /// De 1 (visible) a 0 (invisible), mientras la tesela se expande.
+  final double fade;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Padding(
+    final body = Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _TileHeader('SYS::TIME'),
+          _TileHeader('SYS::TIME', glyph: onTap == null ? null : PixelGlyphs.calendar),
           const Spacer(),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -102,6 +233,54 @@ class _TimeTile extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           HackText(longDate(now), textKey: const Key('home-date'), order: 1, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
+        ],
+      ),
+    );
+    final shown = fade >= 1 ? body : Opacity(opacity: fade.clamp(0.0, 1.0), child: body);
+    if (onTap == null) return shown;
+    return Semantics(
+      button: true,
+      label: 'Abrir la agenda: tareas, hábitos y recordatorios',
+      child: GestureDetector(key: const Key('home-time-tile'), behavior: HitTestBehavior.opaque, onTap: onTap, child: shown),
+    );
+  }
+}
+
+/// La hora expandida: arriba una cabecera con la hora pequeña y el botón de contraer; debajo, la agenda.
+class _AgendaTile extends StatelessWidget {
+  const _AgendaTile({required this.now, required this.onClose, required this.child});
+
+  final DateTime now;
+  final VoidCallback? onClose;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 40,
+            child: Row(
+              children: [
+                const SizedBox(width: 4),
+                Expanded(child: Text('SYS::TIME', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 1.2, color: c.accent))),
+                const SizedBox(width: 8),
+                Text(clockText(now), key: const Key('home-time-small'), style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.ink)),
+                IconButton(
+                  key: const Key('home-time-close'),
+                  tooltip: 'Contraer',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onClose,
+                  icon: Icon(Icons.expand_less_rounded, color: c.ink),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: child),
         ],
       ),
     );
@@ -322,6 +501,149 @@ class _QuickButton extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(child: Text(label, maxLines: 1, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.ink))),
               Text(on == null ? '--' : (lit ? 'ON' : 'OFF'), key: Key('$label-state'), style: TextStyle(fontFamily: monoFont, fontSize: 15, fontWeight: FontWeight.w700, color: lit ? c.accent : c.dim)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---- las versiones compactas de las teselas pequeñas: lo esencial, para la franja de abajo con la hora expandida ----
+
+class _WeatherCompact extends StatelessWidget {
+  const _WeatherCompact({required this.controller, this.onNeedCity});
+
+  final WeatherController? controller;
+  final VoidCallback? onNeedCity;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final controller = this.controller;
+    Widget body(String big, String small, PixelGlyph glyph, {VoidCallback? onTap}) => GestureDetector(
+      key: const Key('home-weather-compact'),
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            PixelIcon(glyph, size: 20, color: c.accent),
+            const SizedBox(height: 4),
+            Text(big, maxLines: 1, overflow: TextOverflow.clip, style: display(size: 26, color: c.ink, weight: FontWeight.w500).copyWith(height: 1)),
+            Text(small, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: monoFont, fontSize: 15, height: 1.2, color: c.dim)),
+          ],
+        ),
+      ),
+    );
+    if (controller == null) return body('--', 'CLIMA', PixelGlyphs.cloud);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final weather = controller.weather;
+        final status = controller.status;
+        final needsCity = status == WeatherStatus.noCity || status == WeatherStatus.unknownCity;
+        if (weather == null) return body('--', needsCity ? 'CIUDAD' : 'CLIMA', PixelGlyphs.cloud, onTap: needsCity ? onNeedCity : null);
+        return body('${weather.temperature.round()}°', weather.city, pixelWeatherGlyph(weather.code));
+      },
+    );
+  }
+}
+
+class _SystemCompact extends StatelessWidget {
+  const _SystemCompact({required this.controller});
+
+  final SystemController? controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final controller = this.controller;
+    Widget body(SystemStats? s) {
+      final mono = TextStyle(fontFamily: monoFont, fontSize: 15, height: 1.3, color: c.dim);
+      Widget line(String label, String value) => Row(
+        children: [
+          Text(label, style: mono),
+          const SizedBox(width: 6),
+          Expanded(child: Text(value, maxLines: 1, overflow: TextOverflow.clip, textAlign: TextAlign.right, style: mono.copyWith(color: c.ink))),
+        ],
+      );
+      return Padding(
+        key: const Key('home-system-compact'),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            line('BAT', s?.battery == null ? '--' : '${s!.battery}%${s.charging ? '+' : ''}'),
+            line('RAM', s?.ramUsed == null ? '--' : '${(s!.ramUsed! * 100).round()}%'),
+            line('ALM', s?.storageFree == null ? '--' : humanSize(s!.storageFree!)),
+          ],
+        ),
+      );
+    }
+
+    if (controller == null) return body(null);
+    return _Watching(controller: controller, builder: (context, s) => body(s));
+  }
+}
+
+class _QuickCompact extends StatelessWidget {
+  const _QuickCompact({required this.controller});
+
+  final SystemController? controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = this.controller;
+    Widget body(SystemStats? s) => Padding(
+      key: const Key('home-quick-compact'),
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _QuickChip(icon: Icons.wifi_rounded, label: 'WI-FI', on: s?.wifi, onTap: controller == null ? null : () => unawaited(controller.openWifi()))),
+          const SizedBox(height: 6),
+          Expanded(child: _QuickChip(icon: Icons.bluetooth_rounded, label: 'BT', on: s?.bluetooth, onTap: controller == null ? null : () => unawaited(controller.openBluetooth()))),
+        ],
+      ),
+    );
+    if (controller == null) return body(null);
+    return _Watching(controller: controller, builder: (context, s) => body(s));
+  }
+}
+
+/// Un acceso rápido pequeño (para la franja): el icono y si está encendido; tocarlo abre su panel del sistema.
+class _QuickChip extends StatelessWidget {
+  const _QuickChip({required this.icon, required this.label, required this.on, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final bool? on;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final lit = on == true;
+    return Semantics(
+      button: true,
+      label: '$label ${lit ? 'encendido' : 'apagado'}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: cutDecoration(color: lit ? c.accent.withValues(alpha: 0.22) : Colors.black.withValues(alpha: 0.3), edge: lit ? c.accent : c.edge, cut: 6),
+          child: Row(
+            children: [
+              LcdIcon(icon, size: 18, color: lit ? c.accent : c.dim),
+              const SizedBox(width: 6),
+              Expanded(child: Text(on == null ? '--' : (lit ? 'ON' : 'OFF'), maxLines: 1, style: TextStyle(fontFamily: monoFont, fontSize: 15, fontWeight: FontWeight.w700, color: lit ? c.accent : c.dim))),
             ],
           ),
         ),

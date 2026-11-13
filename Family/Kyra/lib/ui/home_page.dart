@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../data/favorites_store.dart';
 import '../state/dock_controller.dart';
+import '../state/habit_controller.dart';
 import '../state/player_controller.dart';
+import '../state/reminder_controller.dart';
 import '../state/system_controller.dart';
+import '../state/task_controller.dart';
 import '../state/weather_controller.dart';
+import 'agenda_view.dart';
 import 'section_host.dart';
 import 'widgets/home_grid.dart';
 import 'widgets/home_player.dart';
@@ -14,6 +18,9 @@ import 'widgets/home_player.dart';
 /// La pantalla de inicio de Kyra: sobre el **fondo de pantalla** (lo pinta `AppBackdrop` para toda la app), un **tablero de 2 × 2**: la hora,
 /// el clima, el estado del sistema (batería, memoria, almacenamiento) y los accesos rápidos (Wi-Fi y Bluetooth). El menú circular se abre con
 /// un giro del dedo, como en cualquier sección (`SectionHost`).
+///
+/// **Tocar la hora expande esa tesela** y ahí vive la agenda (antes era la sección «Calendario»): tareas, y deslizando, hábitos y recordatorios,
+/// con el calendario del mes. Las otras tres teselas se reacomodan en una franja compacta debajo.
 class HomePage extends StatefulWidget {
   const HomePage({
     super.key,
@@ -24,6 +31,9 @@ class HomePage extends StatefulWidget {
     this.player,
     this.favorites,
     this.now,
+    this.tasks,
+    this.reminders,
+    this.habits,
   });
 
   /// Abre la configuración (para elegir la ciudad del clima).
@@ -47,6 +57,11 @@ class HomePage extends StatefulWidget {
   /// El reloj (en las pruebas, uno fijo).
   final DateTime Function()? now;
 
+  /// Lo que muestra la agenda de la hora expandida. Sin nada de esto la hora no se puede expandir.
+  final Future<TaskController>? tasks;
+  final Future<ReminderController>? reminders;
+  final Future<HabitController>? habits;
+
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -54,6 +69,17 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late DateTime _today = _clock();
   Timer? _tick;
+
+  /// La hora está expandida (la agenda abierta).
+  bool _agendaOpen = false;
+
+  bool get _hasAgenda => widget.tasks != null || widget.reminders != null || widget.habits != null;
+
+  void _toggleAgenda() => setState(() => _agendaOpen = !_agendaOpen);
+
+  void _closeAgenda() {
+    if (_agendaOpen) setState(() => _agendaOpen = false);
+  }
 
   DateTime _clock() => (widget.now ?? DateTime.now)();
 
@@ -107,16 +133,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
               // en una pantalla baja, con el reproductor puesto, todo se puede desplazar
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    HomeGrid(now: _today, weather: widget.weather, system: widget.system, onNeedCity: widget.onOpenSettings),
-                    if (widget.player != null) ...[
-                      const SizedBox(height: HomeGrid.gap),
-                      HomePlayer(player: widget.player!, favorites: widget.favorites, onOpenMusic: () => SectionHost.goTo(context, 'music')),
-                      const SizedBox(height: 14),
+              child: LayoutBuilder(
+                builder: (context, box) => SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      HomeGrid(
+                        now: _today,
+                        weather: widget.weather,
+                        system: widget.system,
+                        onNeedCity: widget.onOpenSettings,
+                        // expandida, la hora ocupa la pantalla visible (menos el reproductor, que queda debajo)
+                        expandedHeight: box.maxHeight,
+                        expanded: _agendaOpen && _hasAgenda,
+                        onToggle: _toggleAgenda,
+                        agenda: _hasAgenda
+                            ? AgendaView(embedded: true, tasks: widget.tasks, reminders: widget.reminders, habits: widget.habits, now: widget.now, onClose: _closeAgenda)
+                            : null,
+                      ),
+                      if (widget.player != null) ...[
+                        const SizedBox(height: HomeGrid.gap),
+                        HomePlayer(player: widget.player!, favorites: widget.favorites, onOpenMusic: () => SectionHost.goTo(context, 'music')),
+                        const SizedBox(height: 14),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
