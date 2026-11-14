@@ -109,6 +109,9 @@ class _SongArcListState extends State<SongArcList> {
   late final FixedExtentScrollController _scroll = FixedExtentScrollController(initialItem: widget.focus);
   late int _focus = widget.focus;
 
+  /// El desplazamiento y la apertura: lo que hace moverse a las filas. Uno solo para todas (no uno por fila y por reconstrucción).
+  late final Listenable _motion = Listenable.merge([_scroll, widget.opening]);
+
   // el doble toque se cuenta a mano: un detector por encima haría esperar a cada toque de las filas y de sus botones por si llega un segundo
   Offset? _downAt;
   Duration _downTime = Duration.zero;
@@ -190,9 +193,11 @@ class _SongArcListState extends State<SongArcList> {
               onSelectedItemChanged: _onSelected,
               childDelegate: ListWheelChildBuilderDelegate(
                 childCount: widget.tracks.length,
+                // la fila se construye una vez (y se pinta en su propia capa): al desplazar solo se recalcula su posición en la curva
                 builder: (context, i) => AnimatedBuilder(
-                  animation: Listenable.merge([_scroll, widget.opening]),
-                  builder: (context, _) {
+                  animation: _motion,
+                  child: RepaintBoundary(child: _row(context, i)),
+                  builder: (context, row) {
                     final at = _scroll.hasClients && _scroll.position.haveDimensions ? _scroll.offset / SongArcList.extent : widget.focus.toDouble();
                     final rows = i - at;
                     final delay = math.min(rows.abs() * 0.12, 0.5);
@@ -201,7 +206,7 @@ class _SongArcListState extends State<SongArcList> {
                       offset: Offset((1 - enter) * box.maxWidth * 0.7, 0),
                       child: Padding(
                         padding: EdgeInsets.only(left: SongArcList.edge + SongArcList.offsetOf(rows, radius), right: 12),
-                        child: _row(context, i),
+                        child: row,
                       ),
                     );
                   },
@@ -323,7 +328,8 @@ class _Thumb extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          AlbumArt(file: file, url: url, icon: icon, size: size, radius: 10),
+          // pequeña: se decodifica a lo que se ve (74 px a 3×), no a 720
+          AlbumArt(file: file, url: url, icon: icon, size: size, radius: 10, decode: 240),
           if (current && selected == null)
             Container(
               width: 34,

@@ -279,3 +279,147 @@
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+/* ---------- Configuración organizada: índice fijo a la izquierda + grupos (ronda 6) ---------- */
+.cfg-layout {
+  display: grid;
+  grid-template-columns: 14.5rem minmax(0, 1fr);
+  gap: var(--pad);
+  align-items: start;
+}
+.cfg-nav {
+  position: sticky;
+  inset-block-start: 0;
+  display: grid;
+  gap: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  background-image: var(--lines);
+  max-block-size: calc(100dvh - 12rem);
+  overflow: auto;
+}
+.cfg-nav-group {
+  display: grid;
+  gap: 0.3rem;
+}
+.cfg-nav-title {
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+.cfg-nav-title::before {
+  content: "/ ";
+  color: var(--dim);
+}
+.cfg-nav ul {
+  display: grid;
+  gap: 1px;
+}
+.cfg-nav-link {
+  appearance: none;
+  inline-size: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-inline-start: 2px solid var(--line);
+  background: none;
+  text-align: start;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 100ms, border-color 100ms, background 100ms;
+}
+.cfg-nav-link:hover {
+  color: var(--ink);
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cfg-nav-link[aria-current="true"] {
+  color: var(--ink);
+  font-weight: 700;
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cfg-content {
+  display: grid;
+  gap: calc(var(--pad) * 1.5);
+  min-inline-size: 0;
+}
+.cfg-group {
+  display: grid;
+  gap: 0.75rem;
+}
+.cfg-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--accent);
+  letter-spacing: 0.14em;
+}
+.cfg-group-title::after {
+  content: "";
+  flex: 1;
+  border-block-start: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.cfg-block:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.cfg-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* al saltar desde el índice el bloque no queda pegado al borde de arriba */
+.cfg-block {
+  scroll-margin-block-start: 0.5rem;
+}
+.cfg-nomatch {
+  padding: 1rem;
+  border: 1px dashed var(--line-strong);
+}
+
+/* tesela estrecha: el índice pasa arriba, como una tira de botones que se desliza */
+@container panel (max-width: 56rem) {
+  .cfg-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cfg-nav {
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.5rem;
+    max-block-size: none;
+    overflow-x: auto;
+    background-color: var(--surface);
+  }
+  .cfg-search {
+    flex: 0 0 11rem;
+    inline-size: 11rem;
+  }
+  .cfg-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: none;
+  }
+  .cfg-nav-title {
+    display: none;
+  }
+  .cfg-nav ul {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .cfg-nav-link {
+    inline-size: auto;
+    white-space: nowrap;
+    border: 1px solid var(--line);
+    border-inline-start-width: 1px;
+  }
+  .cfg-nav-link[aria-current="true"] {
+    border-color: var(--accent);
+  }
+  .cfg-block {
+    scroll-margin-block-start: 4rem; /* la tira de arriba es fija: no tapa el título al saltar */
+  }
+}

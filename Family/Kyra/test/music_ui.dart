@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/ui/widgets/album_stack.dart';
 import 'package:kyora_chat/ui/widgets/disc_player.dart';
 
-/// Ayudas para probar la pantalla de música (pila de álbumes → vista del álbum con su ruleta de discos → lista en arco).
+/// Ayudas para probar la pantalla de música (pila de álbumes → vista del álbum con su disco → lista en arco).
 
 /// La tarjeta de un álbum en la pila: «Canciones enviadas», la carpeta, sus álbumes y «Nuevo álbum».
 Finder card(String id) => find.byKey(ValueKey(id));
@@ -51,22 +51,24 @@ Future<void> playRow(WidgetTester tester, Finder row, String id) async {
   await tester.tap(find.byKey(Key('arc-play-$id')));
 }
 
-/// Mantiene presionado el disco: se abre la pila de álbumes para elegir otro.
+/// Mantiene presionado el disco: se abren sus opciones (aleatorio, mover, borrar, velocidad).
 Future<void> holdDisc(WidgetTester tester) async {
   await tester.longPress(find.byType(DiscPlayer));
   await tester.pumpAndSettle();
 }
 
-/// Pasa al álbum siguiente (`next: false` = al anterior): mantiene presionado el disco, trae esa portada al centro de la pila y la toca.
+/// El orden de la pila de música de las pruebas (`music_screen_test`): enviadas, la carpeta, Jazz, Rock.
+const _stackIds = ['card-received', 'card-root', 'card-folder-Jazz', 'card-folder-Rock'];
+const _stackTitles = ['Canciones enviadas', 'Mi música', 'Jazz', 'Rock'];
+
+/// Pasa al álbum siguiente (`next: false` = al anterior). Mantener el disco ya no sirve para esto: se vuelve a la pila (la canción sigue
+/// sonando) y se abre el otro álbum.
 Future<void> swipeAlbum(WidgetTester tester, {bool next = true}) async {
-  await holdDisc(tester);
-  final stack = find.descendant(of: find.byKey(const Key('album-picker')), matching: find.byType(AlbumStack));
-  final widget = tester.widget<AlbumStack>(stack);
-  final target = widget.controller!.current + (next ? 1 : -1);
-  final id = widget.cards[target].id;
-  final rect = tester.getRect(find.descendant(of: stack, matching: find.byKey(ValueKey(id))));
-  await tester.tapAt(Offset(rect.center.dx, rect.center.dy + (next ? 1 : -1) * rect.height * 0.25)); // la parte que asoma
+  final shown = tester.widget<Text>(find.byKey(const Key('album-title'))).data!;
+  final target = _stackTitles.indexOf(shown) + (next ? 1 : -1);
+  await tester.pageBack();
   await tester.pumpAndSettle();
-  await tester.tap(find.descendant(of: stack, matching: find.byKey(ValueKey(id))));
-  await tester.pumpAndSettle();
+  await tester.runAsync(pumpEventQueue);
+  await tester.pump();
+  await openAlbum(tester, target, _stackIds[target]);
 }

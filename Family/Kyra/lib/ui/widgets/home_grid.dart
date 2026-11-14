@@ -14,6 +14,7 @@ import 'cut_border.dart';
 import 'hack_text.dart';
 import 'pixel_glyph.dart';
 import 'section_motion.dart';
+import 'weather_detail.dart';
 
 /// El tablero de Inicio: una **cuadrícula de 2 × 2** paneles ciberpunk — la hora, el clima, el estado del sistema (batería, memoria y
 /// almacenamiento) y los accesos rápidos (Wi-Fi y Bluetooth). Cada panel aparece en su turno.
@@ -317,7 +318,7 @@ class _WeatherTile extends StatelessWidget {
         return GestureDetector(
           key: const Key('home-weather'),
           behavior: HitTestBehavior.opaque,
-          onTap: needsCity ? onNeedCity : null,
+          onTap: needsCity ? onNeedCity : (weather == null ? null : () => unawaited(showWeatherDetail(context, controller))),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
             child: Column(
@@ -455,8 +456,19 @@ class _QuickTile extends StatelessWidget {
             label: 'WI-FI',
             on: s?.wifi,
             onTap: controller == null ? null : () => unawaited(controller.openWifi()),
+            onLongPress: controller == null ? null : () => unawaited(controller.openNetworkSettings()),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          _QuickButton(
+            key: const Key('quick-data'),
+            icon: Icons.signal_cellular_alt_rounded,
+            label: 'DATOS',
+            on: s?.mobileData,
+            inUse: true,
+            onTap: controller == null ? null : () => unawaited(controller.openInternetPanel()),
+            onLongPress: controller == null ? null : () => unawaited(controller.openMobileData()),
+          ),
+          const SizedBox(height: 6),
           _QuickButton(
             key: const Key('quick-bluetooth'),
             icon: Icons.bluetooth_rounded,
@@ -472,14 +484,17 @@ class _QuickTile extends StatelessWidget {
   }
 }
 
-/// Un acceso rápido: el icono, el nombre y si está encendido; tocarlo abre su panel del sistema.
+/// Un acceso rápido: el icono, el nombre y si está encendido. Tocarlo abre el panel del sistema; mantenerlo, sus ajustes. Con [inUse] el
+/// estado es «en uso» (no se puede leer el interruptor).
 class _QuickButton extends StatelessWidget {
-  const _QuickButton({super.key, required this.icon, required this.label, required this.on, required this.onTap});
+  const _QuickButton({super.key, required this.icon, required this.label, required this.on, required this.onTap, this.onLongPress, this.inUse = false});
 
   final IconData icon;
   final String label;
   final bool? on;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final bool inUse;
 
   @override
   Widget build(BuildContext context) {
@@ -487,12 +502,14 @@ class _QuickButton extends StatelessWidget {
     final lit = on == true;
     return Semantics(
       button: true,
-      label: '$label ${lit ? 'encendido' : 'apagado'}',
+      label: '$label ${inUse ? (lit ? 'en uso' : 'sin uso') : (lit ? 'encendido' : 'apagado')}',
+      onLongPress: onLongPress,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
-          height: 40,
+          height: 34,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: cutDecoration(color: lit ? c.accent.withValues(alpha: 0.22) : Colors.black.withValues(alpha: 0.3), edge: lit ? c.accent : c.edge, cut: 8),
           child: Row(
@@ -547,7 +564,7 @@ class _WeatherCompact extends StatelessWidget {
         final status = controller.status;
         final needsCity = status == WeatherStatus.noCity || status == WeatherStatus.unknownCity;
         if (weather == null) return body('--', needsCity ? 'CIUDAD' : 'CLIMA', PixelGlyphs.cloud, onTap: needsCity ? onNeedCity : null);
-        return body('${weather.temperature.round()}°', weather.city, pixelWeatherGlyph(weather.code));
+        return body('${weather.temperature.round()}°', weather.city, pixelWeatherGlyph(weather.code), onTap: () => unawaited(showWeatherDetail(context, controller)));
       },
     );
   }
@@ -606,8 +623,27 @@ class _QuickCompact extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(child: _QuickChip(icon: Icons.wifi_rounded, label: 'WI-FI', on: s?.wifi, onTap: controller == null ? null : () => unawaited(controller.openWifi()))),
-          const SizedBox(height: 6),
+          Expanded(
+            child: _QuickChip(
+              icon: Icons.wifi_rounded,
+              label: 'WI-FI',
+              on: s?.wifi,
+              onTap: controller == null ? null : () => unawaited(controller.openWifi()),
+              onLongPress: controller == null ? null : () => unawaited(controller.openNetworkSettings()),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: _QuickChip(
+              icon: Icons.signal_cellular_alt_rounded,
+              label: 'DATOS',
+              on: s?.mobileData,
+              inUse: true,
+              onTap: controller == null ? null : () => unawaited(controller.openInternetPanel()),
+              onLongPress: controller == null ? null : () => unawaited(controller.openMobileData()),
+            ),
+          ),
+          const SizedBox(height: 4),
           Expanded(child: _QuickChip(icon: Icons.bluetooth_rounded, label: 'BT', on: s?.bluetooth, onTap: controller == null ? null : () => unawaited(controller.openBluetooth()))),
         ],
       ),
@@ -617,14 +653,16 @@ class _QuickCompact extends StatelessWidget {
   }
 }
 
-/// Un acceso rápido pequeño (para la franja): el icono y si está encendido; tocarlo abre su panel del sistema.
+/// Un acceso rápido pequeño (para la franja): el icono y si está encendido; tocarlo abre su panel del sistema y mantenerlo, sus ajustes.
 class _QuickChip extends StatelessWidget {
-  const _QuickChip({required this.icon, required this.label, required this.on, required this.onTap});
+  const _QuickChip({required this.icon, required this.label, required this.on, required this.onTap, this.onLongPress, this.inUse = false});
 
   final IconData icon;
   final String label;
   final bool? on;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final bool inUse;
 
   @override
   Widget build(BuildContext context) {
@@ -632,10 +670,12 @@ class _QuickChip extends StatelessWidget {
     final lit = on == true;
     return Semantics(
       button: true,
-      label: '$label ${lit ? 'encendido' : 'apagado'}',
+      label: '$label ${inUse ? (lit ? 'en uso' : 'sin uso') : (lit ? 'encendido' : 'apagado')}',
+      onLongPress: onLongPress,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: cutDecoration(color: lit ? c.accent.withValues(alpha: 0.22) : Colors.black.withValues(alpha: 0.3), edge: lit ? c.accent : c.edge, cut: 6),

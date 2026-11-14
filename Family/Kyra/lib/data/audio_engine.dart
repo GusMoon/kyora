@@ -54,5 +54,8 @@ abstract class AudioEngine {
   /// Cambia lo que pasa al terminar una canción.
   Future<void> setRepeat(RepeatKind mode);
 
+  /// Velocidad y tono a la vez (1 = normal): como un disco que gira más lento o más rápido, el tono sigue a la velocidad.
+  Future<void> setRate(double rate);
+
   Future<void> dispose();
 }

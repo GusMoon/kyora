@@ -157,6 +157,8 @@ function mountSection(section: typeof cloudSection | typeof chatSection, route: 
     prefs: new PrefsStore({ ...DEFAULT_PREFS }),
     backdrop: new Backdrop({ storage: null }),
     library: new Library(),
+    vault: {} as never,
+    userId: "u",
     signOut() {},
     reload: async () => {},
   };

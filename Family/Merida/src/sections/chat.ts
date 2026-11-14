@@ -6,7 +6,10 @@ import { formatSize } from "../data/music";
 import { LIVE_TEXT } from "../status";
 import { listCommands, parseCommand, suggestCommands, type ChatCommand } from "../data/commands";
 import { attachmentUrl, clearConversation, deleteMessages, deviceLabel, draftMessage, listMessages, mergeMessages, sendMessage, sendPayload, type Message } from "../data/chat";
+import { checkFiles, uploadAttachments } from "../data/attachments";
 import type { Ctx, Section } from "./context";
+
+const IMAGE_PREVIEW_MAX = 10 * 1024 * 1024; // las fotos de más de 10 MB no se descargan solas para la vista previa
 
 const PAGE = 50; // mensajes por tanda al cargar hacia atrás
 const FIRST_LOAD = 100; // los que pide main.ts al abrir
@@ -62,6 +65,11 @@ export const chatSection: Section = (ctx: Ctx) => {
   let loadingOlder = false;
   let confirming: string | null = null; // el mensaje que pide confirmación para borrarse
   let clearing: "idle" | "confirm" | "busy" = "idle"; // el estado de «Vaciar chat»
+  let staged: File[] = []; // los archivos elegidos que aún no se envían
+  const pendingFiles = new Map<string, File[]>(); // los archivos de un mensaje que se está enviando o falló: para reintentar sin elegirlos otra vez
+  const progress = new Map<string, string>(); // «subiendo 2/3» por mensaje
+  const previews = new Map<string, string>(); // la URL firmada de las fotos ya pedidas (por ruta)
+  const previewing = new Set<string>(); // las que se están pidiendo ahora
 
   const liveText = h("span", { class: "chat-live-text" });
   const liveBox = h("p", { class: "chat-live", role: "status" }, h("span", { class: "chat-live-dot", "aria-hidden": "true" }), liveText);
@@ -89,17 +97,54 @@ export const chatSection: Section = (ctx: Ctx) => {
   }
   void loadCommands();
 
-  async function deliver(payload: ReturnType<typeof sendPayload>) {
-    store.messages = mergeMessages(store.messages, [draftMessage(payload)]);
+  /** Envía un mensaje. Con archivos, primero los sube a Storage y luego manda el mensaje con sus adjuntos; si algo falla,
+   * el mensaje queda «no se envió» con sus archivos guardados para reintentar (mismo id: nunca se duplica). */
+  async function deliver(payload: ReturnType<typeof sendPayload>, files: File[] = [], retry = false) {
+    const id = payload.p_id;
+    if (retry) store.messages = store.messages.map((m) => (m.id === id ? { ...m, local: "sending" as const } : m));
+    else store.messages = mergeMessages(store.messages, [draftMessage(payload)]);
+    if (files.length) pendingFiles.set(id, files);
     store.emit("messages");
     scroller.scrollTop = scroller.scrollHeight;
     try {
-      const sent = await sendMessage(client, payload);
+      let toSend = payload;
+      if (files.length) {
+        const uploaded = await uploadAttachments(client, ctx.userId, payload.p_conversation_id, id, files, (done, total) => {
+          progress.set(id, done >= total ? "enviando…" : `subiendo ${done + 1}/${total}`);
+          render();
+        });
+        toSend = { ...payload, p_attachments: uploaded };
+      }
+      const sent = await sendMessage(client, toSend);
       store.messages = mergeMessages(store.messages, [sent]);
-    } catch {
-      store.messages = store.messages.map((m) => (m.id === payload.p_id ? { ...m, local: "failed" as const } : m));
+      pendingFiles.delete(id);
+    } catch (err) {
+      problem.textContent = `No se envió el mensaje. ${explainError(err)}`;
+      store.messages = store.messages.map((m) => (m.id === id ? { ...m, local: "failed" as const } : m));
+    } finally {
+      progress.delete(id);
     }
     store.emit("messages");
+  }
+
+  /** Pide la URL firmada de una foto para mostrarla en el mensaje (una sola vez por archivo). */
+  function loadPreview(path: string, img: HTMLImageElement, size: number) {
+    const cached = previews.get(path);
+    if (cached) {
+      img.src = cached;
+      return;
+    }
+    if (previewing.has(path) || size > IMAGE_PREVIEW_MAX) return;
+    previewing.add(path);
+    void attachmentUrl(client, path)
+      .then((url) => {
+        previews.set(path, url);
+        if (alive && img.isConnected) img.src = url;
+      })
+      .catch(() => {
+        /* sin vista previa: queda el nombre del archivo */
+      })
+      .finally(() => previewing.delete(path));
   }
 
   async function openAttachment(path: string) {
@@ -191,11 +236,12 @@ export const chatSection: Section = (ctx: Ctx) => {
 
   function footer(m: Message, mine: boolean): HTMLElement {
     const foot = h("p", { class: "msg-foot" }, h("time", { datetime: m.sent_at }, timeLabel(m.sent_at)));
-    if (m.local === "sending") foot.append(h("span", { class: "msg-state" }, "en cola"));
+    if (m.local === "sending") foot.append(h("span", { class: "msg-state" }, progress.get(m.id) ?? "en cola"));
     else if (m.local === "failed") {
+      const files = pendingFiles.get(m.id) ?? [];
       foot.append(
         h("span", { class: "msg-error" }, "ERR: no se envió"),
-        h("button", { class: "btn-edge", type: "button", onClick: () => void deliver({ p_id: m.id, p_conversation_id: m.conversation_id, p_body: m.body ?? "", p_sent_at: m.sent_at, p_device: "web", p_attachments: [] }) }, "Reintentar"),
+        h("button", { class: "btn-edge", type: "button", onClick: () => void deliver({ p_id: m.id, p_conversation_id: m.conversation_id, p_body: m.body ?? "", p_sent_at: m.sent_at, p_device: "web", p_attachments: [] }, files, true) }, "Reintentar"),
       );
     } else if (mine) foot.append(h("span", { class: "msg-check", "aria-label": "enviado" }, "✓"));
     if (!m.local) {
@@ -238,6 +284,15 @@ export const chatSection: Section = (ctx: Ctx) => {
     return foot;
   }
 
+  /** Un adjunto: las fotos se ven en pequeño (pulsar la abre entera en otra pestaña); lo demás es un enlace con nombre y tamaño. */
+  function attachmentEl(m: Message, a: Message["attachments"][number]): HTMLElement {
+    const link = h("button", { class: "msg-file", type: "button", disabled: !!m.local, onClick: () => void openAttachment(a.storage_path) }, h("strong", {}, ":: "), a.file_name, h("span", { class: "msg-size" }, formatSize(a.size_bytes)));
+    if (!a.mime_type?.toLowerCase().startsWith("image/") || m.local) return h("li", {}, link);
+    const img = h("img", { class: "msg-img", alt: a.file_name, loading: "lazy" });
+    loadPreview(a.storage_path, img, a.size_bytes);
+    return h("li", {}, h("button", { class: "msg-thumb", type: "button", "aria-label": `Abrir ${a.file_name}`, onClick: () => void openAttachment(a.storage_path) }, img), link);
+  }
+
   function messageEl(m: Message): HTMLElement {
     const mine = m.sender_device === "web";
     const body = m.body ? h("p", { class: "msg-text" }, m.body) : null;
@@ -250,7 +305,7 @@ export const chatSection: Section = (ctx: Ctx) => {
         { class: "msg-main" },
         body,
         m.attachments?.length
-          ? h("ul", { class: "msg-files" }, m.attachments.map((a) => h("li", {}, h("button", { class: "msg-file", type: "button", onClick: () => void openAttachment(a.storage_path) }, h("strong", {}, ":: "), a.file_name, h("span", { class: "msg-size" }, formatSize(a.size_bytes))))))
+          ? h("ul", { class: "msg-files" }, m.attachments.map((a) => attachmentEl(m, a)))
           : null,
         footer(m, mine),
       ),
@@ -311,15 +366,79 @@ export const chatSection: Section = (ctx: Ctx) => {
 
   const text = h("textarea", { id: "chat-text", rows: 1, maxlength: 4000, placeholder: "escribe y pulsa ⏎", spellcheck: "true" });
   const send = h("button", { class: "chat-send", type: "submit", "aria-label": "Enviar" }, icon("enter"));
+  // ----- archivos: el clip, arrastrar y soltar sobre el chat, y pegar una imagen
+  const fileInput = h("input", { type: "file", multiple: true, hidden: true, id: "chat-files", "aria-label": "Elegir archivos para adjuntar" });
+  const attach = h("button", { class: "chat-attach", type: "button", "aria-label": "Adjuntar archivos", title: "Adjuntar archivos (o suéltalos aquí)", onClick: () => fileInput.click() }, icon("paperclip"));
+  const stagedList = h("ul", { class: "staged", "aria-label": "Archivos por enviar", hidden: true });
   const composer = h(
     "form",
     { class: "chat-composer" },
+    stagedList,
     h("label", { for: "chat-text", class: "chat-prompt" }, h("span", { "aria-hidden": "true" }, ">"), h("span", { class: "sr-only" }, "Mensaje")),
     text,
+    attach,
     send,
+    fileInput,
   );
+  const renderStaged = () => {
+    stagedList.hidden = staged.length === 0;
+    stagedList.replaceChildren(
+      ...staged.map((f, i) =>
+        h(
+          "li",
+          { class: "staged-item" },
+          h("span", { class: "staged-name", title: f.name }, f.name),
+          h("span", { class: "msg-size" }, formatSize(f.size)),
+          h("button", { class: "btn-quiet", type: "button", "aria-label": `Quitar ${f.name}`, onClick: () => { staged = staged.filter((_, j) => j !== i); renderStaged(); grow(); text.focus(); } }, "Quitar"),
+        ),
+      ),
+    );
+  };
+  function stage(files: File[]) {
+    if (!files.length) return;
+    const { accepted, errors } = checkFiles(files, staged);
+    staged = [...staged, ...accepted];
+    problem.textContent = errors.join(" ");
+    renderStaged();
+    grow();
+    text.focus();
+  }
+  fileInput.addEventListener("change", () => {
+    stage([...(fileInput.files ?? [])]);
+    fileInput.value = "";
+  });
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  const onDragOver = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); // sin esto el navegador abre el archivo en lugar de soltarlo
+    shell.body.classList.add("is-dropping");
+  };
+  const onDragLeave = (e: DragEvent) => {
+    if (e.relatedTarget === null || !(e.relatedTarget instanceof Node) || !shell.body.contains(e.relatedTarget)) shell.body.classList.remove("is-dropping");
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    shell.body.classList.remove("is-dropping");
+    stage([...(e.dataTransfer?.files ?? [])]);
+  };
+  shell.body.addEventListener("dragover", onDragOver);
+  shell.body.addEventListener("dragleave", onDragLeave);
+  shell.body.addEventListener("drop", onDrop);
+  cleanups.push(() => {
+    shell.body.removeEventListener("dragover", onDragOver);
+    shell.body.removeEventListener("dragleave", onDragLeave);
+    shell.body.removeEventListener("drop", onDrop);
+    shell.body.classList.remove("is-dropping");
+  });
+  text.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files ?? [])];
+    if (!files.length) return; // texto normal: se pega como siempre
+    e.preventDefault();
+    stage(files);
+  });
   const grow = () => {
-    send.disabled = !text.value.trim();
+    send.disabled = !text.value.trim() && staged.length === 0;
     if (!text.isConnected) return; // sin estar en la página no se puede medir
     text.style.blockSize = "auto";
     if (text.scrollHeight) text.style.blockSize = `${Math.min(text.scrollHeight, 140)}px`; // hasta unas 5 líneas
@@ -395,7 +514,19 @@ export const chatSection: Section = (ctx: Ctx) => {
   composer.addEventListener("submit", (e) => {
     e.preventDefault();
     const body = text.value.trim();
-    if (!body || !store.conversationId) return;
+    if ((!body && !staged.length) || !store.conversationId) return;
+    // con archivos elegidos, todo va como mensaje (un «/comando» con archivos es texto)
+    if (staged.length) {
+      const files = staged;
+      staged = [];
+      renderStaged();
+      text.value = "";
+      grow();
+      problem.textContent = "";
+      const placeholders = files.map((f) => ({ storage_path: "", file_name: f.name, mime_type: f.type || "application/octet-stream", size_bytes: f.size, width: null, height: null, duration_ms: null, thumb_path: null }));
+      void deliver(sendPayload(store.conversationId, body, crypto.randomUUID(), new Date(), placeholders), files);
+      return;
+    }
     // «/comando»: abre la web que tiene configurada (Configuración → Comandos del chat) en lugar de mandar un mensaje
     const cmd = parseCommand(body, commands ?? []);
     if (cmd.kind !== "none") {

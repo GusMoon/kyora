@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Shell } from "../src/ui/shell";
 import { Store } from "../src/store";
+import { PrefsStore, DEFAULT_PREFS } from "../src/prefs";
 
 function setup() {
   const store = new Store();
@@ -10,22 +11,23 @@ function setup() {
 }
 
 const tile = (shell: Shell, route: string) => shell.root.querySelector<HTMLElement>(`.tile-${route}`)!;
+const ROUTES_IN_BOARD = ["tareas", "musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas"];
 
 afterEach(() => {
   location.hash = "";
+  document.title = "";
   document.body.replaceChildren();
 });
 
 describe("tablero", () => {
-  it("en Inicio hay cinco teselas, sin Sistema ni Salir, y Configuración va en el centro del orden", () => {
+  it("en Inicio hay ocho teselas (siete secciones y Configuración en el centro), sin Sistema ni Salir", () => {
     const { shell } = setup();
     shell.setSection("inicio", "");
     expect(shell.root.dataset.mode).toBe("home");
     const tiles = [...shell.root.querySelectorAll(".tile")];
-    expect(tiles).toHaveLength(5);
+    expect(tiles).toHaveLength(8);
     expect(shell.root.querySelector(".tile-system, .tile-exit")).toBeNull();
-    // en el documento: Tareas, Música, Configuración (centro), Nube y Chat
-    expect(tiles.map((t) => t.className.match(/tile-(\w+)/)![1])).toEqual(["tareas", "musica", "configuracion", "nube", "chat"]);
+    expect(tiles.map((t) => t.className.match(/tile-(\w+)/)![1])).toEqual(ROUTES_IN_BOARD);
     // sin números al lado de los nombres
     expect(shell.root.querySelector(".tile-num")).toBeNull();
     expect(shell.root.textContent).not.toMatch(/\/0\d/);
@@ -39,13 +41,24 @@ describe("tablero", () => {
     expect(cfg.querySelector(".tile-link")?.getAttribute("href")).toBe("#/configuracion");
   });
 
-  it("cada tesela lleva su icono y Configuración abre su sección con la tecla A", () => {
+  it("cada tesela lleva su icono y su tecla de siempre", () => {
     const { shell } = setup();
-    for (const route of ["tareas", "musica", "chat", "configuracion", "nube"]) {
+    const keys: Record<string, string> = { tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", configuracion: "A" };
+    for (const route of ROUTES_IN_BOARD) {
       expect(tile(shell, route).querySelector(".tile-icon")).not.toBeNull();
+      expect(tile(shell, route).querySelector(".tile-key")?.textContent).toBe(keys[route]);
+      expect(tile(shell, route).querySelector(".tile-link")?.getAttribute("href")).toBe(`#/${route}`);
     }
-    expect(tile(shell, "configuracion").querySelector(".tile-link")?.getAttribute("href")).toBe("#/configuracion");
-    expect(tile(shell, "configuracion").querySelector(".tile-key")?.textContent).toBe("A");
+  });
+
+  it("al cambiar los atajos en las preferencias, cambian la tecla de la tesela y la etiqueta del dock", () => {
+    const store = new Store();
+    const prefs = new PrefsStore({ ...DEFAULT_PREFS, keys: { ...DEFAULT_PREFS.keys } });
+    const shell = new Shell({ store, prefs });
+    document.body.append(shell.root);
+    prefs.set({ keys: { ...prefs.value.keys, tareas: "X" } });
+    expect(tile(shell, "tareas").querySelector(".tile-key")?.textContent).toBe("X");
+    expect(tile(shell, "tareas").querySelector(".dock-face")?.getAttribute("aria-label")).toBe("Tareas (tecla X)");
   });
 
   it("al abrir una sección su tesela queda activa y las demás pasan al dock, con su puesto", () => {
@@ -54,9 +67,9 @@ describe("tablero", () => {
     expect(shell.root.dataset.mode).toBe("focus");
     expect(tile(shell, "tareas").classList.contains("is-active")).toBe(true);
     expect(tile(shell, "tareas").querySelector(".tile-statement")?.textContent).toBe("5 abiertas; 2 vencen hoy.");
-    expect(shell.root.style.getPropertyValue("--dock-n")).toBe("4");
-    const docked = ["musica", "configuracion", "nube", "chat"].map((r) => tile(shell, r).style.getPropertyValue("--dock-i"));
-    expect(docked).toEqual(["0", "1", "2", "3"]);
+    expect(shell.root.style.getPropertyValue("--dock-n")).toBe("7");
+    const docked = ["musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas"].map((r) => tile(shell, r).style.getPropertyValue("--dock-i"));
+    expect(docked).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
     expect(shell.root.querySelector(".edge")).not.toBeNull();
   });
 
@@ -68,6 +81,14 @@ describe("tablero", () => {
     expect(face.getAttribute("aria-label")).toBe("Música (tecla M)");
     expect(face.querySelector(".dock-icon")).not.toBeNull();
     expect(face.querySelector(".dock-label")?.textContent).toBe("Música");
+  });
+
+  it("con una sección abierta se ve el botón para volver al mosaico, con su nombre y su tecla Esc", () => {
+    const { shell } = setup();
+    shell.setSection("finanzas", "");
+    const close = tile(shell, "finanzas").querySelector<HTMLButtonElement>(".tile-close")!;
+    expect(close.textContent).toContain("Mosaico");
+    expect(close.querySelector(".tile-close-key")?.textContent).toBe("Esc");
   });
 
   it("la Nube ocupa el lugar del reproductor: sin reproductor en el inicio, abre su sección con la tecla N y dice cuántos archivos hay", () => {
@@ -107,7 +128,7 @@ describe("tablero", () => {
     expect(texts).toContain(p);
     expect(texts.some((t) => t.classList.contains("tile-link"))).toBe(true);
     const home = shell.fxTargets("inicio");
-    expect(home.blocks).toHaveLength(5);
+    expect(home.blocks).toHaveLength(8);
   });
 
   it("el botón de cerrar vuelve al inicio y el foco regresa a la tesela que estaba abierta", () => {
@@ -119,5 +140,21 @@ describe("tablero", () => {
     expect(location.hash).toBe("#/inicio");
     shell.setSection("inicio", "");
     expect(document.activeElement).toBe(tile(shell, "chat").querySelector(".tile-link"));
+  });
+
+  it("los mensajes sin leer salen como contador en el Chat y delante del título de la pestaña", () => {
+    const { shell } = setup();
+    shell.setSection("inicio", "");
+    const badge = tile(shell, "chat").querySelector<HTMLElement>(".tile-badge")!;
+    expect(badge.hidden).toBe(true);
+    shell.setUnread(3);
+    expect(badge.hidden).toBe(false);
+    expect(badge.textContent).toBe("3");
+    expect(document.title).toBe("(3) Merida");
+    shell.setSection("tareas", "");
+    expect(document.title).toBe("(3) Tareas | Merida");
+    shell.setUnread(0);
+    expect(badge.hidden).toBe(true);
+    expect(document.title).toBe("Tareas | Merida");
   });
 });

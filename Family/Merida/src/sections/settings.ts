@@ -6,7 +6,32 @@ import { summary } from "../data/tasks";
 import { explainError } from "../supabase";
 import { addCommand, checkCommandInput, listCommands, removeCommand, type ChatCommand } from "../data/commands";
 import { FOLDER, SERVICE_DOWN, type MusicEvent, type Recipient } from "../data/library";
+import { DEFAULT_KEYS, ROUTES } from "../routes";
+import { applyKeyEdit } from "../hotkeys";
+import { normalize } from "../palette";
+import { permission, requestPermission, showNotification } from "../notify";
+import type { Message } from "../data/chat";
 import type { Ctx, Section } from "./context";
+
+/** Las monedas que se ofrecen en Finanzas (el código ISO que guarda cada movimiento). */
+export const CURRENCIES: { id: string; name: string }[] = [
+  { id: "MXN", name: "Peso mexicano (MXN)" },
+  { id: "USD", name: "Dólar estadounidense (USD)" },
+  { id: "EUR", name: "Euro (EUR)" },
+  { id: "COP", name: "Peso colombiano (COP)" },
+  { id: "ARS", name: "Peso argentino (ARS)" },
+  { id: "CLP", name: "Peso chileno (CLP)" },
+  { id: "PEN", name: "Sol peruano (PEN)" },
+  { id: "GBP", name: "Libra esterlina (GBP)" },
+  { id: "CAD", name: "Dólar canadiense (CAD)" },
+];
+
+const PERMISSION_TEXT: Record<string, string> = {
+  granted: "Permiso concedido: Merida puede mostrar avisos.",
+  denied: "El navegador bloqueó los avisos de esta página. Para activarlos, cambia el permiso de notificaciones en la barra de direcciones (el candado) y vuelve a intentarlo.",
+  default: "Aún no has dado permiso. Se te pedirá al activar los avisos.",
+  unsupported: "Este navegador no permite notificaciones.",
+};
 
 export const BROWSERS: { id: string; name: string }[] = [
   { id: "chrome", name: "Chrome" },
@@ -218,7 +243,199 @@ export const settingsSection: Section = (ctx: Ctx) => {
     })();
   });
 
-  shell.body.append(h("div", { class: "cfg-grid" }, account, metrics, effects, start, accent, wallpaper, commandsBlock, music));
+  // ----- Atajos de teclado (editables): una sola letra o número por sección; Esc y Ctrl+K son fijos
+  const keyState = h("p", { class: "cfg-note", role: "status" });
+  const keyRows = h("div", { class: "sys keys" });
+  const paintKeys = () => {
+    keyRows.replaceChildren(
+      ...ROUTES.map((r) => {
+        const input = h("input", { type: "text", class: "key-input", maxlength: 1, readonly: true, value: prefs.value.keys[r.id], "aria-label": `Tecla para ${r.title}`, autocomplete: "off", spellcheck: "false" });
+        input.value = prefs.value.keys[r.id];
+        input.addEventListener("focus", () => input.select());
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Tab" || e.ctrlKey || e.metaKey || e.altKey) return; // moverse por la página sigue funcionando
+          e.preventDefault();
+          if (e.key === "Escape") return input.blur();
+          const edit = applyKeyEdit(prefs.value.keys, r.id, e.key);
+          keyState.dataset.error = String(!edit.ok);
+          if (!edit.ok) {
+            keyState.textContent = edit.error;
+            return;
+          }
+          prefs.set({ keys: edit.keys });
+          keyState.textContent = `${r.title}: tecla ${edit.keys[r.id]}.`;
+          paintKeys();
+          rows(r.id)?.focus();
+        });
+        return row(r.title, input);
+      }),
+      row("Paleta de comandos", h("span", { class: "readout" }, "Ctrl + K (fija)")),
+      row("Volver al mosaico", h("span", { class: "readout" }, "Esc (fija)")),
+    );
+  };
+  const rows = (id: string) => keyRows.querySelector<HTMLInputElement>(`input[aria-label="Tecla para ${ROUTES.find((r) => r.id === id)?.title}"]`);
+  paintKeys();
+  const keysBlock = block("Atajos de teclado",
+    h("p", { class: "cfg-help" }, "Pulsa dentro de una casilla y luego la letra o el número que quieras. No se puede repetir una tecla."),
+    keyRows,
+    keyState,
+    h("button", { class: "btn-quiet", type: "button", onClick: () => { prefs.set({ keys: { ...DEFAULT_KEYS } }); keyState.dataset.error = "false"; keyState.textContent = "Atajos restablecidos."; paintKeys(); } }, "Restablecer atajos"),
+  );
+
+  // ----- Avisos de mensajes (notificaciones del navegador, solo con la pestaña abierta)
+  const permText = h("p", { class: "cfg-note", role: "status" });
+  const paintPerm = () => {
+    permText.textContent = PERMISSION_TEXT[permission()] ?? "";
+  };
+  paintPerm();
+  const notifyToggle = toggle("Avisar de mensajes nuevos", "Una notificación cuando llega un mensaje de la PC o del móvil y no estás viendo el chat. Funciona con la pestaña abierta, aunque esté en segundo plano; con la pestaña cerrada no avisa.", prefs.value.notify && permission() === "granted", (on) => {
+    const input = notifyToggle.querySelector<HTMLInputElement>("input")!;
+    if (!on) return prefs.set({ notify: false });
+    void (async () => {
+      const result = await requestPermission();
+      paintPerm();
+      if (result === "granted") prefs.set({ notify: true });
+      else {
+        prefs.set({ notify: false });
+        input.checked = false;
+      }
+    })();
+  });
+  const sample: Message = { id: "demo", conversation_id: "", sender_device: "movil", kind: "text", body: "Así se verá un aviso de Merida.", status: "sent", sent_at: "", created_at: "", deleted_at: null, attachments: [] };
+  const notifyBlock = block("Avisos de mensajes",
+    notifyToggle,
+    toggle("Sonido corto", "Un pitido breve al llegar el aviso.", prefs.value.sound, (on) => prefs.set({ sound: on })),
+    toggle("Mostrar el texto del mensaje", "Apagado, el aviso solo dice «Mensaje nuevo» (útil si compartes pantalla).", prefs.value.preview, (on) => prefs.set({ preview: on })),
+    h("button", { class: "btn-edge", type: "button", onClick: () => { paintPerm(); if (!showNotification(sample, { preview: prefs.value.preview, sound: prefs.value.sound })) permText.textContent = `${PERMISSION_TEXT[permission()] ?? ""} No se pudo mostrar el aviso de prueba.`; } }, icon("bell", "icon"), "Probar aviso"),
+    permText,
+  );
+
+  // ----- Finanzas: la moneda
+  const currencySelect = h("select", { "aria-label": "Moneda de Finanzas" }, CURRENCIES.map((c) => h("option", { value: c.id, selected: c.id === prefs.value.currency }, c.name)));
+  if (!CURRENCIES.some((c) => c.id === prefs.value.currency)) currencySelect.prepend(h("option", { value: prefs.value.currency }, prefs.value.currency));
+  currencySelect.value = prefs.value.currency;
+  currencySelect.addEventListener("change", () => prefs.set({ currency: currencySelect.value }));
+  const financeBlock = block("Finanzas", h("p", { class: "cfg-help" }, "La moneda de los movimientos nuevos y de los resúmenes. Los movimientos ya guardados conservan la suya."), currencySelect);
+
+  // ----- Servidor: los límites de tu plan de Supabase (la Nube avisa al llegar al 80 % de ellos)
+  const limitInput = (label: string, value: number, key: "quotaDbMb" | "quotaFilesMb") => {
+    const input = h("input", { type: "number", min: "1", max: "10000000", step: "1", "aria-label": label, inputmode: "numeric" });
+    input.value = String(value);
+    input.addEventListener("change", () => {
+      const n = Number(input.value);
+      if (Number.isInteger(n) && n >= 1 && n <= 10_000_000) prefs.set({ [key]: n });
+      else input.value = String(prefs.value[key]);
+    });
+    return h("label", { class: "label cfg-field" }, label, input);
+  };
+  const serverBlock = block("Servidor",
+    h("p", { class: "cfg-help" }, "Los límites de tu plan de Supabase. La Nube mide lo que ocupas y avisa al llegar al 80 %. El plan gratuito da 500 MB de base de datos y 1 GB (1024 MB) de archivos."),
+    limitInput("Base de datos (MB)", prefs.value.quotaDbMb, "quotaDbMb"),
+    limitInput("Archivos (MB)", prefs.value.quotaFilesMb, "quotaFilesMb"),
+  );
+
+  // ----- Organización: cuatro grupos con un índice fijo a la izquierda (salto directo, marca la sección que estás viendo y un
+  //       buscador que deja solo los ajustes que coinciden)
+  const GROUPS: { name: string; blocks: HTMLElement[] }[] = [
+    { name: "Cuenta", blocks: [account, metrics] },
+    { name: "Apariencia", blocks: [effects, accent, wallpaper] },
+    { name: "Uso", blocks: [start, keysBlock, notifyBlock] },
+    { name: "Módulos", blocks: [financeBlock, serverBlock, commandsBlock, music] },
+  ];
+  const titleOf = (el: HTMLElement) => el.querySelector(".cfg-title")?.textContent?.trim() ?? "";
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const navButtons = new Map<HTMLElement, HTMLButtonElement>();
+  for (const g of GROUPS) {
+    for (const el of g.blocks) {
+      el.id = `cfg-${normalize(titleOf(el)).replace(/[^a-z0-9]+/g, "-")}`;
+      el.tabIndex = -1; // así el salto del índice puede dejar el foco en el bloque
+    }
+  }
+  const jump = (el: HTMLElement) => {
+    el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    el.focus({ preventScroll: true });
+    setActive(el);
+  };
+  const setActive = (el: HTMLElement | null) => {
+    for (const [block, btn] of navButtons) {
+      if (block === el) btn.setAttribute("aria-current", "true");
+      else btn.removeAttribute("aria-current");
+    }
+  };
+  const search = h("input", { type: "search", class: "cfg-search", placeholder: "Buscar un ajuste…", "aria-label": "Buscar un ajuste", autocomplete: "off", spellcheck: "false" });
+  const noMatch = h("p", { class: "cfg-note cfg-nomatch", role: "status", hidden: true }, "Ningún ajuste coincide con la búsqueda.");
+  const nav = h(
+    "nav",
+    { class: "cfg-nav", "aria-label": "Ajustes" },
+    search,
+    ...GROUPS.map((g) =>
+      h(
+        "div",
+        { class: "cfg-nav-group" },
+        h("p", { class: "cfg-nav-title label" }, g.name),
+        h(
+          "ul",
+          {},
+          g.blocks.map((el) => {
+            const btn = h("button", { class: "cfg-nav-link", type: "button", onClick: () => jump(el) }, titleOf(el));
+            navButtons.set(el, btn);
+            return h("li", {}, btn);
+          }),
+        ),
+      ),
+    ),
+  );
+  const sections = GROUPS.map((g) => ({ g, el: h("section", { class: "cfg-group", "aria-label": g.name }, h("h2", { class: "cfg-group-title label" }, g.name), h("div", { class: "cfg-grid" }, ...g.blocks)) }));
+  const content = h("div", { class: "cfg-content" }, ...sections.map((x) => x.el), noMatch);
+  const layout = h("div", { class: "cfg-layout" }, nav, content);
+
+  /** Deja solo los bloques cuyo texto contiene lo buscado (sin acentos ni mayúsculas); un grupo sin bloques también se esconde. */
+  const filter = () => {
+    const q = normalize(search.value);
+    let any = false;
+    for (const { g, el } of sections) {
+      let shown = 0;
+      for (const block of g.blocks) {
+        const hit = !q || normalize(`${titleOf(block)} ${block.textContent ?? ""}`).includes(q);
+        block.hidden = !hit;
+        navButtons.get(block)!.closest("li")!.hidden = !hit;
+        if (hit) shown++;
+      }
+      el.hidden = shown === 0;
+      any ||= shown > 0;
+    }
+    for (const group of nav.querySelectorAll<HTMLElement>(".cfg-nav-group")) group.hidden = ![...group.querySelectorAll("li")].some((li) => !li.hidden);
+    noMatch.hidden = any;
+  };
+  search.addEventListener("input", filter);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && search.value) {
+      e.stopPropagation(); // el primer Esc solo vacía la búsqueda
+      search.value = "";
+      filter();
+    }
+  });
+
+  // la sección que se ve queda marcada en el índice (no existe en jsdom: ahí solo marca la última pulsada)
+  if (typeof IntersectionObserver !== "undefined") {
+    const seen = new Set<HTMLElement>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) seen.add(e.target as HTMLElement);
+          else seen.delete(e.target as HTMLElement);
+        }
+        const first = GROUPS.flatMap((g) => g.blocks).find((b) => seen.has(b));
+        if (first) setActive(first);
+      },
+      { root: shell.body, rootMargin: "0px 0px -60% 0px", threshold: 0 },
+    );
+    for (const g of GROUPS) for (const el of g.blocks) observer.observe(el);
+    cleanups.push(() => observer.disconnect());
+  }
+  setActive(account);
+
+  shell.body.append(layout);
 
   // ----- datos vivos
   cleanups.push(

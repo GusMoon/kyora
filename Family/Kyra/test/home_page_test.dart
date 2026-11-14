@@ -53,7 +53,7 @@ void main() {
   late SystemController system;
 
   setUp(() {
-    info = FakeSystemInfo(const SystemStats(battery: 82, charging: true, ramTotal: 8000, ramFree: 2000, storageTotal: 128 * 1024 * 1024 * 1024, storageFree: 40 * 1024 * 1024 * 1024, wifi: true, bluetooth: false));
+    info = FakeSystemInfo(const SystemStats(battery: 82, charging: true, ramTotal: 8000, ramFree: 2000, storageTotal: 128 * 1024 * 1024 * 1024, storageFree: 40 * 1024 * 1024 * 1024, wifi: true, bluetooth: false, mobileData: true));
     system = SystemController(info, every: const Duration(hours: 1));
     backend = FakeWeather();
     weather = WeatherController(backend, MemoryWeatherStore());
@@ -177,14 +177,74 @@ void main() {
       expect(text(tester, 'WI-FI-state'), '--');
     });
 
-    testWidgets('los accesos rápidos dicen si el Wi-Fi y el Bluetooth están encendidos y al tocarlos abren su panel del sistema', (tester) async {
+    testWidgets('los accesos rápidos dicen si el Wi-Fi, los datos y el Bluetooth están encendidos y al tocarlos abren su panel del sistema', (tester) async {
       await open(tester);
       expect(text(tester, 'WI-FI-state'), 'ON');
+      expect(text(tester, 'DATOS-state'), 'ON');
       expect(text(tester, 'BT-state'), 'OFF');
       await tester.tap(find.byKey(const Key('quick-wifi')));
+      await tester.tap(find.byKey(const Key('quick-data')));
       await tester.tap(find.byKey(const Key('quick-bluetooth')));
       await tester.runAsync(pumpEventQueue);
-      expect(info.opened, ['wifi', 'bluetooth']);
+      expect(info.opened, ['wifi', 'internet', 'bluetooth']);
+    });
+
+    testWidgets('mantener el Wi-Fi abre los ajustes de red y mantener los datos, los ajustes de datos (sin tocar el panel)', (tester) async {
+      await open(tester);
+      await tester.longPress(find.byKey(const Key('quick-wifi')));
+      await tester.longPress(find.byKey(const Key('quick-data')));
+      await tester.runAsync(pumpEventQueue);
+      expect(info.opened, ['network', 'data']);
+    });
+
+    testWidgets('sin saber lo de los datos enseña guiones', (tester) async {
+      info.current = const SystemStats(battery: 50, wifi: false);
+      await open(tester);
+      expect(text(tester, 'DATOS-state'), '--');
+      expect(text(tester, 'WI-FI-state'), 'OFF');
+    });
+
+    testWidgets('con ciudad, tocar el clima enseña el detalle: ahora, máxima y mínima, el amanecer y el día hora a hora', (tester) async {
+      backend.result = Weather(
+        city: 'Lima',
+        temperature: 21,
+        code: 61,
+        time: DateTime(2026, 11, 9, 9, 15),
+        humidity: 70,
+        wind: 12,
+        high: 24.4,
+        low: 17.2,
+        sunrise: DateTime(2026, 11, 9, 5, 40),
+        sunset: DateTime(2026, 11, 9, 18, 20),
+        hourly: [
+          for (var h = 7; h < 24; h++) HourlyForecast(time: DateTime(2026, 11, 9, h), temperature: 15.0 + h / 2, code: h < 12 ? 61 : 3, rainChance: 40, wind: 10, humidity: 70),
+        ],
+      );
+      await open(tester, seed: () => weather.setCity('Lima'));
+      await tester.tap(find.byKey(const Key('home-weather')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('focus-panel')), findsOneWidget);
+      expect(text(tester, 'weather-detail-temp'), '21°');
+      expect(text(tester, 'weather-detail-label'), 'Lluvia');
+      expect(text(tester, 'weather-detail-range'), '24° / 17°');
+      expect(text(tester, 'weather-detail-humidity'), '70%');
+      expect(text(tester, 'weather-detail-wind'), '12 km/h');
+      expect(text(tester, 'weather-detail-sunrise'), '05:40');
+      expect(text(tester, 'weather-detail-sunset'), '18:20');
+      // las horas empiezan en la de ahora (9:00) y no enseñan las que ya pasaron
+      expect(find.byKey(const Key('weather-hour-9-9')), findsOneWidget);
+      expect(find.byKey(const Key('weather-hour-9-8')), findsNothing);
+      expect(find.text('Ahora'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('si lo guardado no trae las horas, el detalle las pide otra vez', (tester) async {
+      await open(tester, seed: () => weather.setCity('Lima'));
+      backend.asked.clear();
+      await tester.tap(find.byKey(const Key('home-weather')));
+      await tester.pumpAndSettle();
+      expect(backend.asked, ['Lima']);
+      expect(find.byKey(const Key('weather-detail-updating')), findsOneWidget);
     });
 
     testWidgets('al salir de Inicio deja de leer el estado del sistema', (tester) async {
@@ -348,6 +408,63 @@ void main() {
       await tester.pumpAndSettle();
       expect(apps.launched, ['com.app2']);
       expect(find.byKey(const Key('radial-menu')), findsNothing);
+    });
+
+    testWidgets('al abrir una app sale antes un efecto de holograma con su icono y su nombre, y la app se lanza al terminar de aparecer', (tester) async {
+      await openInHost(tester);
+      await swirl(tester, clockwise: false);
+      await tester.tapAt(tester.getCenter(find.byKey(const Key('radial-app-com.app2'))));
+      await tester.pump(); // el primer cuadro arranca la animación
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(const Key('launch-effect')), findsOneWidget);
+      expect(find.byKey(const Key('launch-icon')), findsOneWidget);
+      expect(find.byKey(const Key('launch-label')), findsOneWidget);
+      expect(find.byKey(const Key('launch-bar')), findsOneWidget);
+      expect(apps.launched, isEmpty); // todavía no: primero el efecto
+      await tester.pump(const Duration(milliseconds: 650)); // ya terminó de aparecer
+      expect(apps.launched, ['com.app2']);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('launch-effect')), findsNothing); // y se desvanece
+      expect(apps.launched, ['com.app2']); // una sola vez
+    });
+
+    testWidgets('mientras se abre una app no se abre otra, «atrás» no hace nada y no sale el menú', (tester) async {
+      apps.apps = [app('com.alfa', 'Alfa'), app('com.beta', 'Beta')];
+      await openInHost(tester);
+      await swirl(tester, clockwise: false);
+      await tester.tapAt(tester.getCenter(find.byKey(const Key('radial-app-com.alfa'))));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.binding.handlePopRoute(); // «atrás» durante el efecto
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.byKey(const Key('launch-effect')), findsOneWidget);
+      await tester.tapAt(const Offset(200, 400)); // un toque encima: lo absorbe el efecto
+      await tester.pumpAndSettle();
+      expect(apps.launched, ['com.alfa']);
+    });
+
+    testWidgets('al volver a Kyra desde la app el efecto ya no está', (tester) async {
+      await openInHost(tester);
+      await swirl(tester, clockwise: false);
+      await tester.tapAt(tester.getCenter(find.byKey(const Key('radial-app-com.app1'))));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700)); // la app ya se lanzó y el efecto se está yendo
+      expect(apps.launched, ['com.app1']);
+      expect(find.byKey(const Key('launch-effect')), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(find.byKey(const Key('launch-effect')), findsNothing);
+    });
+
+    testWidgets('con las animaciones del sistema quitadas la app se abre directa, sin efecto', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await openInHost(tester);
+      await swirl(tester, clockwise: false);
+      await tester.tapAt(tester.getCenter(find.byKey(const Key('radial-app-com.app3'))));
+      await tester.pump();
+      expect(apps.launched, ['com.app3']);
+      expect(find.byKey(const Key('launch-effect')), findsNothing);
     });
 
     testWidgets('tocar el centro del aro de apps (o deslizar hacia arriba desde él) abre todas a pantalla completa, quitando el contenido', (tester) async {

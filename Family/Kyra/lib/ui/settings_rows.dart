@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../data/background_playback.dart';
+import '../data/server_stats.dart';
 import '../state/dock_controller.dart';
 import '../state/music_controller.dart';
+import '../state/server_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
@@ -217,6 +219,86 @@ class _DeckSpeedRowState extends State<DeckSpeedRow> {
             Text('Rápida', style: label),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Los límites del plan de Supabase con los que la Nube compara cuánto ocupa tu proyecto (base de datos y archivos, en MB). Por defecto los del
+/// plan gratuito (500 MB y 1 GB); se cambian si cambias de plan. Se guarda con «Guardar» o al enviar un campo.
+class ServerLimitsRow extends StatefulWidget {
+  const ServerLimitsRow({super.key, required this.controller});
+
+  final ServerController controller;
+
+  @override
+  State<ServerLimitsRow> createState() => _ServerLimitsRowState();
+}
+
+class _ServerLimitsRowState extends State<ServerLimitsRow> {
+  late final TextEditingController _db = TextEditingController(text: '${widget.controller.limits.dbMb}');
+  late final TextEditingController _files = TextEditingController(text: '${widget.controller.limits.filesMb}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _db.dispose();
+    _files.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final db = int.tryParse(_db.text.trim());
+    final files = int.tryParse(_files.text.trim());
+    if (validMb(db, 0) == 0 || validMb(files, 0) == 0) {
+      setState(() => _error = 'Escribe un número entero de MB (de 1 a $maxLimitMb).');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _error = null);
+    await widget.controller.setLimits(QuotaLimits(dbMb: db!, filesMb: files!));
+  }
+
+  Future<void> _reset() async {
+    _db.text = '$freeDbMb';
+    _files.text = '$freeFilesMb';
+    setState(() => _error = null);
+    await widget.controller.setLimits(const QuotaLimits());
+  }
+
+  Widget _field(String key, String label, TextEditingController controller) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: TextField(
+      key: Key(key),
+      controller: controller,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.done,
+      style: const TextStyle(fontSize: 16),
+      decoration: InputDecoration(labelText: label, suffixText: 'MB', isDense: true),
+      onSubmitted: (_) => _save(),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return SettingsRow(
+      key: const Key('settings-limits'),
+      icon: Icons.storage_outlined,
+      title: 'Límites del plan',
+      subtitle: _error ?? 'La Nube avisa al llegar al 80 % de cada uno. Gratis: $freeDbMb MB de base de datos y $freeFilesMb MB de archivos.',
+      subtitleColor: _error == null ? null : c.warn,
+      below: Column(
+        children: [
+          _field('settings-limit-db', 'Base de datos', _db),
+          _field('settings-limit-files', 'Archivos (Storage)', _files),
+          Wrap(
+            children: [
+              TextButton(key: const Key('settings-limits-save'), onPressed: _save, child: Text('Guardar', style: TextStyle(color: c.accent))),
+              TextButton(key: const Key('settings-limits-reset'), onPressed: _reset, child: Text('Volver al plan gratuito', style: TextStyle(color: c.dim))),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Inicio: saber si el Wi-Fi y el Bluetooth están encendidos (no se cambian desde la app: se abre el panel del sistema) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <!-- Inicio: saber si hay datos móviles en uso. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Contactos: leer los del teléfono para llamar o abrir su chat de WhatsApp (la app lo pide al abrir la sección). -->
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>

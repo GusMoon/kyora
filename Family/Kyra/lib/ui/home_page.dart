@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../data/favorites_store.dart';
 import '../state/dock_controller.dart';
+import '../state/event_controller.dart';
 import '../state/habit_controller.dart';
 import '../state/player_controller.dart';
 import '../state/reminder_controller.dart';
@@ -34,6 +35,7 @@ class HomePage extends StatefulWidget {
     this.tasks,
     this.reminders,
     this.habits,
+    this.events,
   });
 
   /// Abre la configuración (para elegir la ciudad del clima).
@@ -61,6 +63,7 @@ class HomePage extends StatefulWidget {
   final Future<TaskController>? tasks;
   final Future<ReminderController>? reminders;
   final Future<HabitController>? habits;
+  final Future<EventController>? events;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -73,7 +76,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// La hora está expandida (la agenda abierta).
   bool _agendaOpen = false;
 
-  bool get _hasAgenda => widget.tasks != null || widget.reminders != null || widget.habits != null;
+  bool get _hasAgenda => widget.tasks != null || widget.reminders != null || widget.habits != null || widget.events != null;
 
   void _toggleAgenda() => setState(() => _agendaOpen = !_agendaOpen);
 
@@ -118,6 +121,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(widget.weather?.refresh());
       unawaited(widget.dock?.refresh());
       unawaited(widget.system?.refresh());
+      // lo que cambió en otros dispositivos (el calendario) mientras la app estaba en segundo plano
+      unawaited(widget.tasks?.then((c) => c.sync()));
+      unawaited(widget.habits?.then((c) => c.sync()));
+      unawaited(widget.reminders?.then((c) => c.sync()));
+      unawaited(widget.events?.then((c) => c.sync()));
     }
   }
 
@@ -147,7 +155,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         expanded: _agendaOpen && _hasAgenda,
                         onToggle: _toggleAgenda,
                         agenda: _hasAgenda
-                            ? AgendaView(embedded: true, tasks: widget.tasks, reminders: widget.reminders, habits: widget.habits, now: widget.now, onClose: _closeAgenda)
+                            ? AgendaView(embedded: true, tasks: widget.tasks, reminders: widget.reminders, habits: widget.habits, events: widget.events, now: widget.now, onClose: _closeAgenda)
                             : null,
                       ),
                       if (widget.player != null) ...[

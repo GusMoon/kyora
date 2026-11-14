@@ -3,6 +3,7 @@ package com.kyora.kyora_chat
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.ActivityOptions
 import android.bluetooth.BluetoothManager
 import android.os.BatteryManager
 import android.os.StatFs
@@ -83,6 +84,7 @@ class MainActivity : AudioServiceActivity() {
                     call.argument<String>("toUri") ?: "",
                     result,
                 )
+                "deleteSongs" -> deleteSongs(call.argument<List<String>>("uris") ?: emptyList(), result)
                 "readDurations" -> readDurations(call.argument<List<String>>("uris") ?: emptyList(), result)
                 "readArt" -> readArt(call.argument<List<String>>("uris") ?: emptyList(), result)
                 "prepareCover" -> inThread(result, "cover_failed", "No se pudo abrir esa imagen.") {
@@ -115,7 +117,10 @@ class MainActivity : AudioServiceActivity() {
                 } catch (e: Exception) {
                     result.error("stats_failed", "No se pudo leer el estado del teléfono.", e.message)
                 }
-                "openWifi" -> result.success(openPanel(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Settings.Panel.ACTION_WIFI else Settings.ACTION_WIFI_SETTINGS))
+                // El panel flotante con los interruptores del Wi-Fi y de los datos (Android 10+); antes, los ajustes del Wi-Fi.
+                "openWifi", "openInternetPanel" -> result.success(openPanel(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Settings.Panel.ACTION_INTERNET_CONNECTIVITY else Settings.ACTION_WIFI_SETTINGS))
+                "openNetworkSettings" -> result.success(openPanel(Settings.ACTION_WIRELESS_SETTINGS))
+                "openMobileData" -> result.success(openPanel(Settings.ACTION_DATA_ROAMING_SETTINGS) || openPanel(Settings.ACTION_NETWORK_OPERATOR_SETTINGS))
                 "openBluetooth" -> result.success(openPanel(Settings.ACTION_BLUETOOTH_SETTINGS))
                 else -> result.notImplemented()
             }
@@ -137,6 +142,18 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             null
         }
+        // Los datos móviles: hay una red celular con salida a internet (aunque ahora se use el Wi-Fi). Es «en uso», no el interruptor.
+        val mobileData = try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            @Suppress("DEPRECATION")
+            cm.allNetworks.any { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } catch (e: Exception) {
+            null
+        }
         return mapOf(
             "battery" to battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
             "charging" to battery.isCharging,
@@ -146,6 +163,7 @@ class MainActivity : AudioServiceActivity() {
             "storageFree" to disk.availableBytes,
             "wifi" to wifi,
             "bluetooth" to bluetooth,
+            "mobileData" to mobileData,
         )
     }
 
@@ -172,7 +190,13 @@ class MainActivity : AudioServiceActivity() {
                         result.success(false)
                     } else {
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        startActivity(intent)
+                        // la app entra subiendo desde abajo (prueba de la transición; `kyra_enter_bottom` está en res/anim)
+                        val options = ActivityOptions.makeCustomAnimation(this, R.anim.kyra_enter_bottom, R.anim.kyra_hold)
+                        startActivity(intent, options.toBundle())
+                        // Android 14+ prefiere esta vía (la anterior está en desuso): se pide justo después de lanzar
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.kyra_enter_bottom, R.anim.kyra_hold)
+                        }
                         result.success(true)
                     }
                 } catch (e: Exception) {
@@ -640,6 +664,22 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
             mapOf("moved" to moved, "failed" to failed)
+        }
+    }
+
+    /// Borra canciones del almacenamiento (el permiso de la carpeta elegida incluye escribir). Devuelve `{deleted: n, failed: {uri: motivo}}`.
+    private fun deleteSongs(uris: List<String>, result: MethodChannel.Result) {
+        inThread(result, "delete_failed", "No se pudo borrar.") {
+            var deleted = 0
+            val failed = HashMap<String, String>()
+            for (text in uris) {
+                try {
+                    if (DocumentsContract.deleteDocument(contentResolver, Uri.parse(text))) deleted++ else failed[text] = "Android no lo borró."
+                } catch (e: Exception) {
+                    failed[text] = e.message ?: "No se pudo borrar."
+                }
+            }
+            mapOf("deleted" to deleted, "failed" to failed)
         }
     }
 

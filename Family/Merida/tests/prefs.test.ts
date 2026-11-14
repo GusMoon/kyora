@@ -16,16 +16,39 @@ describe("preferencias", () => {
   it("sin nada guardado (o sin almacenamiento) usa las de siempre", () => {
     expect(loadPrefs(memory())).toEqual(DEFAULT_PREFS);
     expect(loadPrefs(null)).toEqual(DEFAULT_PREFS);
-    expect(DEFAULT_PREFS).toEqual({ hack: true, holo: true, start: "inicio", accent: "lima", tint: true, cover: true });
+    expect(DEFAULT_PREFS).toEqual({
+      hack: true,
+      holo: true,
+      start: "inicio",
+      accent: "lima",
+      tint: true,
+      cover: true,
+      keys: { inicio: "I", tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", configuracion: "A" },
+      notify: false,
+      sound: true,
+      preview: true,
+      currency: "MXN",
+      calendarView: "week",
+      quotaDbMb: 500,
+      quotaFilesMb: 1024,
+    });
   });
 
   it("lo guardado vuelve tal cual, y lo que no vale vuelve a su valor de siempre", () => {
     const store = memory();
-    savePrefs({ hack: false, holo: true, start: "chat", accent: "cian", tint: false, cover: true }, store);
-    expect(loadPrefs(store)).toEqual({ hack: false, holo: true, start: "chat", accent: "cian", tint: false, cover: true });
-    const broken = memory({ "merida-prefs": JSON.stringify({ hack: "sí", start: "nada", accent: "rojo", holo: false, tint: 1 }) });
-    expect(loadPrefs(broken)).toEqual({ hack: true, holo: false, start: "inicio", accent: "lima", tint: true, cover: true });
+    const custom = { ...DEFAULT_PREFS, hack: false, start: "chat" as const, accent: "cian" as const, tint: false, notify: true, sound: false, preview: false, currency: "USD", keys: { ...DEFAULT_PREFS.keys, tareas: "X" } };
+    savePrefs(custom, store);
+    expect(loadPrefs(store)).toEqual(custom);
+    const broken = memory({ "merida-prefs": JSON.stringify({ hack: "sí", start: "nada", accent: "rojo", holo: false, tint: 1, currency: "pesos", notify: "sí", keys: { tareas: "T", musica: "T" } }) });
+    expect(loadPrefs(broken)).toEqual({ ...DEFAULT_PREFS, holo: false });
     expect(loadPrefs(memory({ "merida-prefs": "{no es json" }))).toEqual(DEFAULT_PREFS);
+  });
+
+  it("unas teclas repetidas o inválidas vuelven todas a las de siempre (nunca queda un atajo a medias)", () => {
+    const dup = memory({ "merida-prefs": JSON.stringify({ keys: { ...DEFAULT_PREFS.keys, chat: "T" } }) });
+    expect(loadPrefs(dup).keys).toEqual(DEFAULT_PREFS.keys);
+    const bad = memory({ "merida-prefs": JSON.stringify({ keys: { ...DEFAULT_PREFS.keys, chat: "ñ" } }) });
+    expect(loadPrefs(bad).keys).toEqual(DEFAULT_PREFS.keys);
   });
 
   it("si el navegador no deja guardar, no se rompe", () => {

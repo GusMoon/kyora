@@ -14,9 +14,10 @@ import '../state/player_controller.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import '../util/picker.dart';
+import 'album_options.dart';
 import 'folder_settings.dart';
+import 'move_sheet.dart';
 import 'widgets/album_art.dart';
-import 'widgets/album_stack.dart';
 import 'widgets/cut_border.dart';
 import 'widgets/app_backdrop.dart';
 import 'widgets/cover_backdrop.dart';
@@ -61,7 +62,8 @@ PageRoute<T> albumOpenRoute<T>({required Widget Function(BuildContext context, A
 /// el **disco de vinilo** (`DiscPlayer`): un toque reproduce o pausa y girarlo mueve la canción. Debajo, sin ningún fondo, el nombre de la
 /// canción y, si suena una de este álbum, aleatorio, anterior, siguiente y repetir; si suena una de otro, abajo sale su tarjeta, que lleva a su disco.
 ///
-/// **Mantener presionado el disco** abre la pila de álbumes para pasar a otro **sin parar la canción que suena**; tocar una portada la elige.
+/// **Mantener presionado el disco** abre sus opciones: aleatorio del álbum, mover, borrar y el medidor de velocidad y tono. (Ya no sirve para
+/// cambiar de álbum: se vuelve a la pila y se elige otro.)
 /// **Doble toque en cualquier parte menos en el disco** abre la lista de canciones (`SongArcList`): el disco encoge hasta la fila del centro y
 /// las demás llegan por la curva. Otro doble toque o «atrás» la cierran. No hay deslizamientos de lado ni de arriba abajo.
 ///
@@ -113,6 +115,9 @@ class AlbumView extends StatefulWidget {
   /// Lo que tarda en abrirse y cerrarse la lista.
   static const listTime = Duration(milliseconds: 460);
 
+  /// Lo que se oscurece la portada con la lista abierta (por encima del oscurecido de siempre): lo justo para leer las filas sin perder la imagen.
+  static const listDim = 0.5;
+
   /// El disco con su línea del avance: el rectángulo que ocupa, en una pantalla de `size`, un poco por encima del centro.
   static Rect discRect(Size size) {
     final d = math.min(size.width * 0.84, size.height * 0.58).clamp(120.0, 520.0);
@@ -135,10 +140,6 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
 
   /// La canción que se enseña de cada álbum cuando no suena ninguna de él (la que quedó en el centro de la lista).
   final Map<String, int> _picked = {};
-
-  /// Se está eligiendo otro álbum (la pila de portadas por encima del disco).
-  bool _picking = false;
-  final DeckController _pickDeck = DeckController();
 
   /// La canción que sonaba la última vez que se miró: si pasa a sonar una de otro álbum (el aleatorio entre todo), se pasa solo a ese álbum.
   String? _lastCurrent;
@@ -272,19 +273,79 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     widget.onShown?.call(widget.albums[i]);
   }
 
-  /// Mantener presionado el disco: abre la pila para elegir otro álbum.
-  void _openPicker() {
-    if (_picking || _listOpen || widget.albums.length < 2) return;
+  /// Mantener presionado el disco: abre las opciones del álbum.
+  Future<void> _openOptions() async {
+    final e = _entry;
+    if (_listOpen || _marking(e)) return;
+    final songs = _songs(e) ?? const <Track>[];
+    final player = widget.player;
+    final local = widget.local;
+    // mover y borrar solo en los álbumes del teléfono (y los que el controlador tiene abiertos, que son los que se pueden cambiar)
+    final canEdit = !e.received && local != null && _isOpenIn(e) && songs.isNotEmpty;
+    final canShuffle = player != null && songs.isNotEmpty;
     unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
-    setState(() => _picking = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pickDeck.jumpTo(_shown));
+    final action = await showAlbumOptions(context, title: e.title, canShuffle: canShuffle, canEdit: canEdit, player: player);
+    if (action == null || !mounted) return;
+    switch (action) {
+      case AlbumAction.shuffle:
+        if (player != null) unawaited(player.playAlbumShuffled(songs));
+      case AlbumAction.move:
+        await _moveAlbum(e, songs);
+      case AlbumAction.delete:
+        await _deleteAlbum(e, songs);
+    }
   }
 
-  void _closePicker() => setState(() => _picking = false);
+  /// Lo que suena sale de este álbum: antes de mover o borrar sus archivos se para (las direcciones de la cola dejarían de valer).
+  Future<void> _stopIfPlaying(AlbumEntry e) async {
+    final player = widget.player;
+    if (player != null && _isActive(e)) await player.stop();
+  }
 
-  void _pick(int i) {
-    setState(() => _picking = false);
-    _show(i);
+  Future<void> _moveAlbum(AlbumEntry e, List<Track> songs) async {
+    final local = widget.local;
+    if (local == null) return;
+    final target = await showMoveSheet(context, local, count: songs.length);
+    if (target == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _stopIfPlaying(e);
+      final result = await local.move(songs, toUri: target.uri);
+      final bad = result.failures.length;
+      final done = result.moved == 1 ? 'Se movió 1 canción' : 'Se movieron ${result.moved} canciones';
+      messenger.showSnackBar(SnackBar(
+        content: Text([
+          if (result.moved > 0) '$done a «${target.name}».',
+          if (bad > 0) 'No se ${bad == 1 ? 'pudo mover 1' : 'pudieron mover $bad'}: ${result.failures.values.first}',
+          if (result.moved == 0 && bad == 0) 'No había nada que mover.',
+        ].join(' ')),
+      ));
+    } on TrackSaveException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _deleteAlbum(AlbumEntry e, List<Track> songs) async {
+    final local = widget.local;
+    if (local == null) return;
+    final sure = await confirmDeleteAlbum(context, title: e.title, count: songs.length);
+    if (!sure || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _stopIfPlaying(e);
+      final result = await local.delete(songs);
+      final bad = result.failures.length;
+      final done = result.deleted == 1 ? 'Se borró 1 canción' : 'Se borraron ${result.deleted} canciones';
+      messenger.showSnackBar(SnackBar(
+        content: Text([
+          if (result.deleted > 0) '$done de «${e.title}».',
+          if (bad > 0) 'No se ${bad == 1 ? 'pudo borrar 1' : 'pudieron borrar $bad'}: ${result.failures.values.first}',
+          if (result.deleted == 0 && bad == 0) 'No había nada que borrar.',
+        ].join(' ')),
+      ));
+    } on TrackSaveException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    }
   }
 
   /// ¿La canción que suena es de este álbum?
@@ -378,12 +439,10 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
       listenable: Listenable.merge([widget.music, ?local, ?widget.player, ?widget.favorites]),
       builder: (context, _) => PopScope(
         // con canciones marcadas, «atrás» primero quita la marca; con la lista abierta, la cierra
-        canPop: !_marking(_entry) && !_listOpen && !_picking,
+        canPop: !_marking(_entry) && !_listOpen,
         onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
-          if (_picking) {
-            _closePicker();
-          } else if (_marking(_entry)) {
+          if (_marking(_entry)) {
             local?.clearSelection();
           } else if (_listOpen) {
             _closeList();
@@ -410,17 +469,22 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
           opacity: _backgroundIn,
           child: KeyedSubtree(key: const Key('album-backdrop'), child: _backdrop(_coverOf(_entry))),
         ),
-        // con la lista abierta, lo de debajo se tapa con una trama de tinta, y del todo al acabar de abrirse
+        // con la lista abierta, lo de debajo se oscurece con una trama de tinta y, al acabar de abrirse, con un velo plano: la portada del álbum
+        // se sigue viendo, más oscura (sin portada, el color de la pantalla de siempre)
         AnimatedBuilder(
           animation: _list,
-          builder: (context, _) => KeyedSubtree(
-            key: const Key('album-dark'),
-            child: _list.value < 0.05
-                ? const SizedBox.expand()
-                : _list.value < 0.6
-                ? const LcdDither(density: 0.25)
-                : ColoredBox(color: context.colors.background),
-          ),
+          builder: (context, _) {
+            final cover = _coverOf(_entry);
+            final hasCover = cover.file != null || cover.url != null;
+            return KeyedSubtree(
+              key: const Key('album-dark'),
+              child: _list.value < 0.05
+                  ? const SizedBox.expand()
+                  : _list.value < 0.6
+                  ? const LcdDither(density: 0.25)
+                  : ColoredBox(key: const Key('album-list-dim'), color: hasCover ? Colors.black.withValues(alpha: AlbumView.listDim) : context.colors.background),
+            );
+          },
         ),
         // el doble toque: va debajo del disco, no por encima. Así el disco tiene sus gestos para él y un toque en él no espera a ver si llega un segundo
         GestureDetector(
@@ -445,7 +509,6 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
             ),
           ),
         if (_listOpen || !_list.isDismissed) Positioned.fill(child: _listLayer(context)),
-        if (_picking) Positioned.fill(child: _picker(context)),
         // la barra de arriba
         Positioned(
           top: 0,
@@ -503,9 +566,13 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     final scale = 1 + (SongArcList.thumb / vinyl - 1) * t;
     final move = (Offset(SongArcList.edge + SongArcList.thumb / 2, size.height / 2) - disc.center) * t;
     final fade = 1 - ((t - 0.75) / 0.25).clamp(0.0, 1.0);
-    return Offstage(
-      // mientras el disco viaja de la tarjeta al centro (o al revés) lo pinta la transición
-      offstage: !widget.animation.isCompleted || fade == 0,
+    // mientras el disco viaja de la tarjeta al centro (o al revés) lo pinta la transición
+    final hidden = !widget.animation.isCompleted || fade == 0;
+    // oculto, no gira ni lee el sonido (su reloj y el del círculo se apagan): con la lista abierta solo gastaría batería y cuadros
+    return TickerMode(
+      enabled: !hidden,
+      child: Offstage(
+      offstage: hidden,
       child: IgnorePointer(
         ignoring: t > 0,
         child: Stack(
@@ -526,6 +593,7 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -541,7 +609,7 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
       player: widget.player,
       touchKey: Key('album-disc-${e.id}'),
       onTap: () => _toggle(e),
-      onLongPress: _openPicker,
+      onLongPress: () => unawaited(_openOptions()),
     );
   }
 
@@ -641,30 +709,6 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
       cover.file == null && cover.url == null
           ? const BackdropLayers()
           : Stack(fit: StackFit.expand, children: [CoverBackdrop(file: cover.file, url: cover.url), const HackerScreen()]);
-
-  /// La pila de álbumes para elegir otro: sobre un velo oscuro, las portadas en cascada; tocar la del centro la elige, tocar otra la trae al centro.
-  Widget _picker(BuildContext context) {
-    final cards = [
-      for (var i = 0; i < widget.albums.length; i++)
-        DeckCard(
-          id: 'pick-${widget.albums[i].id}',
-          title: widget.albums[i].title,
-          icon: widget.albums[i].icon,
-          coverFile: _coverOf(widget.albums[i]).file,
-          coverUrl: _coverOf(widget.albums[i]).url,
-          onTap: (_) => _pick(i),
-        ),
-    ];
-    return GestureDetector(
-      key: const Key('album-picker'),
-      behavior: HitTestBehavior.opaque,
-      onTap: _closePicker,
-      child: ColoredBox(
-        color: Colors.black.withValues(alpha: 0.86),
-        child: SafeArea(child: AlbumStack(cards: cards, controller: _pickDeck)),
-      ),
-    );
-  }
 
   /// La lista de canciones, por encima del disco mientras está abierta.
   Widget _listLayer(BuildContext context) {
@@ -853,6 +897,16 @@ class _PlayerControls extends StatelessWidget {
           icon: LcdIcon(player.repeat == RepeatKind.one ? Icons.repeat_one_rounded : Icons.repeat_rounded),
           onPressed: player.cycleRepeat,
         ),
+        // la velocidad, mientras no sea la normal: tocarla la devuelve a 1×
+        if (player.rate != 1) ...[
+          const SizedBox(width: 6),
+          TextButton(
+            key: const Key('player-rate'),
+            style: TextButton.styleFrom(minimumSize: const Size(52, 44), padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: () => unawaited(player.setRate(1)),
+            child: Text(RateMeter.label(player.rate), style: TextStyle(color: c.accent, fontSize: 16, fontWeight: FontWeight.w700)),
+          ),
+        ],
       ],
     );
   }

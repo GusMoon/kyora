@@ -125,3 +125,137 @@
   font-size: var(--step--1);
   line-height: 1.35;
 }
+
+/* ----- Servidor: lo que ocupa tu proyecto de Supabase frente al plan gratuito ----- */
+.srv {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  background-image: var(--lines);
+  margin-block-end: 1rem;
+}
+.srv-inner {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem 1rem;
+}
+.srv-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1rem;
+}
+.srv-head .cfg-title {
+  margin-inline-end: auto;
+}
+.srv-when {
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.srv-warn {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--warn);
+  border-inline-start-width: 4px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.srv-warn strong {
+  color: var(--warn);
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+.srv-warn ul {
+  display: grid;
+  gap: 0.2rem;
+}
+.srv-warn p {
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.srv-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+.srv-meter {
+  --tone: var(--accent);
+  display: grid;
+  gap: 0.35rem;
+}
+.srv-meter.is-warn {
+  --tone: #ffd23f;
+}
+.srv-meter.is-critical {
+  --tone: var(--warn);
+}
+.srv-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.srv-pct {
+  color: var(--tone);
+  font-size: var(--step-2);
+  font-weight: 700;
+  line-height: 1;
+}
+.srv-bar {
+  position: relative;
+  block-size: 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--field);
+}
+.srv-fill {
+  inline-size: calc(var(--p) * 100%);
+  block-size: 100%;
+  background: var(--tone);
+}
+.srv-mark {
+  position: absolute;
+  inset-block: -3px;
+  inset-inline-start: calc(var(--at) * 100%);
+  inline-size: 2px;
+  background: var(--ink);
+}
+.srv-sub {
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.srv-more summary {
+  cursor: pointer;
+  color: var(--dim);
+}
+.srv-more[open] summary {
+  margin-block-end: 0.6rem;
+}
+.srv-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+.srv-list {
+  display: grid;
+  gap: 0.3rem;
+  margin-block-start: 0.3rem;
+}
+.srv-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.2rem 0.4rem;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent) calc(var(--p) * 100%), transparent 0);
+  font-size: var(--step--1);
+}
+.srv-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv-val {
+  flex: none;
+  color: var(--dim);
+}
+.srv-note {
+  max-inline-size: 70ch;
+}

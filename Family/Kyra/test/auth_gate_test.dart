@@ -197,7 +197,7 @@ void main() {
       expect(find.byType(LoginPage), findsNothing); // se cerró sola
       expect(find.byKey(const Key('settings-sign-out')), findsOneWidget); // la ficha ya enseña que hay sesión
       await closeSettings(tester);
-      expect(await menuOptions(tester), contains('chat'));
+      expect(await menuOptions(tester), contains('nube')); // el chat vive dentro de la Nube (solo el administrador)
     });
 
     testWidgets('si la sesión caduca sola nada se cierra: sigue en Inicio y Configuración lo avisa', (tester) async {
@@ -214,16 +214,16 @@ void main() {
       expect(find.text('SESIÓN CADUCADA'), findsOneWidget);
     });
 
-    testWidgets('el administrador entra a Inicio, y tiene inicio, chat y música para deslizar', (tester) async {
+    testWidgets('el administrador entra a Inicio, y tiene inicio, nube (con el chat) y música para deslizar', (tester) async {
       final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
       await openGate(tester, account);
-      expect(await menuOptions(tester), containsAll(['home', 'chat', 'music', 'settings'])); // en la barra (y Configuración es una opción más)
+      expect(await menuOptions(tester), containsAll(['home', 'nube', 'music', 'settings'])); // en la barra (y Configuración es una opción más)
       expect(find.byKey(const Key('home-time')), findsOneWidget); // empieza en Inicio
       expect(find.byKey(const Key('chat-terminal')), findsNothing);
-      await goToSection(tester, 'chat');
-      expect(find.byKey(const Key('chat-terminal')), findsOneWidget); // el chat, como terminal
-      final chatSection = tester.widget<SectionHost>(find.byType(SectionHost)).sections.firstWhere((s) => s.id == 'chat');
-      expect(chatSection.icon, Icons.cloud_outlined); // con el icono de una nube
+      await goToSection(tester, 'nube');
+      expect(find.byKey(const Key('chat-terminal')), findsOneWidget); // el chat, como terminal (sin Vault ni Supabase de archivos, es la única pestaña)
+      final nubeSection = tester.widget<SectionHost>(find.byType(SectionHost)).sections.firstWhere((s) => s.id == 'nube');
+      expect(nubeSection.icon, Icons.cloud_outlined); // con el icono de una nube
       expect(chat.calls, contains('ensure'));
       expect(cache.roles['user-1'], Role.admin);
     });
@@ -248,12 +248,13 @@ void main() {
       addTearDown(vault.dispose);
       final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
       await openGate(tester, account, contacts: contacts, vault: vault);
-      expect(await menuOptions(tester), containsAll(['home', 'music', 'contacts', 'vault']));
+      expect(await menuOptions(tester), containsAll(['home', 'music', 'contacts', 'nube'])); // el Vault vive en la pestaña Local de la Nube
       await goToSection(tester, 'contacts');
       await tester.pumpAndSettle();
       expect(find.text('CONTACTOS'), findsOneWidget);
       expect(find.text('Ana'), findsOneWidget);
-      await goToSection(tester, 'vault');
+      expect(await menuOptions(tester), isNot(contains('vault'))); // ya no es una sección aparte
+      await goToSection(tester, 'nube');
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('vault-pick')), findsOneWidget);
     });
@@ -278,7 +279,7 @@ void main() {
       cache.roles['user-1'] = Role.admin;
       final account = FakeAccount(uid: 'user-1')..profileError = const ChatException('Sin conexión con Supabase', retryable: true, code: 'offline');
       await openGate(tester, account);
-      expect(await menuOptions(tester), contains('chat'));
+      expect(await menuOptions(tester), contains('nube'));
     });
 
     testWidgets('sin internet y sin rol guardado lo dice y deja reintentar', (tester) async {
@@ -294,7 +295,7 @@ void main() {
       await settle(tester);
       await tester.pump();
       expect(find.byKey(const Key('role-error')), findsNothing);
-      expect(await menuOptions(tester), contains('chat'));
+      expect(await menuOptions(tester), contains('nube'));
     });
 
     testWidgets('el rol guardado de otra cuenta no se usa', (tester) async {

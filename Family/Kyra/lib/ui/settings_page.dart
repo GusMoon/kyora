@@ -7,7 +7,9 @@ import '../data/account_backend.dart';
 import '../data/background_playback.dart';
 import '../models/profile.dart';
 import '../state/dock_controller.dart';
+import '../data/server_stats.dart' show QuotaId, percent;
 import '../state/music_controller.dart';
+import '../state/server_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
@@ -52,6 +54,7 @@ class SettingsPage extends StatefulWidget {
     this.weather,
     this.dock,
     this.wallpaper,
+    this.server,
     this.initialTile,
   });
 
@@ -84,6 +87,9 @@ class SettingsPage extends StatefulWidget {
   /// El fondo de pantalla de Inicio. Sin esto no sale la ficha «Fondo».
   final WallpaperController? wallpaper;
 
+  /// El servidor de Supabase (para cambiar los límites del plan con los que avisa la Nube). Sin esto no sale la ficha «Servidor».
+  final ServerController? server;
+
   /// Una ficha que se abre ya expandida (por ejemplo, la del clima desde Inicio).
   final String? initialTile;
 
@@ -104,6 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (widget.weather != null) _weather(widget.weather!),
       if (widget.dock != null) _dock(widget.dock!),
       _musicEntry(music),
+      if (widget.server != null) _serverEntry(widget.server!),
       _account(),
     ];
   }
@@ -254,6 +261,27 @@ class _SettingsPageState extends State<SettingsPage> {
       AutoShuffleRow(music: music),
       DeckSpeedRow(music: music),
       if (widget.background != null) BackgroundRow(background: widget.background!),
+    ]),
+  );
+
+  MosaicEntry _serverEntry(ServerController server) => MosaicEntry(
+    id: 'server',
+    title: 'Servidor',
+    code: 'CFG·07',
+    icon: Icons.storage_outlined,
+    colSpan: 4,
+    rowSpan: 1,
+    summary: (context, height) => ListenableBuilder(
+      listenable: server,
+      builder: (context, _) {
+        final q = server.quotaList;
+        final text = q.isEmpty ? '${server.limits.dbMb} MB · ${server.limits.filesMb} MB' : q.map((e) => '${e.id == QuotaId.db ? 'BD' : 'ARCH'} ${percent(e.ratio)}').join(' · ');
+        return _status(context, text, on: server.warnings.isEmpty);
+      },
+    ),
+    detail: (context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+      _hint(context, 'Los límites de tu plan de Supabase: la Nube avisa al llegar al 80 %.'),
+      ServerLimitsRow(controller: server),
     ]),
   );
 

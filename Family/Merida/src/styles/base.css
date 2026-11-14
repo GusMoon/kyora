@@ -206,42 +206,121 @@ img {
   cursor: default;
 }
 
-/* ---------- Campos ---------- */
+/* ---------- Campos ----------
+   Estilo HUD: ya no son cajas negras lisas. El fondo es un azul-negro teñido del acento (así cambia con la paleta o con el
+   color del fondo de pantalla), con las líneas de barrido de Kyra, una barra del acento a la izquierda y marcas de esquina
+   (arriba a la izquierda y abajo a la derecha). Al enfocar, el borde y las marcas se encienden y el campo brilla. */
+:root {
+  --field-fill: color-mix(in srgb, var(--accent) 9%, #0b0f14);
+  --field-fill-hot: color-mix(in srgb, var(--accent) 15%, #0b0f14);
+  --field-edge: color-mix(in srgb, var(--accent) 38%, #2a313b);
+}
+
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="search"],
+select,
 textarea {
+  --mark: var(--accent);
   inline-size: 100%;
-  border: 1px solid var(--control);
-  background: var(--field);
+  border: 1px solid var(--field-edge);
+  border-inline-start: 3px solid var(--accent);
   padding: 0.7rem 0.9rem;
+  color-scheme: dark;
+  caret-color: var(--accent);
+  background-color: var(--field-fill);
+  background-image:
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)),
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)), var(--lines);
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
+  background-position: calc(0% + 0px) 0, 0 0, 100% 100%, 100% 100%, 0 0;
+  background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px, auto;
+  transition: border-color 120ms, box-shadow 120ms, background-color 120ms;
+}
+input[type="text"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover,
+input[type="number"]:hover,
+input[type="date"]:hover,
+input[type="time"]:hover,
+input[type="datetime-local"]:hover,
+input[type="search"]:hover,
+select:hover,
+textarea:hover {
+  border-color: color-mix(in srgb, var(--accent) 65%, #2a313b);
 }
 input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+input[type="datetime-local"]:focus,
+input[type="search"]:focus,
+select:focus,
 textarea:focus {
+  outline: none;
   border-color: var(--accent);
+  background-color: var(--field-fill-hot);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent-soft), inset 0 0 18px -8px var(--accent);
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.45;
+}
+input[readonly] {
+  cursor: default;
 }
 textarea {
   resize: vertical;
 }
 input::placeholder,
 textarea::placeholder {
-  color: var(--dim);
+  color: color-mix(in srgb, var(--dim) 80%, var(--accent));
+  opacity: 0.75;
+  letter-spacing: 0.02em;
+}
+/* el icono del selector de fecha y hora, en el acento */
+input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}
+input[type="number"]::-webkit-inner-spin-button {
+  filter: invert(1);
+  opacity: 0.4;
+}
+/* el autocompletado del navegador no pinta de blanco */
+input:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink);
+  box-shadow: inset 0 0 0 100px var(--field-fill);
+  caret-color: var(--accent);
 }
 
 input[type="checkbox"] {
   appearance: none;
-  inline-size: 1.1rem;
-  block-size: 1.1rem;
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
   margin: 0;
-  border: 1px solid var(--control);
-  background: var(--field);
+  border: 1px solid var(--field-edge);
+  background: var(--field-fill);
   flex: none;
   cursor: pointer;
+  transition: box-shadow 120ms, border-color 120ms;
+}
+input[type="checkbox"]:hover {
+  border-color: var(--accent);
 }
 input[type="checkbox"]:checked {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 3px var(--field);
+  box-shadow: inset 0 0 0 3px var(--field-fill), 0 0 10px -2px var(--accent-soft);
 }
 
 .form-error:not(:empty)::before {

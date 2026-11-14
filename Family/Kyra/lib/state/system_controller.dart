@@ -48,8 +48,11 @@ class SystemController extends ChangeNotifier {
     }
   }
 
-  /// Abre el panel del Wi-Fi o del Bluetooth; al volver se lee otra vez.
+  /// Abre el panel de conexión, los ajustes de red o de datos, o el Bluetooth; al volver se lee otra vez.
   Future<bool> openWifi() => _info.openWifi();
+  Future<bool> openInternetPanel() => _info.openInternetPanel();
+  Future<bool> openNetworkSettings() => _info.openNetworkSettings();
+  Future<bool> openMobileData() => _info.openMobileData();
   Future<bool> openBluetooth() => _info.openBluetooth();
 
   @override

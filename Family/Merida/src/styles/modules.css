@@ -1,0 +1,348 @@
+/* ---------- Calendario, Finanzas y Contraseñas (ronda 5). Mismo lenguaje: cajas cuadradas de línea fina y un solo acento ---------- */
+
+.tabs .tab[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ----- Finanzas ----- */
+.fin-nav {
+  flex-wrap: wrap;
+}
+.fin-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+}
+.fin-summary .cfg-note {
+  grid-column: 1 / -1;
+}
+.fin-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  background-image: var(--lines);
+}
+.fin-card strong {
+  font-size: var(--step-2);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.fin-card.is-income strong {
+  color: var(--accent);
+}
+.fin-card.is-expense strong {
+  color: var(--ink);
+}
+.fin-card.is-balance {
+  border-color: var(--accent);
+}
+.fin-card.is-negative {
+  border-color: var(--warn);
+}
+.fin-card.is-negative strong {
+  color: var(--warn);
+}
+.fin-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  gap: var(--pad);
+  align-items: start;
+}
+@container panel (max-width: 56rem) {
+  .fin-cols,
+  .fin-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.fin-col {
+  display: grid;
+  gap: var(--pad);
+  min-inline-size: 0;
+}
+.fin-form {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.fin-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.fin-breakdown {
+  display: grid;
+  gap: 0.6rem;
+}
+.fin-breakdown > h3 {
+  color: var(--dim);
+}
+.fin-bars {
+  display: grid;
+  gap: 0.6rem;
+}
+.fin-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+}
+.fin-bar-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.fin-track {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  block-size: 0.55rem;
+  background: repeating-linear-gradient(90deg, var(--line) 0 3px, transparent 3px 5px);
+}
+.fin-fill {
+  display: block;
+  block-size: 100%;
+}
+.fin-amount {
+  white-space: nowrap;
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.swatch {
+  display: inline-block;
+  inline-size: 0.8rem;
+  block-size: 0.8rem;
+  flex: none;
+}
+.fin-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block-end: 0.5rem;
+}
+.fin-filter input {
+  flex: 1 1 10rem;
+}
+.fin-rows {
+  display: grid;
+}
+.fin-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) minmax(0, 9rem) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-block-end: 1px solid var(--line);
+}
+.fin-date {
+  color: var(--dim);
+}
+.fin-desc,
+.fin-cat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fin-cat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.fin-money {
+  text-align: end;
+  white-space: nowrap;
+}
+.fin-row.is-income .fin-money {
+  color: var(--accent);
+}
+.fin-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+@container panel (max-width: 44rem) {
+  .fin-row {
+    grid-template-columns: 4rem minmax(0, 1fr) auto;
+  }
+  .fin-cat,
+  .fin-actions {
+    grid-column: 2 / -1;
+  }
+}
+.fin-cats {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.fin-cats > summary {
+  cursor: pointer;
+}
+.fin-cat-list {
+  display: grid;
+  gap: 0.3rem;
+  margin-block: 0.75rem;
+}
+.fin-cat-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+.fin-seed {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+
+/* ----- Contraseñas ----- */
+.vault {
+  display: grid;
+  gap: var(--pad);
+  max-inline-size: 52rem;
+}
+.vault-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  background-image: var(--lines);
+}
+.vault-card > h3 {
+  color: var(--accent);
+}
+.vault-pass {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+}
+.vault-gen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.vault-gen select {
+  inline-size: auto;
+  padding-block: 0.4rem;
+}
+.strength {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-block-size: 1.2rem;
+}
+.strength-bar {
+  display: flex;
+  gap: 3px;
+}
+.strength-seg {
+  inline-size: 1.4rem;
+  block-size: 0.4rem;
+  background: var(--line-strong);
+}
+.strength[data-level="0"] .strength-seg.is-on,
+.strength[data-level="1"] .strength-seg.is-on {
+  background: var(--warn);
+}
+.strength[data-level="2"] .strength-seg.is-on {
+  background: #ffd23f;
+}
+.strength[data-level="3"] .strength-seg.is-on,
+.strength[data-level="4"] .strength-seg.is-on {
+  background: var(--accent);
+}
+.vault-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.vault-bar input {
+  flex: 1 1 14rem;
+}
+.vault-bar .btn-solid,
+.vault-bar .btn-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.vault-open {
+  display: grid;
+  gap: var(--pad);
+}
+.vault-list {
+  display: grid;
+  gap: 0.4rem;
+}
+.vault-item {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.vault-item[data-open="true"] {
+  border-color: var(--accent);
+}
+.vault-head {
+  appearance: none;
+  inline-size: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 0;
+  background: none;
+  text-align: start;
+  cursor: pointer;
+}
+.vault-head:hover {
+  background: var(--accent-soft);
+}
+.vault-service {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  text-align: end;
+}
+.vault-detail {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.25rem 0.9rem 0.9rem;
+  border-block-start: 1px solid var(--line);
+}
+.vault-line {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+.vault-line .readout {
+  overflow-wrap: anywhere;
+}
+.vault-line .label {
+  color: var(--dim);
+}
+.vault-line-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+.vault-secret[data-shown="false"] {
+  letter-spacing: 0.15em;
+}
+.vault-notes {
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 3px solid var(--line-strong);
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

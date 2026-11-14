@@ -3,6 +3,7 @@ import { icon, type IconName } from "../ui/icons";
 import { BUCKET, formatSize } from "../data/music";
 import { explainError } from "../supabase";
 import { KIND_LABEL, KIND_ORDER, agoLabel, cloudStatement, cloudUrl, deleteCloudFile, type CloudFile, type CloudKind } from "../data/cloud";
+import { serverPanel } from "./serverPanel";
 import type { Ctx, Section } from "./context";
 
 export { cloudStatement };
@@ -196,7 +197,9 @@ export const cloudSection: Section = (ctx: Ctx) => {
     void loadThumbs(files);
   }
 
+  const server = serverPanel(ctx);
   shell.body.append(
+    server.el,
     h("div", { class: "cloud-bar" }, filters, refresh),
     h("p", { class: "cfg-note cloud-help" }, "Lo que se ha compartido por Supabase y sigue en el servidor: fotos y archivos del chat, y las canciones que subió la PC. La limpieza automática los borra después de que se confirman como recibidos. Aquí puedes abrirlos, descargarlos o eliminarlos del servidor (se borran de verdad)."),
     problem,
@@ -209,5 +212,6 @@ export const cloudSection: Section = (ctx: Ctx) => {
   return () => {
     alive = false;
     off();
+    server.off();
   };
 };

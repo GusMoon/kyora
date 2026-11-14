@@ -53,6 +53,15 @@ class FakeScheduler implements ReminderScheduler {
     scheduled.remove(notifId);
     weekly.remove(notifId);
   }
+
+  /// Las notificaciones que se mostraron al momento: número → (título, texto).
+  final Map<int, (String, String)> shown = {};
+
+  @override
+  Future<void> showNow({required int id, required String title, required String body}) async {
+    if (failSchedule) throw StateError('no se pudo');
+    shown[id] = (title, body);
+  }
 }
 
 void main() {
@@ -140,7 +149,10 @@ void main() {
       await c.delete(r);
       expect(c.items, isEmpty);
       expect(scheduler.scheduled, isEmpty);
-      expect(await store.load(), isEmpty);
+      // el borrado es suave: la fila se queda (marcada) para que el borrado llegue a Supabase
+      final kept = (await store.load()).single;
+      expect(kept.isDeleted, isTrue);
+      expect(kept.dirty, isTrue);
     });
 
     test('al abrir la app se vuelven a programar los pendientes futuros (no los hechos ni los pasados)', () async {
@@ -173,10 +185,11 @@ void main() {
     test('lo que se guarda en el teléfono se lee igual al volver, y lo dañado no rompe', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await PrefsReminderStore.open('u1');
-      final r = Reminder(id: 'a', notifId: 7, title: 'Llamar', notes: 'n', at: DateTime.utc(2026, 11, 3, 8), createdAt: now, done: true);
+      final r = Reminder(id: 'a', notifId: 7, title: 'Llamar', notes: 'n', at: DateTime.utc(2026, 11, 3, 8), createdAt: now, done: true, updatedAt: now);
       await prefs.save([r]);
       final back = (await (await PrefsReminderStore.open('u1')).load()).single;
       expect(back.toJson(), r.toJson());
+      expect(back.dirty, isFalse);
       expect(await (await PrefsReminderStore.open('u2')).load(), isEmpty); // uno por cuenta
       SharedPreferences.setMockInitialValues({'reminders.u3': 'esto no es json'});
       expect(await (await PrefsReminderStore.open('u3')).load(), isEmpty);

@@ -9,7 +9,7 @@ import 'pixel_glyph.dart';
 /// La portada de un álbum (o un recuadro con el icono si no tiene), entera y con sus colores, en el marco de los componentes. Se decodifica a un
 /// tamaño fijo, así se puede escalar al animarla sin volver a leer la imagen. `radius` es lo que se corta en cada esquina.
 class AlbumArt extends StatelessWidget {
-  const AlbumArt({super.key, required this.file, required this.url, required this.icon, required this.size, required this.radius});
+  const AlbumArt({super.key, required this.file, required this.url, required this.icon, required this.size, required this.radius, this.decode = decodeWidth});
 
   final String? file;
   final String? url;
@@ -17,7 +17,10 @@ class AlbumArt extends StatelessWidget {
   final double size;
   final double radius;
 
-  /// A qué ancho se decodifica la imagen.
+  /// A qué ancho se decodifica la imagen. Las miniaturas pequeñas piden menos: decodificar 720 px para pintar 74 es gastar memoria y tiempo.
+  final int decode;
+
+  /// El ancho por omisión.
   static const decodeWidth = 720;
 
   @override
@@ -30,9 +33,9 @@ class AlbumArt extends StatelessWidget {
     );
     final Widget image;
     if (file != null) {
-      image = Image.file(File(file!), key: const Key('art-file'), width: size, height: size, fit: BoxFit.cover, cacheWidth: decodeWidth, gaplessPlayback: true, errorBuilder: (_, _, _) => blank);
+      image = Image.file(File(file!), key: const Key('art-file'), width: size, height: size, fit: BoxFit.cover, cacheWidth: decode, gaplessPlayback: true, errorBuilder: (_, _, _) => blank);
     } else if (url != null) {
-      image = Image.network(url!, key: const Key('art-network'), width: size, height: size, fit: BoxFit.cover, cacheWidth: decodeWidth, gaplessPlayback: true, errorBuilder: (_, _, _) => blank);
+      image = Image.network(url!, key: const Key('art-network'), width: size, height: size, fit: BoxFit.cover, cacheWidth: decode, gaplessPlayback: true, errorBuilder: (_, _, _) => blank);
     } else {
       image = blank;
     }

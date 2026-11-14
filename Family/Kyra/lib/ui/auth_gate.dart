@@ -7,8 +7,10 @@ import '../data/audio_engine.dart';
 import '../data/audio_levels.dart';
 import '../data/background_playback.dart';
 import '../data/chat_backend.dart';
+import '../data/cloud_files.dart';
 import '../data/cover_store.dart';
 import '../data/duration_cache.dart';
+import '../data/event_store.dart';
 import '../data/favorites_store.dart';
 import '../data/habit_backend.dart';
 import '../data/habit_store.dart';
@@ -17,18 +19,25 @@ import '../data/music_store.dart';
 import '../data/nav_hint_store.dart';
 import '../data/reminder_scheduler.dart';
 import '../data/reminder_store.dart';
+import '../data/server_stats.dart';
+import '../data/sync_rows.dart';
 import '../data/task_backend.dart';
 import '../data/task_store.dart';
+import '../models/event.dart';
 import '../models/habit.dart';
 import '../models/profile.dart';
+import '../models/reminder.dart';
 import '../models/task.dart';
+import '../state/cloud_controller.dart';
 import '../state/contacts_controller.dart';
 import '../state/dock_controller.dart';
+import '../state/event_controller.dart';
 import '../state/habit_controller.dart';
 import '../state/local_music_controller.dart';
 import '../state/music_controller.dart';
 import '../state/player_controller.dart';
 import '../state/reminder_controller.dart';
+import '../state/server_controller.dart';
 import '../state/task_controller.dart';
 import '../state/now_playing_backdrop.dart';
 import '../state/system_controller.dart';
@@ -36,22 +45,21 @@ import '../state/vault_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
-import 'chat_page.dart';
 import 'contacts_page.dart';
 import 'home_page.dart';
 import 'login_page.dart';
 import 'music_page.dart';
+import 'nube_page.dart';
 import 'settings_page.dart';
 import 'section_host.dart';
-import 'vault_page.dart';
 import 'widgets/app_section.dart';
 import 'widgets/pixel_glyph.dart';
 
 /// La puerta de entrada. **La app siempre abre** (también como launcher): sin sesión se ve Inicio, la música ya guardada, los contactos, el Vault y
 /// las tareas, hábitos y recordatorios locales de la última cuenta; solo se pausa lo que necesita el servidor (el chat, la música que manda la
 /// PC y la sincronización). El acceso (o crear una cuenta) se abre desde Configuración → cuenta. Con sesión mira qué rol tiene la cuenta y abre
-/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): el administrador, Inicio · Chat · Música · Contactos · Vault;
-/// el pasante, lo mismo sin el chat. Las tareas, recordatorios y hábitos (y el calendario) viven en la hora de Inicio: tocarla la expande. La configuración se abre desde el menú. Con sesión también arranca la música: las canciones que lleguen se guardan solas
+/// las secciones de la app, que se recorren con el menú circular (`SectionHost`): Inicio · Nube · Música · Contactos. La **Nube** junta lo del
+/// servidor (cuánto ocupa tu Supabase y sus archivos), lo local (el Vault) y, solo para el administrador, el chat: sin sesión solo funciona Local. Las tareas, recordatorios y hábitos (y el calendario) viven en la hora de Inicio: tocarla la expande. La configuración se abre desde el menú. Con sesión también arranca la música: las canciones que lleguen se guardan solas
 /// aunque estés en otra sección.
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -73,6 +81,13 @@ class AuthGate extends StatefulWidget {
     this.openHabitStore,
     this.openReminderStore,
     this.reminderScheduler,
+    this.reminderBackend,
+    this.events,
+    this.openEventStore,
+    this.live,
+    this.server,
+    this.cloud,
+    this.serverStore,
     this.background,
     this.weather,
     this.dock,
@@ -123,6 +138,22 @@ class AuthGate extends StatefulWidget {
   final Future<ReminderStore> Function(String userId)? openReminderStore;
   final ReminderScheduler? reminderScheduler;
 
+  /// Supabase para los recordatorios (sin esto solo viven en el teléfono) y para los eventos del calendario (sin esto no hay eventos), con
+  /// la base local de los de esa cuenta (sin ella, una en memoria).
+  final RowBackend<Reminder>? reminderBackend;
+  final RowBackend<CalendarEvent>? events;
+  final Future<EventStore> Function(String userId)? openEventStore;
+
+  /// Avisa cuando cambia algo en Supabase (tareas, hábitos, recordatorios, eventos) para ponerse al día al instante. Sin esto solo se
+  /// sincroniza al abrir, al volver a la app, tras un cambio y con el botón «Actualizar».
+  final LiveBackend? live;
+
+  /// Supabase para medir cuánto ocupa el proyecto (la Nube lo enseña y avisa al llegar al 80 %) y para listar y borrar los archivos del servidor.
+  /// Sin esto la Nube no tiene esas partes. `serverStore` recuerda los límites y los avisos (sin él, solo mientras la app esté abierta).
+  final ServerBackend? server;
+  final CloudBackend? cloud;
+  final ServerStore? serverStore;
+
   /// Dónde se recuerda si los álbumes se ven en pila o en cuadrícula.
 
 
@@ -161,13 +192,18 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   MusicController? _music;
   PlayerController? _player;
   LocalMusicController? _local;
   Future<TaskController>? _tasks;
   Future<ReminderController>? _reminders;
   Future<HabitController>? _habits;
+  Future<EventController>? _events;
+  ServerController? _server;
+  CloudController? _cloud;
+  StreamSubscription<void>? _liveSub;
+  Timer? _liveDebounce;
   late final DurationCache _durations = widget.durations ?? MemoryDurationCache();
 
   /// La persona pidió cerrar sesión (Ajustes o la pantalla de error): ahí sí se para la música. Si la sesión caduca sola (Supabase no
@@ -186,11 +222,22 @@ class _AuthGateState extends State<AuthGate> {
   // a entrar se ponen al día solos.
   late final TaskBackend? _tasksGate = widget.tasks == null ? null : _GatedTasks(widget.tasks!, widget.account);
   late final HabitBackend? _habitsGate = widget.habits == null ? null : _GatedHabits(widget.habits!, widget.account);
+  late final RowBackend<Reminder>? _remindersGate = widget.reminderBackend == null ? null : _GatedRows<Reminder>(widget.reminderBackend!, widget.account);
+  late final ServerBackend? _serverGate = widget.server == null ? null : _GatedServer(widget.server!, widget.account);
+  late final CloudBackend? _cloudGate = widget.cloud == null ? null : _GatedCloud(widget.cloud!, widget.account);
+  late final RowBackend<CalendarEvent>? _eventsGate = widget.events == null ? null : _GatedRows<CalendarEvent>(widget.events!, widget.account);
 
   @override
   void initState() {
     super.initState();
     _authSub = widget.account.authChanges.listen((_) => _onAuth());
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // al volver a la app se vuelve a medir el servidor (por si se llenó mientras tanto)
+    if (state == AppLifecycleState.resumed && widget.account.signedIn) unawaited(_server?.measure());
   }
 
   /// La sesión cambió: al entrar se conecta la música de la PC y se sincroniza; al salir (o caducar) se pausa lo del servidor.
@@ -200,10 +247,12 @@ class _AuthGateState extends State<AuthGate> {
     if (account.signedIn) {
       _expired.value = false;
       unawaited(_music?.connect());
-      unawaited(_tasks?.then((c) => c.sync()));
-      unawaited(_habits?.then((c) => c.sync()));
+      _syncAgenda();
+      _startLive();
+      unawaited(_server?.measure());
       return;
     }
+    _stopLive();
     if (_signingOut) {
       // la persona cerró sesión: se para lo que suena y se cierra lo abierto (se vuelve a abrir, ya sin servidor, al reconstruir)
       _signingOut = false;
@@ -219,6 +268,31 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _signOut() {
     _signingOut = true;
     return widget.account.signOut();
+  }
+
+  /// Pone al día todo lo del calendario con Supabase (tareas, hábitos, recordatorios y eventos).
+  void _syncAgenda() {
+    unawaited(_tasks?.then((c) => c.sync()));
+    unawaited(_habits?.then((c) => c.sync()));
+    unawaited(_reminders?.then((c) => c.sync()));
+    unawaited(_events?.then((c) => c.sync()));
+  }
+
+  /// Escucha los cambios de Supabase (Realtime): al llegar uno, o varios seguidos, se pone todo al día una sola vez.
+  void _startLive() {
+    final live = widget.live;
+    if (live == null || _liveSub != null) return;
+    _liveSub = live.changes(const ['tasks', 'habits', 'habit_checks', 'events', 'reminders']).listen((_) {
+      _liveDebounce?.cancel();
+      _liveDebounce = Timer(const Duration(milliseconds: 400), _syncAgenda);
+    });
+  }
+
+  void _stopLive() {
+    _liveDebounce?.cancel();
+    _liveDebounce = null;
+    unawaited(_liveSub?.cancel());
+    _liveSub = null;
   }
 
   /// Abre el acceso (o crear una cuenta) desde Configuración. Se cierra solo al entrar.
@@ -253,7 +327,24 @@ class _AuthGateState extends State<AuthGate> {
       } catch (_) {
         store = MemoryReminderStore();
       }
-      final controller = ReminderController(store, scheduler);
+      final controller = ReminderController(store, scheduler, backend: _remindersGate);
+      await controller.start();
+      return controller;
+    }();
+  }
+
+  /// Los eventos de esta cuenta: como las tareas, se abren una vez y se ponen al día con Supabase. Sin Supabase de eventos no hay eventos.
+  Future<EventController>? _eventController(String userId) {
+    final backend = _eventsGate;
+    if (backend == null) return null;
+    return _events ??= () async {
+      EventStore store;
+      try {
+        store = await (widget.openEventStore?.call(userId) ?? Future<EventStore>.value(MemoryEventStore()));
+      } catch (_) {
+        store = MemoryEventStore(); // el teléfono no dejó abrir el almacén: los eventos valen mientras la app siga abierta
+      }
+      final controller = EventController(store, backend);
       await controller.start();
       return controller;
     }();
@@ -280,6 +371,19 @@ class _AuthGateState extends State<AuthGate> {
       await controller.start();
       return controller;
     }();
+  }
+
+  /// Lo que ocupa el servidor de esta sesión: se abre una vez, mide al abrir, al volver a la app y cada 30 min, y avisa al llegar al 80 %.
+  ServerController? _serverController() {
+    final backend = _serverGate;
+    if (backend == null) return null;
+    return _server ??= ServerController(backend, widget.serverStore ?? MemoryServerStore(), scheduler: widget.reminderScheduler)..start().ignore();
+  }
+
+  CloudController? _cloudController() {
+    final backend = _cloudGate;
+    if (backend == null) return null;
+    return _cloud ??= CloudController(backend);
   }
 
   MusicController _musicController() {
@@ -317,10 +421,18 @@ class _AuthGateState extends State<AuthGate> {
     _reminders = null;
     unawaited(_habits?.then((c) => c.dispose()));
     _habits = null;
+    unawaited(_events?.then((c) => c.dispose()));
+    _events = null;
+    _server?.dispose();
+    _server = null;
+    _cloud?.dispose();
+    _cloud = null;
+    _stopLive();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_authSub?.cancel());
     _expired.dispose();
     _stopMusic();
@@ -348,6 +460,10 @@ class _AuthGateState extends State<AuthGate> {
             final tasks = _taskController(ownerId);
             final reminders = _reminderController(ownerId);
             final habits = _habitController(ownerId);
+            final events = _eventController(ownerId);
+            final server = _serverController();
+            final cloud = _cloudController();
+            if (signedIn) _startLive();
             final admin = role == Role.admin && signedIn; // el chat vive en el servidor: sin sesión no sale
             // Las secciones, en el orden del menú circular. Se abre en Inicio; Configuración es una opción más del menú (abre su hoja).
             // El pasante no tiene chat.
@@ -363,6 +479,7 @@ class _AuthGateState extends State<AuthGate> {
               weather: widget.weather,
               dock: widget.dock,
               wallpaper: widget.wallpaper,
+              server: server,
               initialTile: tile,
             );
             return SectionHost(
@@ -397,15 +514,25 @@ class _AuthGateState extends State<AuthGate> {
                     tasks: tasks,
                     reminders: reminders,
                     habits: habits,
+                    events: events,
                   ),
                 ),
-                if (admin)
+                if (widget.vault != null || server != null || cloud != null || admin)
                   AppSection(
-                    id: 'chat',
+                    id: 'nube',
                     icon: Icons.cloud_outlined,
                     glyph: PixelGlyphs.cloud,
-                    label: 'Chat',
-                    builder: (_) => ChatPage(backend: widget.chat),
+                    label: 'Nube',
+                    builder: (context) => NubePage(
+                      account: account,
+                      admin: admin,
+                      server: server,
+                      cloud: cloud,
+                      vault: widget.vault,
+                      chat: widget.chat,
+                      onSignIn: () => _openLogin(context),
+                      now: widget.now,
+                    ),
                   ),
                 AppSection(
                   id: 'music',
@@ -421,14 +548,6 @@ class _AuthGateState extends State<AuthGate> {
                     glyph: PixelGlyphs.contacts,
                     label: 'Contactos',
                     builder: (_) => ContactsPage(controller: widget.contacts!),
-                  ),
-                if (widget.vault != null)
-                  AppSection(
-                    id: 'vault',
-                    icon: Icons.inventory_2_outlined,
-                    glyph: PixelGlyphs.vault,
-                    label: 'Vault',
-                    builder: (_) => VaultPage(controller: widget.vault!),
                   ),
               ],
             );
@@ -646,6 +765,45 @@ class _GatedTasks implements TaskBackend {
   Future<TaskData> pull({String? tasksSince, String? tagsSince, String? linksSince}) => _account.signedIn
       ? _inner.pull(tasksSince: tasksSince, tagsSince: tagsSince, linksSince: linksSince)
       : Future<TaskData>.error(_noSession);
+}
+
+class _GatedRows<T extends SyncRow> implements RowBackend<T> {
+  _GatedRows(this._inner, this._account);
+
+  final RowBackend<T> _inner;
+  final AccountBackend _account;
+
+  @override
+  Future<void> push(List<T> rows) => _account.signedIn ? _inner.push(rows) : Future<void>.error(_noSession);
+
+  @override
+  Future<List<T>> pull(String? since) => _account.signedIn ? _inner.pull(since) : Future<List<T>>.error(_noSession);
+}
+
+class _GatedServer implements ServerBackend {
+  _GatedServer(this._inner, this._account);
+
+  final ServerBackend _inner;
+  final AccountBackend _account;
+
+  @override
+  Future<ServerStats> serverStats() => _account.signedIn ? _inner.serverStats() : Future<ServerStats>.error(_noSession);
+}
+
+class _GatedCloud implements CloudBackend {
+  _GatedCloud(this._inner, this._account);
+
+  final CloudBackend _inner;
+  final AccountBackend _account;
+
+  @override
+  Future<List<CloudFile>> listCloud() => _account.signedIn ? _inner.listCloud() : Future<List<CloudFile>>.error(_noSession);
+
+  @override
+  Future<String> cloudUrl(String path, {String? download}) => _account.signedIn ? _inner.cloudUrl(path, download: download) : Future<String>.error(_noSession);
+
+  @override
+  Future<CloudDeleteResult> deleteCloudFile(CloudFile file) => _account.signedIn ? _inner.deleteCloudFile(file) : Future<CloudDeleteResult>.error(_noSession);
 }
 
 class _GatedHabits implements HabitBackend {

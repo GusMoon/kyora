@@ -188,6 +188,32 @@ class FakeSaver implements TrackSaver {
     return MoveResult(moved: moved, failures: failures);
   }
 
+  TrackSaveException? deleteFails;
+
+  /// Canciones (por dirección) que fallan al borrarse, con su motivo.
+  final Map<String, String> deleteFailures = {};
+  final List<List<String>> deletes = [];
+
+  @override
+  Future<DeleteResult> deleteSongs(List<String> uris) async {
+    deletes.add(List.of(uris));
+    if (deleteFails != null) throw deleteFails!;
+    var deleted = 0;
+    final failures = <String, String>{};
+    for (final uri in uris) {
+      if (deleteFailures.containsKey(uri)) {
+        failures[uri] = deleteFailures[uri]!;
+        continue;
+      }
+      files.removeWhere((x) => x.uri == uri);
+      for (final list in dirSongs.values) {
+        list.removeWhere((x) => x.uri == uri);
+      }
+      deleted++;
+    }
+    return DeleteResult(deleted: deleted, failures: failures);
+  }
+
   /// Lo que "dura" cada archivo según Android (los que no estén aquí no se pueden leer) y los grupos en que se pidió.
   final Map<String, Duration> durations = {};
   final List<List<String>> durationReads = [];

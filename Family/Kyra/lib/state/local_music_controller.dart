@@ -218,6 +218,22 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
     }
   }
 
+  /// Borra de verdad estas canciones del almacenamiento (las del álbum que se mira). Vuelve a leer la carpeta, haya salido bien o a medias.
+  Future<DeleteResult> delete(List<Track> doomed) async {
+    final tree = _music.settings.treeUri;
+    if (tree == null || tree.isEmpty) throw const TrackSaveException('Primero elige una carpeta.');
+    final uris = [for (final t in doomed) if (t.localUri != null) t.localUri!];
+    if (uris.isEmpty) return const DeleteResult(deleted: 0);
+    try {
+      return await _saver.deleteSongs(uris);
+    } finally {
+      _selected.removeAll(uris);
+      _listings.remove(currentUri ?? '');
+      _prefetchRound++;
+      await refresh();
+    }
+  }
+
   /// Vuelve a leer la carpeta. Sin carpeta elegida no hay nada que leer.
   Future<void> refresh() async {
     final tree = _music.settings.treeUri;

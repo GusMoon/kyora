@@ -158,15 +158,14 @@ void main() {
     expect(edgeOf(tester, find.byKey(const Key('task-input'))), MotionEdge.bottom);
   });
 
-  testWidgets('Calendario: la consola y las etiquetas de los paneles por arriba y lo del día por abajo', (tester) async {
+  testWidgets('Calendario: el título y las vistas por arriba y lo del día por abajo', (tester) async {
     final reminders = ReminderController(MemoryReminderStore(), FakeScheduler());
     addTearDown(reminders.dispose);
     await tester.runAsync(reminders.start);
     await show(tester, AgendaView(reminders: Future.value(reminders), now: () => DateTime(2026, 11, 5, 9)));
     await tester.pump();
     expect(edgeOf(tester, find.byKey(const Key('cal-title'))), MotionEdge.top);
-    expect(edgeOf(tester, find.byKey(const Key('cal-summary'))), MotionEdge.top);
-    expect(edgeOf(tester, find.byKey(const Key('cal-tab-day'))), MotionEdge.top); // con recordatorios hay dos paneles: Hoy y Recordatorios
+    expect(edgeOf(tester, find.byKey(const Key('cal-mode-week'))), MotionEdge.top); // las tres vistas
     expect(edgeOf(tester, find.byKey(const Key('cal-day-empty'))), MotionEdge.bottom);
   });
 }

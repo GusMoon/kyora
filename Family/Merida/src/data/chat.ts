@@ -1,6 +1,7 @@
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { DEVICE } from "../config";
 import { BUCKET } from "./music";
+import type { AttachmentInput } from "./attachments";
 
 export interface Attachment {
   id: string;
@@ -49,30 +50,40 @@ export function latestCreatedAt(messages: Message[]): string | null {
   return latest;
 }
 
-export function sendPayload(conversationId: string, body: string, id: string = crypto.randomUUID(), now = new Date()) {
+export function sendPayload(conversationId: string, body: string, id: string = crypto.randomUUID(), now = new Date(), attachments: AttachmentInput[] = []) {
   return {
     p_id: id,
     p_conversation_id: conversationId,
     p_body: body,
     p_sent_at: now.toISOString(),
     p_device: DEVICE,
-    p_attachments: [],
+    p_attachments: attachments,
   };
 }
 
-/** El mensaje que se ve mientras se envía. */
+/** La clase de un mensaje por su primer adjunto, igual que lo decide `send_message` en el servidor. */
+export function kindOfMime(mime: string | undefined): string {
+  const m = (mime ?? "").toLowerCase();
+  if (!m) return "text";
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("audio/")) return "audio";
+  if (m.startsWith("video/")) return "video";
+  return "file";
+}
+
+/** El mensaje que se ve mientras se envía (con sus adjuntos, si los lleva). */
 export function draftMessage(payload: ReturnType<typeof sendPayload>): Message {
   return {
     id: payload.p_id,
     conversation_id: payload.p_conversation_id,
     sender_device: DEVICE,
-    kind: "text",
-    body: payload.p_body,
+    kind: kindOfMime(payload.p_attachments[0]?.mime_type),
+    body: payload.p_body || null,
     status: "sent",
     sent_at: payload.p_sent_at,
     created_at: payload.p_sent_at,
     deleted_at: null,
-    attachments: [],
+    attachments: payload.p_attachments.map((a, i) => ({ id: `${payload.p_id}:${i}`, storage_path: a.storage_path, file_name: a.file_name, mime_type: a.mime_type, size_bytes: a.size_bytes })),
     local: "sending",
   };
 }

@@ -855,4 +855,270 @@ create policy "chat_commands: owner update" on public.chat_commands for update t
 create policy "chat_commands: owner delete" on public.chat_commands for delete to authenticated
   using (owner_id = (select auth.uid()));
 
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 11. Calendario (Merida): los eventos propios. Las tareas con fecha de entrega (tasks.due) salen en el calendario sin
+--     tabla aparte. Mismo esquema que las tareas: ids del dispositivo, borrado suave, gana el updated_at más reciente
+--     (sync_guard) y synced_at del servidor. task_id enlaza el evento con una tarea (opcional).
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.events (
+  id           uuid        primary key,
+  owner_id     uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  title        text        not null check (length(btrim(title)) > 0),
+  description  text        not null default '',
+  starts_at    timestamptz not null,
+  ends_at      timestamptz,
+  all_day      boolean     not null default false,
+  color        text        not null default '#35d4ff',
+  task_id      uuid        references public.tasks (id) on delete set null,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  deleted_at   timestamptz,
+  synced_at    timestamptz not null default clock_timestamp()
+);
+create index if not exists events_owner_synced_idx on public.events (owner_id, synced_at);
+create index if not exists events_owner_starts_idx on public.events (owner_id, starts_at);
+
+drop trigger if exists events_sync_guard on public.events;
+create trigger events_sync_guard before insert or update on public.events for each row execute function public.sync_guard();
+
+alter table public.events enable row level security;
+revoke all on public.events from anon;
+revoke delete on public.events from authenticated;   -- solo borrado suave (deleted_at)
+grant select, insert, update on public.events to authenticated;
+
+drop policy if exists "events: owner select" on public.events;
+drop policy if exists "events: owner insert" on public.events;
+drop policy if exists "events: owner update" on public.events;
+create policy "events: owner select" on public.events for select to authenticated using (owner_id = (select auth.uid()));
+create policy "events: owner insert" on public.events for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "events: owner update" on public.events for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 12. Contraseñas (Merida): una bóveda cifrada EN EL NAVEGADOR. Supabase solo guarda texto cifrado: nunca ve la contraseña
+--     maestra ni ninguna contraseña. La clave sale de la contraseña maestra con PBKDF2-SHA-256 y la sal de vault_meta;
+--     cada entrada se cifra con AES-GCM (IV aleatorio) y todo su contenido (servicio, correo, usuario, contraseña, URL,
+--     notas) va dentro de `payload`. SIN la contraseña maestra no hay forma de recuperar nada.
+--     - vault_meta: una fila por usuario con la sal, las vueltas del KDF y una «prueba» cifrada para validar la maestra.
+--     - vault_entries: una fila por entrada (id del dispositivo, borrado suave, sync_guard).
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.vault_meta (
+  owner_id    uuid        primary key default auth.uid() references auth.users (id) on delete cascade,
+  salt        text        not null,                       -- base64
+  kdf_iter    integer     not null check (kdf_iter >= 100000),
+  verifier    text        not null,                       -- texto conocido, cifrado con la clave: valida la contraseña maestra
+  version     smallint    not null default 1,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.vault_meta enable row level security;
+revoke all on public.vault_meta from anon;
+revoke update, delete on public.vault_meta from authenticated;   -- la sal y la prueba no cambian nunca desde la app
+grant select, insert on public.vault_meta to authenticated;
+drop policy if exists "vault_meta: owner select" on public.vault_meta;
+drop policy if exists "vault_meta: owner insert" on public.vault_meta;
+create policy "vault_meta: owner select" on public.vault_meta for select to authenticated using (owner_id = (select auth.uid()));
+create policy "vault_meta: owner insert" on public.vault_meta for insert to authenticated with check (owner_id = (select auth.uid()));
+
+create table if not exists public.vault_entries (
+  id          uuid        primary key,
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  payload     text        not null check (length(payload) > 0),   -- «v1.» + base64(iv + texto cifrado)
+  version     smallint    not null default 1,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted_at  timestamptz,
+  synced_at   timestamptz not null default clock_timestamp()
+);
+create index if not exists vault_entries_owner_synced_idx on public.vault_entries (owner_id, synced_at);
+
+drop trigger if exists vault_entries_sync_guard on public.vault_entries;
+create trigger vault_entries_sync_guard before insert or update on public.vault_entries for each row execute function public.sync_guard();
+
+alter table public.vault_entries enable row level security;
+revoke all on public.vault_entries from anon;
+revoke delete on public.vault_entries from authenticated;
+grant select, insert, update on public.vault_entries to authenticated;
+drop policy if exists "vault_entries: owner select" on public.vault_entries;
+drop policy if exists "vault_entries: owner insert" on public.vault_entries;
+drop policy if exists "vault_entries: owner update" on public.vault_entries;
+create policy "vault_entries: owner select" on public.vault_entries for select to authenticated using (owner_id = (select auth.uid()));
+create policy "vault_entries: owner insert" on public.vault_entries for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "vault_entries: owner update" on public.vault_entries for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 13. Finanzas (Merida): ingresos y gastos. El importe va en centavos (entero > 0); el tipo (income o expense) dice si
+--     suma o resta. Categorías propias por tipo. Mismo esquema que las tareas (borrado suave, sync_guard, synced_at).
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.finance_categories (
+  id          uuid        primary key,
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  name        text        not null check (char_length(btrim(name)) between 1 and 60),
+  kind        text        not null check (kind in ('income', 'expense')),
+  color       text        not null default '#9aa1ac',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted_at  timestamptz,
+  synced_at   timestamptz not null default clock_timestamp()
+);
+create unique index if not exists finance_categories_owner_name_key
+  on public.finance_categories (owner_id, kind, lower(name)) where deleted_at is null;
+create index if not exists finance_categories_owner_synced_idx on public.finance_categories (owner_id, synced_at);
+
+create table if not exists public.finance_entries (
+  id            uuid        primary key,
+  owner_id      uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  kind          text        not null check (kind in ('income', 'expense')),
+  amount_cents  bigint      not null check (amount_cents > 0),
+  currency      text        not null default 'MXN' check (currency ~ '^[A-Z]{3}$'),
+  category_id   uuid        references public.finance_categories (id) on delete set null,
+  description   text        not null default '',
+  occurred_on   date        not null default current_date,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  deleted_at    timestamptz,
+  synced_at     timestamptz not null default clock_timestamp()
+);
+create index if not exists finance_entries_owner_day_idx on public.finance_entries (owner_id, occurred_on desc);
+create index if not exists finance_entries_owner_synced_idx on public.finance_entries (owner_id, synced_at);
+
+drop trigger if exists finance_categories_sync_guard on public.finance_categories;
+create trigger finance_categories_sync_guard before insert or update on public.finance_categories for each row execute function public.sync_guard();
+drop trigger if exists finance_entries_sync_guard on public.finance_entries;
+create trigger finance_entries_sync_guard before insert or update on public.finance_entries for each row execute function public.sync_guard();
+
+alter table public.finance_categories enable row level security;
+alter table public.finance_entries    enable row level security;
+revoke all on public.finance_categories, public.finance_entries from anon;
+revoke delete on public.finance_categories, public.finance_entries from authenticated;
+grant select, insert, update on public.finance_categories, public.finance_entries to authenticated;
+
+drop policy if exists "finance_categories: owner select" on public.finance_categories;
+drop policy if exists "finance_categories: owner insert" on public.finance_categories;
+drop policy if exists "finance_categories: owner update" on public.finance_categories;
+create policy "finance_categories: owner select" on public.finance_categories for select to authenticated using (owner_id = (select auth.uid()));
+create policy "finance_categories: owner insert" on public.finance_categories for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "finance_categories: owner update" on public.finance_categories for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+drop policy if exists "finance_entries: owner select" on public.finance_entries;
+drop policy if exists "finance_entries: owner insert" on public.finance_entries;
+drop policy if exists "finance_entries: owner update" on public.finance_entries;
+create policy "finance_entries: owner select" on public.finance_entries for select to authenticated using (owner_id = (select auth.uid()));
+create policy "finance_entries: owner insert" on public.finance_entries for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "finance_entries: owner update" on public.finance_entries for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 14. Recordatorios (Merida): algo que hay que recordar a una hora. Salen en el calendario junto a los eventos, las
+--     entregas de tareas y los hábitos (sección 9). Sin estados ni subtareas: llega su hora, Merida avisa (con la pestaña
+--     abierta) y se marca como hecho. Mismo esquema que las tareas: ids del dispositivo, borrado suave, gana el updated_at
+--     más reciente (sync_guard) y synced_at del servidor.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.reminders (
+  id          uuid        primary key,
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  title       text        not null check (length(btrim(title)) > 0),
+  notes       text        not null default '',
+  remind_at   timestamptz not null,
+  done        boolean     not null default false,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  deleted_at  timestamptz,
+  synced_at   timestamptz not null default clock_timestamp()
+);
+create index if not exists reminders_owner_synced_idx on public.reminders (owner_id, synced_at);
+create index if not exists reminders_owner_remind_idx on public.reminders (owner_id, remind_at);
+
+drop trigger if exists reminders_sync_guard on public.reminders;
+create trigger reminders_sync_guard before insert or update on public.reminders for each row execute function public.sync_guard();
+
+alter table public.reminders enable row level security;
+revoke all on public.reminders from anon;
+revoke delete on public.reminders from authenticated;   -- solo borrado suave (deleted_at)
+grant select, insert, update on public.reminders to authenticated;
+
+drop policy if exists "reminders: owner select" on public.reminders;
+drop policy if exists "reminders: owner insert" on public.reminders;
+drop policy if exists "reminders: owner update" on public.reminders;
+create policy "reminders: owner select" on public.reminders for select to authenticated using (owner_id = (select auth.uid()));
+create policy "reminders: owner insert" on public.reminders for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "reminders: owner update" on public.reminders for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 15. Estadísticas del servidor (Merida, Nube): cuánto espacio ocupa la base de datos y el almacenamiento de archivos, para
+--     avisar al llegar al 80 % del plan gratuito (500 MB de base de datos y 1 GB de archivos). Una sola función de solo
+--     lectura: devuelve tamaños y conteos, nunca contenido. SECURITY DEFINER porque storage.objects y los tamaños del
+--     sistema no se pueden leer con el rol de la app; solo la pueden llamar usuarios con sesión.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create or replace function public.server_stats()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, storage, pg_catalog
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Se necesita una sesión abierta.' using errcode = '28000';
+  end if;
+  return jsonb_build_object(
+    'db_bytes',        pg_database_size(current_database()),
+    'storage_bytes',   coalesce((select sum((o.metadata ->> 'size')::bigint) from storage.objects o), 0),
+    'storage_objects', (select count(*) from storage.objects),
+    'buckets', coalesce((
+      select jsonb_agg(b order by b.bytes desc)
+      from (
+        select o.bucket_id as bucket, count(*) as objects, coalesce(sum((o.metadata ->> 'size')::bigint), 0) as bytes
+        from storage.objects o
+        group by o.bucket_id
+      ) b
+    ), '[]'::jsonb),
+    'tables', coalesce((
+      select jsonb_agg(t order by t.bytes desc)
+      from (
+        select c.relname as name, pg_total_relation_size(c.oid) as bytes, greatest(c.reltuples, 0)::bigint as rows
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'r'
+        order by pg_total_relation_size(c.oid) desc
+        limit 12
+      ) t
+    ), '[]'::jsonb),
+    'at', now()
+  );
+end;
+$$;
+
+revoke all on function public.server_stats() from public, anon;
+grant execute on function public.server_stats() to authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 16. Calendario en tiempo real (Kyra, móvil): el calendario del móvil se pone al día solo cuando algo cambia en otro
+--     dispositivo (Merida o el escritorio). Para eso Realtime tiene que publicar las tablas del calendario. Solo avisa de que
+--     algo cambió: el móvil vuelve a leer lo suyo y la seguridad por fila (RLS) sigue mandando, así que nadie ve filas ajenas.
+--     Idempotente: si una tabla ya estaba publicada, se ignora.
+-- ---------------------------------------------------------------------------------------------------------------------
+do $$ begin
+  alter publication supabase_realtime add table public.tasks;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.habits;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.habit_checks;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.events;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.reminders;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
 -- Fin. Ahora crea tu usuario en Authentication > Users (ver Server/supabase/README.md).

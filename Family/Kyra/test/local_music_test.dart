@@ -73,6 +73,26 @@ void main() {
       expect(saver.listed, isEmpty);
     });
 
+    test('borrar quita de verdad las canciones, vuelve a leer la carpeta y cuenta las que fallaron', () async {
+      store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
+      saver.files = [song('a.mp3'), song('b.mp3'), song('c.mp3')];
+      saver.deleteFailures[song('b.mp3').uri] = 'Android no lo borró.';
+      await music.start();
+      await local.refresh();
+      final result = await local.delete(List.of(local.songs));
+      expect(saver.deletes.single, hasLength(3));
+      expect(result.deleted, 2);
+      expect(result.failures, {song('b.mp3').uri: 'Android no lo borró.'});
+      expect(local.songs.map((t) => t.title), ['b']); // solo queda la que no se pudo borrar
+      expect((await local.delete(const [])).deleted, 0); // sin canciones no llama a Android
+      expect(saver.deletes, hasLength(1));
+    });
+
+    test('borrar sin carpeta elegida avisa en vez de intentarlo', () async {
+      await music.start();
+      expect(() => local.delete([Track.local(song('a.mp3'))]), throwsA(isA<TrackSaveException>()));
+    });
+
     test('con carpeta elegida lista sus .mp3 por orden alfabético', () async {
       store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
       saver.files = [song('zeta.mp3'), song('Alfa.mp3'), song('beta.mp3')];

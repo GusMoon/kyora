@@ -11,6 +11,7 @@ import 'widgets/apps_arch.dart';
 import 'widgets/app_section.dart';
 import 'widgets/cut_border.dart';
 import 'widgets/focus_space.dart';
+import 'widgets/launch_effect.dart';
 import 'widgets/radial_menu.dart';
 import 'widgets/section_motion.dart';
 import 'widgets/swirl_detector.dart';
@@ -107,8 +108,12 @@ class _Menu {
 }
 
 class _SectionHostState extends State<SectionHost>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _anim;
+
+  /// El efecto de abrir una app (`LaunchEffect`): la app que se está abriendo y su avance. La app se lanza cuando la aparición termina.
+  late final AnimationController _launch;
+  InstalledApp? _launching;
   late final AnimationController _opening;
 
   /// Las vueltas del reactor mientras el menú está abierto.
@@ -201,10 +206,14 @@ class _SectionHostState extends State<SectionHost>
       value: 1,
     );
     _menu.addListener(_menuChanged);
+    _launch = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _launch.dispose();
     _anim.dispose();
     _opening.dispose();
     _menu.removeListener(_menuChanged);
@@ -214,6 +223,36 @@ class _SectionHostState extends State<SectionHost>
     _reveal.dispose();
     _menu.dispose();
     super.dispose();
+  }
+
+  /// Abre una app del teléfono con el efecto de holograma (`LaunchEffect`) por delante: aparece, se lanza la app y el efecto se desvanece. Mientras
+  /// dura no se abre otra (un doble toque no la lanza dos veces) y «atrás» no hace nada. Con las animaciones del sistema quitadas se abre directa.
+  Future<void> _openApp(InstalledApp app) async {
+    final dock = widget.dock;
+    if (dock == null || _launching != null) return;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      unawaited(dock.launch(app.package));
+      return;
+    }
+    setState(() => _launching = app);
+    await _launch.animateTo(LaunchEffect.buildEnd);
+    if (!mounted || _launching != app) return;
+    unawaited(dock.launch(app.package));
+    await _launch.animateTo(1);
+    _endLaunch();
+  }
+
+  /// Quita el efecto de abrir una app (al terminar, o al volver a Kyra desde la app: Flutter se pausa mientras la otra app está delante).
+  void _endLaunch() {
+    _launch
+      ..stop()
+      ..value = 0;
+    if (mounted && _launching != null) setState(() => _launching = null);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _endLaunch();
   }
 
   /// El giro del aro vuelve a su sitio con suavidad al soltar el dedo (no de golpe).
@@ -296,6 +335,7 @@ class _SectionHostState extends State<SectionHost>
   /// «Atrás»: primero lo de dentro de la pantalla (una página abierta, o lo que la sección quiera hacer antes, como volver de un modo);
   /// después, volver a la sección de inicio; y desde ella, salir de la app.
   Future<void> _back() async {
+    if (_launching != null) return; // se está abriendo una app
     if (_archOpen) {
       _closeArch();
       return;
@@ -354,7 +394,7 @@ class _SectionHostState extends State<SectionHost>
 
   /// Un giro del dedo: el aro se abre donde se dibujó el círculo. A la **izquierda**, las aplicaciones; a la **derecha**, las funciones.
   void _swirl(Swirl swirl) {
-    if (_covered || _archOpen || _menu.value != null || _menuClosing) return;
+    if (_covered || _archOpen || _menu.value != null || _menuClosing || _launching != null) return;
     unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
     _shown(
       _newMenu(
@@ -368,7 +408,7 @@ class _SectionHostState extends State<SectionHost>
   void _run(LauncherMode mode, int i) {
     if (mode == LauncherMode.apps) {
       final apps = _apps;
-      if (i < apps.length) unawaited(widget.dock?.launch(apps[i].package));
+      if (i < apps.length) unawaited(_openApp(apps[i]));
       return;
     }
     final sections = widget.sections.length;
@@ -628,7 +668,7 @@ class _SectionHostState extends State<SectionHost>
                         onClose: _closeArch,
                         onOpen: (app) {
                           _closeArch();
-                          unawaited(widget.dock?.launch(app.package));
+                          unawaited(_openApp(app));
                         },
                       ),
                     ),
@@ -652,6 +692,9 @@ class _SectionHostState extends State<SectionHost>
                       ),
                     ),
                   ),
+                  // el efecto de holograma al abrir una app (por encima de todo)
+                  if (_launching != null)
+                    Positioned.fill(child: LaunchEffect(app: _launching!, progress: _launch)),
                 ],
               ),
             ),

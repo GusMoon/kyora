@@ -1,47 +1,20 @@
-import 'dart:convert';
-
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reminder.dart';
+import 'sync_rows.dart';
 
-/// Dónde se recuerdan los recordatorios (solo en el teléfono, no en Supabase).
-abstract class ReminderStore {
-  Future<List<Reminder>> load();
-  Future<void> save(List<Reminder> items);
+/// Dónde se recuerdan los recordatorios en el teléfono (con los borrados y lo que falta por subir; ver [RowStore]).
+typedef ReminderStore = RowStore<Reminder>;
+
+class MemoryReminderStore extends MemoryRowStore<Reminder> {
+  /// Lo que hay guardado (para las pruebas).
+  List<Reminder> get items => rows;
+  set items(List<Reminder> value) => rows = value;
 }
 
-class MemoryReminderStore implements ReminderStore {
-  List<Reminder> items = [];
+class PrefsReminderStore extends PrefsRowStore<Reminder> {
+  PrefsReminderStore._(SharedPreferences prefs, String key) : super(prefs, key, Reminder.fromJson, (r) => r.toLocalJson());
 
-  @override
-  Future<List<Reminder>> load() async => List.of(items);
-
-  @override
-  Future<void> save(List<Reminder> value) async => items = List.of(value);
-}
-
-class PrefsReminderStore implements ReminderStore {
-  PrefsReminderStore._(this._prefs, this._key);
-
-  final SharedPreferences _prefs;
-  final String _key;
-
-  /// Uno por cuenta: al cambiar de cuenta en el mismo teléfono no se mezclan.
+  /// Uno por cuenta: al cambiar de cuenta en el mismo teléfono no se mezclan. Lo guardado antes de sincronizar se lee igual y queda «por subir».
   static Future<PrefsReminderStore> open(String userId) async => PrefsReminderStore._(await SharedPreferences.getInstance(), 'reminders.$userId');
-
-  @override
-  Future<List<Reminder>> load() async {
-    final raw = _prefs.getString(_key);
-    if (raw == null) return [];
-    try {
-      return [for (final item in jsonDecode(raw) as List<dynamic>) Reminder.fromJson(Map<String, Object?>.from(item as Map))];
-    } catch (_) {
-      return []; // lo guardado está dañado: se empieza de cero antes que fallar al abrir
-    }
-  }
-
-  @override
-  Future<void> save(List<Reminder> items) async {
-    await _prefs.setString(_key, jsonEncode([for (final r in items) r.toJson()]));
-  }
 }

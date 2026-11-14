@@ -12,30 +12,46 @@
   min-block-size: 36rem;
 }
 
-/* Inicio: un molinete alrededor de Configuración. Columnas y filas son «1fr · núcleo · 1fr», así el cuadrado del
-   centro (el núcleo) es el centro exacto de la pantalla y las demás giran a su alrededor sin dejar ni un hueco:
-   Tareas a la izquierda (arriba y al centro), Música arriba, Chat a la derecha (centro y abajo), Nube abajo. */
+/* Inicio: una rejilla de 3 filas con Configuración en el centro exacto. Las columnas son «1fr 1fr · núcleo · 1fr 1fr» (simétricas), así
+   el cuadrado del centro (el núcleo) es el centro exacto de la pantalla, y las tres filas son «1fr · núcleo · 1fr». Las siete teselas
+   ocupan los huecos de alrededor y no se parecen entre sí: Tareas es ancha arriba, Música y Calendario ocupan dos columnas a la
+   derecha, Nube dos a la izquierda, Contraseñas y Finanzas son esquinas, y **Chat es una franja ancha** abajo en el centro
+   (antes era una columna del ancho del núcleo, donde no cabía bien un mensaje).
+        ┌──────────── Tareas ───────────┬──── Música ────┐
+        │      Nube      │ Configuración │   Calendario   │
+        │ Contr. │         Chat          │    Finanzas    │
+        └────────┴───────────────────────┴────────────────┘ */
 .board {
   --core: clamp(8rem, 24vh, 12rem); /* el lado del cuadrado de Configuración */
 }
 .board[data-mode="home"] {
-  grid-template-columns: minmax(0, 1fr) var(--core) minmax(0, 1fr);
+  /* las columnas de los lados son más anchas que las de junto al centro (y simétricas: el centro sigue siendo el centro exacto) */
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) var(--core) minmax(0, 0.7fr) minmax(0, 1.6fr);
   grid-template-rows: minmax(0, 1fr) var(--core) minmax(0, 1fr);
 }
 .board[data-mode="home"] .tile-tareas {
-  grid-area: 1 / 1 / 3 / 2;
+  grid-area: 1 / 1 / 2 / 4;
 }
 .board[data-mode="home"] .tile-musica {
-  grid-area: 1 / 2 / 2 / 4;
-}
-.board[data-mode="home"] .tile-configuracion {
-  grid-area: 2 / 2 / 3 / 3;
+  grid-area: 1 / 4 / 2 / 6;
 }
 .board[data-mode="home"] .tile-nube {
-  grid-area: 3 / 1 / 4 / 3;
+  grid-area: 2 / 1 / 3 / 3;
+}
+.board[data-mode="home"] .tile-configuracion {
+  grid-area: 2 / 3 / 3 / 4;
+}
+.board[data-mode="home"] .tile-calendario {
+  grid-area: 2 / 4 / 3 / 6;
+}
+.board[data-mode="home"] .tile-contrasenas {
+  grid-area: 3 / 1 / 4 / 2;
 }
 .board[data-mode="home"] .tile-chat {
-  grid-area: 2 / 3 / 4 / 4;
+  grid-area: 3 / 2 / 4 / 5;
+}
+.board[data-mode="home"] .tile-finanzas {
+  grid-area: 3 / 5 / 4 / 6;
 }
 
 /* Una abierta: toda la pantalla */
@@ -63,6 +79,15 @@
 }
 .tile-configuracion {
   view-transition-name: tile-configuracion;
+}
+.tile-calendario {
+  view-transition-name: tile-calendario;
+}
+.tile-contrasenas {
+  view-transition-name: tile-contrasenas;
+}
+.tile-finanzas {
+  view-transition-name: tile-finanzas;
 }
 ::view-transition-group(*) {
   animation-duration: 480ms;
@@ -140,7 +165,7 @@
 .tile-title {
   grid-area: title;
   font-family: var(--mono);
-  font-size: clamp(1.35rem, 2.1vw, 2.2rem);
+  font-size: clamp(1.2rem, 1.75vw, 2.2rem);
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: -0.02em;
@@ -172,20 +197,35 @@
   border: 1px solid var(--line-strong);
   color: var(--ink);
 }
+/* volver al mosaico: un botón con su nombre y su tecla (Esc), siempre visible con una sección abierta */
 .tile-close {
   display: none;
   appearance: none;
-  inline-size: 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
   block-size: 2.5rem;
-  place-items: center;
-  padding: 0;
+  padding: 0 0.75rem;
   border: 1px solid var(--accent);
   background: transparent;
   color: var(--accent);
-  font-size: 1.25rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
   position: relative;
   z-index: 2;
+}
+.tile-close .icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+.tile-close-key {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid currentColor;
+  font-size: 0.7rem;
+  font-weight: 500;
 }
 .tile-close:hover {
   background: var(--accent);
@@ -280,29 +320,58 @@
   stroke: var(--line-strong);
   stroke-width: 1.5;
 }
+.tile-tareas .tile-foot,
 .tile-musica .tile-foot,
-.tile-nube .tile-foot {
+.tile-nube .tile-foot,
+.tile-calendario .tile-foot {
   max-inline-size: calc(50% - 2rem);
 }
-/* Música es baja: el disco no pasa de la línea de las teclas */
+/* Contraseñas y Finanzas son las más estrechas: más sitio para el texto y un dibujo más pequeño */
+.tile-contrasenas .tile-foot,
+.tile-finanzas .tile-foot {
+  max-inline-size: calc(64% - 1rem);
+}
+.tile-contrasenas .tile-art,
+.tile-finanzas .tile-art {
+  inline-size: min(32%, 9rem);
+}
+/* el Chat es ancho: su texto (el último mensaje) ocupa más de la mitad y el dibujo queda pequeño a la derecha */
+.tile-chat .tile-foot {
+  max-inline-size: calc(62% - 2rem);
+}
+/* las teselas: el dibujo a la derecha, sin pasar de la línea de las teclas */
+.tile-tareas .tile-art,
 .tile-musica .tile-art,
-.tile-nube .tile-art {
+.tile-nube .tile-art,
+.tile-calendario .tile-art {
   inline-size: min(40%, 12rem);
   max-block-size: calc(100% - 5rem);
 }
-/* Tareas y Chat son altas y estrechas: el dibujo va en el aire de en medio, encima del texto */
-.tile-tareas .tile-art,
-.tile-chat .tile-art {
-  position: static;
-  order: 2;
-  align-self: flex-end;
-  margin-block: auto;
-  inline-size: min(78%, 15rem);
+.tile-contrasenas .tile-art,
+.tile-finanzas .tile-art {
+  max-block-size: calc(100% - 5rem);
 }
-.tile-tareas .tile-foot,
-.tile-chat .tile-foot {
-  order: 3;
-  margin-block-start: 0;
+.tile-chat .tile-art {
+  inline-size: min(32%, 11rem);
+  max-block-size: calc(100% - 5rem);
+}
+/* el contador de mensajes sin leer, junto a la tecla */
+.tile-badge {
+  min-inline-size: 1.6rem;
+  block-size: 1.6rem;
+  padding-inline: 0.35rem;
+  display: inline-grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+}
+
+.tile-badge.is-warn {
+  background: var(--warn);
+  color: #0a0b0d;
 }
 
 /* las partes de la sección abierta y la cara del dock: solo se ven cuando toca */
@@ -442,7 +511,7 @@
   display: none;
 }
 .tile.is-active .tile-close {
-  display: inline-grid;
+  display: inline-flex;
 }
 .tile.is-active .tile-statement {
   display: block;
@@ -574,7 +643,8 @@
 
 /* ---------- Pantallas más pequeñas ---------- */
 @media (max-width: 1100px) {
-  /* dos columnas: arriba Música y Nube, en medio Configuración a lo ancho, abajo Tareas y Chat */
+  /* dos columnas: Tareas a lo ancho, luego Música y Nube, Calendario y Finanzas, Configuración a lo ancho,
+     y abajo Contraseñas y Chat */
   .board[data-mode="home"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: none;
@@ -586,23 +656,32 @@
     grid-area: auto;
     min-block-size: 15rem;
   }
+  .board[data-mode="home"] .tile-tareas {
+    grid-area: 1 / 1 / 2 / 3;
+    min-block-size: 18rem;
+  }
   .board[data-mode="home"] .tile-musica {
-    grid-area: 1 / 1;
+    grid-area: 2 / 1;
   }
   .board[data-mode="home"] .tile-nube {
-    grid-area: 1 / 2;
+    grid-area: 2 / 2;
+  }
+  .board[data-mode="home"] .tile-calendario {
+    grid-area: 3 / 1;
+  }
+  .board[data-mode="home"] .tile-finanzas {
+    grid-area: 3 / 2;
   }
   .board[data-mode="home"] .tile-configuracion {
-    grid-area: 2 / 1 / 3 / 3;
+    grid-area: 4 / 1 / 5 / 3;
     min-block-size: 6rem;
     block-size: 6rem;
   }
-  .board[data-mode="home"] .tile-tareas {
-    grid-area: 3 / 1;
-    min-block-size: 22rem;
+  .board[data-mode="home"] .tile-contrasenas {
+    grid-area: 5 / 1;
   }
   .board[data-mode="home"] .tile-chat {
-    grid-area: 3 / 2;
+    grid-area: 5 / 2;
     min-block-size: 22rem;
   }
 }
@@ -615,6 +694,9 @@
   .board[data-mode="home"] .tile-nube,
   .board[data-mode="home"] .tile-configuracion,
   .board[data-mode="home"] .tile-tareas,
+  .board[data-mode="home"] .tile-calendario,
+  .board[data-mode="home"] .tile-contrasenas,
+  .board[data-mode="home"] .tile-finanzas,
   .board[data-mode="home"] .tile-chat {
     grid-area: auto;
   }
@@ -678,6 +760,103 @@
   .tile-configuracion:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
     animation: icon-turn 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
+  .tile-calendario:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon),
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-hop 560ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .tile-contrasenas:not(.is-active):is(:hover, :focus-within) :is(.tile-icon, .dock-icon) {
+    animation: icon-wiggle 520ms ease-in-out;
+  }
+}
+/* ---------- Los dibujos grandes de cada tesela también se animan un poco al pasar el cursor (una vez por pasada) ----------
+   Tareas: los bloques suben; Música: el disco gira; Nube: flota; Calendario: el día de hoy late; Contraseñas: el candado se abre
+   un instante; Finanzas: las barras crecen; Chat: las líneas se escriben y el cursor parpadea. Con «reducir movimiento» no se
+   mueven, pero sí se iluminan. */
+.tile-art {
+  transition: filter 200ms;
+}
+.art-hole {
+  fill: var(--surface); /* la marca de la etiqueta del disco: así se ve que gira */
+}
+.tile:not(.is-active):is(:hover, :focus-within) .tile-art {
+  filter: drop-shadow(0 0 10px var(--accent-soft));
+}
+.tile-art .art-on,
+.tile-art .art-disc,
+.tile-art .art-shackle,
+.tile-art rect {
+  transform-box: fill-box;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tile-tareas:not(.is-active):is(:hover, :focus-within) .tile-art .art-on {
+    transform-origin: 50% 100%;
+    animation: art-rise 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .tile-tareas:not(.is-active):is(:hover, :focus-within) .tile-art .art-on:nth-of-type(3n) {
+    animation-delay: 70ms;
+  }
+  .tile-tareas:not(.is-active):is(:hover, :focus-within) .tile-art .art-on:nth-of-type(3n + 1) {
+    animation-delay: 140ms;
+  }
+  .tile-musica:not(.is-active):is(:hover, :focus-within) .tile-art .art-disc {
+    transform-origin: 50% 50%;
+    animation: icon-spin 1100ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .tile-nube:not(.is-active):is(:hover, :focus-within) .tile-art {
+    animation: art-float 900ms ease-in-out;
+  }
+  .tile-calendario:not(.is-active):is(:hover, :focus-within) .tile-art .art-on {
+    transform-origin: 50% 50%;
+    animation: art-pulse 700ms ease-in-out 2;
+  }
+  .tile-contrasenas:not(.is-active):is(:hover, :focus-within) .tile-art .art-shackle {
+    animation: art-unlock 900ms cubic-bezier(0.3, 0, 0.2, 1);
+  }
+  .tile-contrasenas:not(.is-active):is(:hover, :focus-within) .tile-art .art-on {
+    animation: art-blink 300ms steps(2, jump-none) 3;
+  }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect {
+    transform-origin: 50% 100%;
+    animation: art-rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect:nth-of-type(2) { animation-delay: 60ms; }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect:nth-of-type(3) { animation-delay: 120ms; }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect:nth-of-type(4) { animation-delay: 180ms; }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect:nth-of-type(5) { animation-delay: 240ms; }
+  .tile-finanzas:not(.is-active):is(:hover, :focus-within) .tile-art rect:nth-of-type(6) { animation-delay: 300ms; }
+  .tile-chat:not(.is-active):is(:hover, :focus-within) .tile-art g > rect:last-child {
+    animation: art-blink 280ms steps(2, jump-none) 4;
+  }
+  .tile-chat:not(.is-active):is(:hover, :focus-within) .tile-art g > rect.art-mid {
+    transform-origin: 0 50%;
+    animation: art-type 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+@keyframes art-rise {
+  from { transform: scaleY(0.12); opacity: 0.4; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+@keyframes art-float {
+  0% { transform: translateY(0); }
+  35% { transform: translateY(-7px); }
+  70% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+@keyframes art-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.55); }
+}
+@keyframes art-unlock {
+  0% { transform: translateY(0); }
+  35%, 60% { transform: translateY(-9px); }
+  100% { transform: translateY(0); }
+}
+@keyframes art-blink {
+  50% { opacity: 0.15; }
+}
+@keyframes art-type {
+  from { transform: scaleX(0.05); }
+  to { transform: scaleX(1); }
 }
 @keyframes icon-hop {
   0% { transform: translateY(0); }

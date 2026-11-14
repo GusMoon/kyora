@@ -29,6 +29,11 @@ La app no lleva tu correo ni tu contraseña: solo la URL de tu proyecto y su cla
 - **Mantener pulsado** un mensaje: copiar el texto o borrarlo (también se borra en la PC).
 - **Música** (el icono ♪ de arriba): las canciones que bajas en la PC con **Descargar** suben solas a tu cuenta y salen aquí. Con la app abierta (aunque estés en el chat) **se guardan solas** en la carpeta que elijas (por omisión, *Música/Kyora*, y salen en el reproductor del teléfono). Con la carpeta (icono de arriba) eliges *Música* o *Descargas*, la subcarpeta y si se guardan solas. Las canciones anteriores a la primera vez que abriste la app quedan pendientes: tócalas o pulsa **Guardar todas**.
 
+## Y además del chat (rondas 12 a 16)
+- **Inicio** (la pantalla de siempre; Kyra es también tu launcher): un tablero con la hora, el **clima** (tócalo para ver el día **hora a hora**), el estado del teléfono y los accesos **NET** (Wi-Fi, Bluetooth y datos: un toque abre el panel del sistema y mantener abre los ajustes; Android no deja encenderlos desde una app).
+- **Calendario**: toca la hora de Inicio y se expande. Es el de Merida en compacto: vistas **Día · Semana · Mes**, qué clases mostrar (**eventos, tareas, recordatorios y hábitos**) y mantener el dedo en la columna de horas para crear un evento. **Se actualiza solo** (Realtime, al volver a la app y tras cada cambio) y tiene botón **Actualizar**. Los recordatorios y los eventos se sincronizan con Supabase (tablas `reminders` y `events`): **vuelve a ejecutar `schema.sql`** para publicarlas en tiempo real.
+- **Música**: **mantener presionado el disco** abre las opciones del álbum (aleatorio, mover, borrar y **velocidad y tono** de 0,5× a 1,5×). Con la lista abierta, el fondo es la portada oscurecida.
+
 No incluye (todavía): guardar canciones con la app cerrada (se ponen al día al abrirla), notificaciones con la app cerrada, que los mensajes «en espera» sobrevivan a cerrar la app, ni iPhone.
 
 ## Si algo no va

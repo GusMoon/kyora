@@ -4,22 +4,27 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
+import '../models/event.dart';
 import '../models/habit.dart';
 import '../models/message.dart';
 import '../models/profile.dart';
+import '../models/reminder.dart';
 import '../models/task.dart';
 import '../models/track.dart';
 import 'account_backend.dart';
 import 'chat_backend.dart';
+import 'cloud_files.dart';
+import 'server_stats.dart';
 import 'habit_backend.dart';
 import 'music_backend.dart';
+import 'sync_rows.dart';
 import 'task_backend.dart';
 
 /// El chat sobre Supabase: el mismo contrato que usa la PC (Server/supabase/endpoints.md). Sesión con correo y contraseña,
 /// funciones RPC para enviar y leer, Storage para los archivos y Realtime para lo que llega al instante. También sirve la
 /// música (las canciones que la PC manda con «Descargar»: `music_tracks` y sus MP3 en el mismo bucket) y las cuentas:
 /// el administrador (tú) y los pasantes, que se registran solos. Y las tareas (`tasks`, `tags`, `task_tags`).
-class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskBackend, HabitBackend {
+class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskBackend, HabitBackend, LiveBackend, ServerBackend, CloudBackend {
   ChatRepository(this._client);
 
   final SupabaseClient _client;
@@ -238,7 +243,94 @@ class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskB
     );
   }
 
+  // ---------- el servidor y la nube (lo mismo que ve Merida) ----------
+
+  @override
+  Future<ServerStats> serverStats() async => parseStats(await _guard(() => _client.rpc('server_stats')));
+
+  @override
+  Future<List<CloudFile>> listCloud() async {
+    final results = await Future.wait([
+      _guard(() => _client.from('attachments').select('id, message_id, thumb_path, storage_path, file_name, mime_type, size_bytes, created_at, message:messages(sender_device, deleted_at)').order('created_at', ascending: false).limit(500)),
+      _guard(() => _client.from('music_tracks').select('id, title, file_name, storage_path, mime_type, size_bytes, created_at, owner_id, recipient_id').order('created_at', ascending: false).limit(500)),
+    ]);
+    // los nombres de los pasantes, solo para decir a quién va cada canción (si no se pueden leer, se dice «un pasante»)
+    final names = <String, String>{};
+    try {
+      final data = await _client.rpc('list_recipients');
+      for (final r in (data as List<dynamic>? ?? const [])) {
+        final m = Map<String, Object?>.from(r as Map);
+        names[m['id'] as String] = (m['username'] as String?) ?? '';
+      }
+    } catch (_) {
+      // no es administrador o no hay red: sin nombres
+    }
+    List<Map<String, Object?>> rows(Object list) => [for (final r in list as List) Map<String, Object?>.from(r as Map)];
+    return mergeCloud(rows(results[0]), rows(results[1]), userId, names);
+  }
+
+  @override
+  Future<String> cloudUrl(String path, {String? download}) => _guard(() => _client.storage.from(AppConfig.bucket).createSignedUrl(path, 3600, download: download == null ? null : DownloadBehavior.named(download))).then(_absolute);
+
+  @override
+  Future<CloudDeleteResult> deleteCloudFile(CloudFile file) async {
+    final paths = [file.path, if (file.thumbPath != null) file.thumbPath!];
+    await _guard(() => _client.storage.from(AppConfig.bucket).remove(paths));
+    if (file.source == CloudSource.music) {
+      final rows = await _guard(() => _client.from('music_tracks').delete().eq('storage_path', file.path).select('id'));
+      if ((rows as List).isEmpty) throw const ChatException('El servidor no dejó borrar esta canción (no es tuya).');
+      return const CloudDeleteResult();
+    }
+    final attachmentId = file.id.substring('chat:'.length);
+    final row = await _guard(() => _client.from('attachments').delete().eq('id', attachmentId).select('id'));
+    if ((row as List).isEmpty) throw const ChatException('El servidor no dejó borrar este archivo.');
+    final messageId = file.messageId;
+    if (messageId == null) return const CloudDeleteResult();
+    // ¿el mensaje se quedó sin nada? entonces se borra también (un mensaje vacío no sirve de nada)
+    final msg = await _guard(() => _client.from('messages').select('id, body, attachments(id)').eq('id', messageId).maybeSingle());
+    if (msg == null) return const CloudDeleteResult();
+    final left = (msg['attachments'] as List?) ?? const [];
+    if (((msg['body'] as String?) ?? '').trim().isEmpty && left.isEmpty) {
+      await deleteMessage(messageId);
+      return const CloudDeleteResult(messageDeleted: true);
+    }
+    return const CloudDeleteResult();
+  }
+
+  // ---------- recordatorios y eventos (las mismas tablas que la web) ----------
+
+  /// Los recordatorios (`reminders`) en Supabase.
+  RowBackend<Reminder> get reminderBackend => _SupabaseRows<Reminder>(this, 'reminders', Reminder.fromJson, (r) => r.toJson());
+
+  /// Los eventos del calendario (`events`) en Supabase.
+  RowBackend<CalendarEvent> get eventBackend => _SupabaseRows<CalendarEvent>(this, 'events', CalendarEvent.fromJson, (e) => e.toJson());
+
   // ---------- tiempo real ----------
+
+  /// Emite cada vez que cambia algo en esas tablas (y al conectarse), para ponerse al día sin esperar al siguiente reintento.
+  @override
+  Stream<void> changes(List<String> tables) {
+    late final StreamController<void> controller;
+    RealtimeChannel? channel;
+    controller = StreamController<void>(
+      onListen: () {
+        final created = _client.channel('kyora-agenda-${DateTime.now().microsecondsSinceEpoch}');
+        for (final table in tables) {
+          created.onPostgresChanges(event: PostgresChangeEvent.all, schema: 'public', table: table, callback: (_) => controller.add(null));
+        }
+        created.subscribe((status, error) {
+          if (!controller.isClosed && status == RealtimeSubscribeStatus.subscribed) controller.add(null);
+        });
+        channel = created;
+      },
+      onCancel: () async {
+        final current = channel;
+        channel = null;
+        if (current != null) await _client.removeChannel(current);
+      },
+    );
+    return controller.stream;
+  }
 
   @override
   Stream<BackendSignal> signals(String conversationId) {
@@ -298,6 +390,22 @@ class ChatRepository implements ChatBackend, MusicBackend, AccountBackend, TaskB
   }
 }
 
+/// Una tabla de filas sincronizadas (recordatorios, eventos) sobre el mismo repositorio: sube por tandas con `upsert` y baja por `synced_at`.
+class _SupabaseRows<T extends SyncRow> implements RowBackend<T> {
+  _SupabaseRows(this._repo, this._table, this._read, this._write);
+
+  final ChatRepository _repo;
+  final String _table;
+  final T Function(Map<String, Object?> json) _read;
+  final Map<String, Object?> Function(T row) _write;
+
+  @override
+  Future<void> push(List<T> rows) => _repo._upsert(_table, [for (final r in rows) _write(r)], 'id');
+
+  @override
+  Future<List<T>> pull(String? since) async => [for (final r in await _repo._readSince(_table, since)) _read(r)];
+}
+
 ChatException explainAuth(AuthException e) {
   final code = e.code ?? '';
   final text = e.message.toLowerCase();
@@ -329,7 +437,11 @@ ChatException explainAuth(AuthException e) {
 ChatException explainPostgrest(PostgrestException e) {
   final code = e.code ?? '';
   final text = e.message.toLowerCase();
-  if (code == 'PGRST202' || code == '42883' || text.contains('could not find the function')) {
+  final missingFunction = code == 'PGRST202' || code == '42883' || text.contains('could not find the function');
+  if (missingFunction && text.contains('server_stats')) {
+    return ChatException('Falta la función server_stats en Supabase. Vuelve a ejecutar Server/supabase/schema.sql en el SQL Editor.', code: code);
+  }
+  if (missingFunction) {
     return ChatException('Falta crear la base de datos: ejecuta Server/supabase/schema.sql en Supabase.', code: code);
   }
   if ((code == 'PGRST205' || code == '42P01') && RegExp(r'\b(tasks|tags|task_tags)\b').hasMatch(text)) {

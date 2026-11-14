@@ -11,6 +11,7 @@ import 'data/chat_repository.dart';
 import 'data/cover_store.dart';
 import 'data/dock_store.dart';
 import 'data/duration_cache.dart';
+import 'data/event_store.dart';
 import 'data/favorites_store.dart';
 import 'data/habit_store.dart';
 import 'data/installed_apps.dart';
@@ -20,6 +21,7 @@ import 'data/nav_hint_store.dart';
 import 'data/reminder_scheduler.dart';
 import 'data/reminder_store.dart';
 import 'data/role_cache.dart';
+import 'data/server_stats.dart';
 import 'data/task_store.dart';
 import 'data/wallpaper_store.dart';
 import 'data/weather_service.dart';
@@ -66,7 +68,7 @@ Future<void> main() async {
     PrefsWeatherStore.open(),
     PrefsNavHintStore.open(),
   ).wait;
-  final (wallpaperStore, dockStore, vaultStore) = await (PrefsWallpaperStore.open(), PrefsDockStore.open(), PrefsVaultStore.open()).wait;
+  final (wallpaperStore, dockStore, vaultStore, serverStore) = await (PrefsWallpaperStore.open(), PrefsDockStore.open(), PrefsVaultStore.open(), PrefsServerStore.open()).wait;
   await Future.wait([audioReady, backgroundReady, supabaseReady]);
   final favorites = FavoritesController(favoritesStore);
   final weather = WeatherController(OpenMeteoWeather(), weatherStore);
@@ -85,6 +87,7 @@ Future<void> main() async {
       wallpaper: WallpaperController(wallpaperStore),
       contacts: ContactsController(AndroidContactsSource()),
       vault: VaultController(AndroidVaultSource(), vaultStore),
+      serverStore: serverStore,
     ),
   );
 }
@@ -105,6 +108,7 @@ class KyoraChatApp extends StatefulWidget {
     this.wallpaper,
     this.contacts,
     this.vault,
+    this.serverStore,
   });
 
   final ChatRepository repository;
@@ -127,6 +131,9 @@ class KyoraChatApp extends StatefulWidget {
   /// Los contactos del teléfono y el Vault (carpeta del almacenamiento).
   final ContactsController? contacts;
   final VaultController? vault;
+
+  /// Los límites del plan de Supabase y los avisos de espacio ya dados (los que recuerda la Nube).
+  final ServerStore? serverStore;
 
   @override
   State<KyoraChatApp> createState() => _KyoraChatAppState();
@@ -168,6 +175,9 @@ class _KyoraChatAppState extends State<KyoraChatApp> {
         system: _system,
         contacts: widget.contacts,
         vault: widget.vault,
+        server: widget.repository,
+        cloud: widget.repository,
+        serverStore: widget.serverStore,
         wallpaper: widget.wallpaper,
         nowPlaying: _nowPlaying,
         background: AndroidBackgroundPlayback(),
@@ -178,6 +188,10 @@ class _KyoraChatAppState extends State<KyoraChatApp> {
         openHabitStore: SqliteHabitStore.open,
         openReminderStore: PrefsReminderStore.open,
         reminderScheduler: LocalNotificationScheduler(),
+        reminderBackend: widget.repository.reminderBackend,
+        events: widget.repository.eventBackend,
+        openEventStore: PrefsEventStore.open,
+        live: widget.repository,
       ),
       builder: (context, home) => MaterialApp(
         title: 'Kyra',

@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart';
 
-/// El estado del teléfono para Inicio: batería, memoria, almacenamiento, Wi-Fi y Bluetooth. Lo que no se pudo leer va en `null`.
+/// El estado del teléfono para Inicio: batería, memoria, almacenamiento, Wi-Fi, datos móviles y Bluetooth. Lo que no se pudo leer va en `null`.
 class SystemStats {
-  const SystemStats({this.battery, this.charging = false, this.ramTotal, this.ramFree, this.storageTotal, this.storageFree, this.wifi, this.bluetooth});
+  const SystemStats({this.battery, this.charging = false, this.ramTotal, this.ramFree, this.storageTotal, this.storageFree, this.wifi, this.bluetooth, this.mobileData});
 
   /// La batería, de 0 a 100.
   final int? battery;
@@ -17,6 +17,9 @@ class SystemStats {
   /// Encendidos o no (`null` si no se sabe).
   final bool? wifi;
   final bool? bluetooth;
+
+  /// Hay una red de datos móviles con salida a internet («en uso»; Android no deja a una app leer el interruptor).
+  final bool? mobileData;
 
   /// La memoria en uso, de 0 a 1.
   double? get ramUsed => ramTotal == null || ramFree == null || ramTotal! <= 0 ? null : ((ramTotal! - ramFree!) / ramTotal!).clamp(0.0, 1.0);
@@ -36,16 +39,27 @@ class SystemStats {
     storageFree: _int(map['storageFree']),
     wifi: map['wifi'] as bool?,
     bluetooth: map['bluetooth'] as bool?,
+    mobileData: map['mobileData'] as bool?,
   );
 }
 
-/// De dónde sale el estado del teléfono y cómo se abren los paneles del Wi-Fi y del Bluetooth.
+/// De dónde sale el estado del teléfono y cómo se abren los paneles de conexión del sistema (una app no puede encender el Wi-Fi ni los
+/// datos por su cuenta: desde Android 10 solo se abre el panel o los ajustes).
 abstract class SystemInfo {
   /// El estado ahora, o `null` si no se pudo leer.
   Future<SystemStats?> stats();
 
-  /// Abre el panel del Wi-Fi del sistema (una app no puede encenderlo por su cuenta). `false` si no se pudo.
+  /// Abre el panel de conexión del sistema (Wi-Fi y datos). `false` si no se pudo.
   Future<bool> openWifi();
+
+  /// Igual que [openWifi]: el panel flotante con los interruptores del Wi-Fi y de los datos móviles.
+  Future<bool> openInternetPanel();
+
+  /// Abre los ajustes de red y conexiones completos.
+  Future<bool> openNetworkSettings();
+
+  /// Abre los ajustes de datos móviles.
+  Future<bool> openMobileData();
 
   /// Abre los ajustes del Bluetooth. `false` si no se pudo.
   Future<bool> openBluetooth();
@@ -81,6 +95,15 @@ class AndroidSystemInfo implements SystemInfo {
   Future<bool> openWifi() => _open('openWifi');
 
   @override
+  Future<bool> openInternetPanel() => _open('openInternetPanel');
+
+  @override
+  Future<bool> openNetworkSettings() => _open('openNetworkSettings');
+
+  @override
+  Future<bool> openMobileData() => _open('openMobileData');
+
+  @override
   Future<bool> openBluetooth() => _open('openBluetooth');
 }
 
@@ -101,6 +124,24 @@ class FakeSystemInfo implements SystemInfo {
   @override
   Future<bool> openWifi() async {
     opened.add('wifi');
+    return true;
+  }
+
+  @override
+  Future<bool> openInternetPanel() async {
+    opened.add('internet');
+    return true;
+  }
+
+  @override
+  Future<bool> openNetworkSettings() async {
+    opened.add('network');
+    return true;
+  }
+
+  @override
+  Future<bool> openMobileData() async {
+    opened.add('data');
     return true;
   }
 

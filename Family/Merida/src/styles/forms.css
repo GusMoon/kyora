@@ -1,0 +1,424 @@
+/* ---------- Campos compartidos (ronda 5): el estilo HUD está en base.css; aquí, la flecha del selector ---------- */
+select {
+  appearance: none;
+  cursor: pointer;
+  padding-inline-end: 2.2rem;
+  /* las 4 marcas de esquina y las líneas de base.css, más la flecha en el acento (dos triángulos) */
+  background-image:
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)),
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)), var(--lines),
+    linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, no-repeat, no-repeat;
+  background-position: 0 0, 0 0, 100% 100%, 100% 100%, 0 0, calc(100% - 1.1rem) 50%, calc(100% - 0.8rem) 50%;
+  background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px, auto, 0.35rem 0.35rem, 0.35rem 0.35rem;
+}
+select option {
+  background: #0b0f14;
+  color: var(--ink);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: var(--step--1);
+}
+
+/* un campo con su etiqueta encima */
+.fld {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+  min-inline-size: 0;
+}
+.fld .label {
+  color: var(--dim);
+}
+.fld.span-2 {
+  grid-column: 1 / -1;
+}
+
+/* ---------- La vista completa de una tarea ---------- */
+.task-detail {
+  display: grid;
+  gap: 1.25rem;
+  max-inline-size: 60rem;
+}
+.detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.detail-head .btn-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.detail-status {
+  margin-inline-start: auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.detail-status[data-status="done"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.detail-block {
+  display: grid;
+  gap: 0.75rem;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--line);
+}
+.detail-block > h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--dim);
+}
+.detail-block > h3 .icon {
+  color: var(--accent);
+}
+.detail-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--line);
+}
+.detail-foot .btn-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+@container panel (max-width: 38rem) {
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* el cronómetro */
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-block-size: 2.9rem;
+}
+.timer-readout {
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+.timer-readout[data-running="true"] {
+  color: var(--accent);
+}
+.timer-readout[data-running="true"]::before {
+  content: "● ";
+}
+
+/* etiquetas */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chip {
+  --chip: var(--accent);
+  appearance: none;
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--chip);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  line-height: 1.4;
+}
+button.chip {
+  cursor: pointer;
+}
+.chip::before {
+  content: "";
+  display: inline-block;
+  inline-size: 0.5em;
+  block-size: 0.5em;
+  margin-inline-end: 0.4em;
+  background: var(--chip);
+}
+button.chip[aria-pressed="true"] {
+  background: var(--chip);
+  color: var(--on-accent);
+}
+button.chip[aria-pressed="true"]::before {
+  background: var(--on-accent);
+}
+.card .chips {
+  margin-block-start: 0.1rem;
+}
+
+/* subtareas editables */
+.subs-edit li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+.subs-edit .sub-name {
+  padding: 0.4rem 0.6rem;
+}
+.subs-edit .btn-step {
+  inline-size: 2rem;
+  block-size: 2rem;
+}
+.subs-edit .btn-step .icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+.sub-form select {
+  inline-size: auto;
+  min-inline-size: 8rem;
+}
+
+/* datos de solo lectura */
+.info {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 1.25rem;
+}
+.info dt {
+  color: var(--dim);
+  padding-block-start: 0.1rem;
+}
+.info dd {
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Chat: adjuntos ---------- */
+.chat-composer {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+.chat-attach {
+  appearance: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.chat-attach:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chat-attach .icon {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
+}
+.staged {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-block-end: 0.4rem;
+}
+.staged-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-inline-size: 100%;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.staged-name {
+  max-inline-size: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-thumb {
+  appearance: none;
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--field);
+  cursor: zoom-in;
+  max-inline-size: 16rem;
+}
+.msg-thumb:hover {
+  border-color: var(--accent);
+}
+.msg-img {
+  inline-size: 100%;
+  max-block-size: 14rem;
+  object-fit: cover;
+  min-block-size: 3rem;
+}
+.msg.is-mine .msg-thumb {
+  margin-inline-start: auto;
+}
+/* soltar archivos sobre el chat */
+.tile-panel.is-dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}
+.msg-file:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------- Atajos editables (Configuración) ---------- */
+.key-input {
+  inline-size: 3rem !important;
+  padding: 0.35rem !important;
+  text-align: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  caret-color: transparent;
+  cursor: pointer;
+  justify-self: end;
+}
+.key-input:focus {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.keys .sys-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* ---------- La paleta de comandos ---------- */
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: 12vh var(--gap) var(--gap);
+  background: rgba(4, 5, 7, 0.72);
+}
+.palette-box {
+  inline-size: min(40rem, 100%);
+  max-block-size: 70vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  background-image: var(--lines);
+}
+.palette-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0.9rem;
+  border-block-end: 1px solid var(--line-strong);
+  color: var(--accent);
+}
+.palette-input {
+  flex: 1;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0.8rem 0.25rem !important;
+  font-family: var(--mono);
+  font-size: var(--step-0);
+  color: var(--ink);
+  caret-color: var(--accent);
+}
+.palette-input:focus {
+  outline: none;
+}
+.palette-esc {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--line-strong);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+.palette-list {
+  overflow-y: auto;
+  min-block-size: 0;
+}
+.palette-group {
+  padding: 0.6rem 0.9rem 0.25rem;
+  color: var(--dim);
+}
+.palette-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.55rem 0.9rem;
+  border-inline-start: 3px solid transparent;
+  cursor: pointer;
+}
+.palette-item[aria-selected="true"] {
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+}
+.palette-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-hint {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.palette-empty {
+  padding: 1rem 0.9rem;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+}
+.palette-foot {
+  padding: 0.5rem 0.9rem;
+  border-block-start: 1px solid var(--line);
+  color: var(--dim);
+}
+
+/* ---------- Tareas: arrastrar tarjetas entre columnas ---------- */
+.card[draggable="true"] {
+  cursor: grab;
+}
+.card[draggable="true"]:active {
+  cursor: grabbing;
+}
+.card.is-dragging {
+  opacity: 0.4;
+  outline: 1px dashed var(--accent);
+}
+/* mientras se arrastra, cada columna se ve como un lugar donde soltar */
+.board-flow.is-dragging .column {
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  transition: background 120ms, box-shadow 120ms;
+}
+.board-flow.is-dragging .column.is-over {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.board-flow.is-dragging .column-empty {
+  border: 1px dashed var(--line-strong);
+  margin: 0.6rem;
+  text-align: center;
+}
+/* la línea del acento marca dónde caerá: justo antes de esta tarjeta */
+.card.is-before {
+  box-shadow: 0 -4px 0 -1px var(--accent), 0 -8px 14px -6px var(--accent);
+}
+/* si cae al final de la columna, la línea va debajo de la última */
+.board-flow.is-dragging .column.is-over .cards:not(:has(.is-before)) .card:last-child:not(.is-dragging) {
+  box-shadow: 0 4px 0 -1px var(--accent), 0 8px 14px -6px var(--accent);
+}

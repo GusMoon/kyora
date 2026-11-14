@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Entrada de una app lanzada desde Kyra: sube desde abajo (en lugar de entrar desde la derecha). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/decelerate_interpolator"
+    android:duration="320">
+    <translate
+        android:fromYDelta="100%p"
+        android:toYDelta="0" />
+</set>

@@ -22,6 +22,9 @@ abstract class ReminderScheduler {
   Future<void> scheduleWeekly({required int id, required String title, required int weekday, required int hour, required int minute});
 
   Future<void> cancel(int notifId);
+
+  /// Muestra una notificación ahora mismo (por ejemplo, el aviso de que el servidor se está llenando).
+  Future<void> showNow({required int id, required String title, required String body});
 }
 
 class LocalNotificationScheduler implements ReminderScheduler {
@@ -41,6 +44,14 @@ class LocalNotificationScheduler implements ReminderScheduler {
     'com.kyora.kyora_chat.habits',
     'Hábitos',
     channelDescription: 'El aviso de tus hábitos, los días que tocan',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+
+  static const _serverChannel = AndroidNotificationDetails(
+    'com.kyora.kyora_chat.server',
+    'Servidor',
+    channelDescription: 'Aviso de cuando tu proyecto de Supabase se está llenando',
     importance: Importance.high,
     priority: Priority.high,
   );
@@ -107,5 +118,10 @@ class LocalNotificationScheduler implements ReminderScheduler {
   @override
   Future<void> cancel(int notifId) async {
     await _android?.cancel(id: notifId);
+  }
+
+  @override
+  Future<void> showNow({required int id, required String title, required String body}) async {
+    await _android?.show(id: id, title: title, body: body, notificationDetails: _serverChannel);
   }
 }

@@ -1,66 +1,74 @@
-import 'dart:async';
-
-import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/reminder_scheduler.dart';
 import '../data/reminder_store.dart';
+import '../data/sync_rows.dart';
 import '../models/reminder.dart';
+import 'row_controller.dart';
 
-/// Los recordatorios del teléfono: se guardan aquí (sin Supabase por ahora) y cada uno programa su aviso en Android para que
-/// suene a su hora aunque la app esté cerrada. Al abrir la app se vuelven a programar los pendientes, por si el sistema los perdió.
-class ReminderController extends ChangeNotifier {
-  ReminderController(this._store, this._scheduler, {DateTime Function()? now, String Function()? newId})
-      : _now = now ?? (() => DateTime.now().toUtc()),
-        _newId = newId ?? (() => const Uuid().v4());
+/// Los recordatorios: se guardan en el teléfono y se sincronizan con Supabase (ver [RowController]), y cada uno programa su aviso en Android
+/// para que suene a su hora aunque la app esté cerrada. Al abrir la app se vuelven a programar los pendientes, por si el sistema los perdió.
+class ReminderController extends RowController<Reminder> {
+  ReminderController(ReminderStore store, this._scheduler, {RowBackend<Reminder>? backend, super.now, super.retry, String Function()? newId})
+      : _newId = newId ?? (() => const Uuid().v4()),
+        super(store, backend);
 
-  final ReminderStore _store;
   final ReminderScheduler _scheduler;
-  final DateTime Function() _now;
   final String Function() _newId;
 
-  List<Reminder> _items = const [];
-  bool _disposed = false;
-  bool loaded = false;
+  /// Lo que hay programado ahora mismo: número del aviso → «título|hora».
+  final Map<int, String> _planned = {};
+  bool _plannedOnce = false;
 
   /// `true` si el teléfono no deja mostrar avisos (permiso negado): los recordatorios se guardan pero no sonarán.
   bool notificationsBlocked = false;
 
   /// Los pendientes por hora (el más próximo primero) y luego los hechos (el más reciente primero).
   List<Reminder> get items {
-    final pending = [for (final r in _items) if (!r.done) r]..sort((a, b) => a.at.compareTo(b.at));
-    final done = [for (final r in _items) if (r.done) r]..sort((a, b) => b.at.compareTo(a.at));
+    final all = rows;
+    final pending = [for (final r in all) if (!r.done) r]..sort((a, b) => a.at.compareTo(b.at));
+    final done = [for (final r in all) if (r.done) r]..sort((a, b) => b.at.compareTo(a.at));
     return [...pending, ...done];
   }
 
-  bool isOverdue(Reminder r) => !r.done && !r.at.isAfter(_now());
+  bool isOverdue(Reminder r) => !r.done && !r.at.isAfter(now());
 
+  @override
   Future<void> start() async {
-    _items = await _store.load();
     try {
       await _scheduler.init();
-      for (final r in _items) {
-        if (!r.done && r.at.isAfter(_now())) await _scheduler.schedule(r);
-      }
     } catch (_) {
       // sin notificaciones los recordatorios siguen viéndose y editándose
     }
-    loaded = true;
-    _tell();
+    await super.start();
   }
 
-  Future<void> _schedule(Reminder r) async {
+  @override
+  Reminder adopt(Reminder? local, Reminder remote) {
+    final server = remote.fromServer;
+    return server.withNotifId(local?.notifId ?? reminderNotifIdFor(server.id));
+  }
+
+  /// Deja programado exactamente lo que toca: el aviso de cada recordatorio pendiente que todavía no pasó; lo demás se cancela. Solo llama al
+  /// teléfono para lo que cambió.
+  @override
+  Future<void> onRowsChanged() async {
     try {
-      await _scheduler.cancel(r.notifId);
-      if (!r.done && r.at.isAfter(_now())) await _scheduler.schedule(r);
+      for (final r in everything) {
+        final wanted = !r.isDeleted && !r.done && r.at.isAfter(now()) ? '${r.title}|${r.at.millisecondsSinceEpoch}' : null;
+        if (_plannedOnce && _planned[r.notifId] == wanted) continue;
+        if (wanted == null) {
+          if (_planned.containsKey(r.notifId) || !_plannedOnce) await _scheduler.cancel(r.notifId);
+          _planned.remove(r.notifId);
+        } else {
+          await _scheduler.schedule(r);
+          _planned[r.notifId] = wanted;
+        }
+      }
+      _plannedOnce = true;
     } catch (_) {
-      notificationsBlocked = true;
+      notificationsBlocked = true; // sin notificaciones los recordatorios se guardan igual
     }
-  }
-
-  Future<void> _persist() async {
-    await _store.save(_items);
-    _tell();
   }
 
   /// Un recordatorio nuevo. Pide el permiso de notificaciones la primera vez. Un título vacío no crea nada.
@@ -72,46 +80,32 @@ class ReminderController extends ChangeNotifier {
     } catch (_) {
       notificationsBlocked = true;
     }
-    final nextNotif = _items.isEmpty ? 1 : _items.map((r) => r.notifId).reduce((a, b) => a > b ? a : b) + 1;
-    final r = Reminder(id: _newId(), notifId: nextNotif, title: clean, notes: notes.trim(), at: at.toUtc(), createdAt: _now());
-    _items = [..._items, r];
-    await _schedule(r);
-    await _persist();
+    final t = now();
+    final id = _newId();
+    final r = Reminder(id: id, notifId: reminderNotifIdFor(id), title: clean, notes: notes.trim(), at: at.toUtc(), createdAt: t, updatedAt: t);
+    await put([r]);
     return r;
   }
 
   Future<void> update(Reminder r, {String? title, String? notes, DateTime? at}) async {
-    final nextTitle = title?.trim() ?? r.title;
+    final current = rowById(r.id) ?? r;
+    final nextTitle = title?.trim() ?? current.title;
     if (nextTitle.isEmpty) return;
-    final next = r.copyWith(title: nextTitle, notes: notes?.trim(), at: at?.toUtc());
-    _items = [for (final x in _items) x.id == r.id ? next : x];
-    await _schedule(next);
-    await _persist();
+    await put([current.copyWith(title: nextTitle, notes: notes?.trim(), at: at?.toUtc(), updatedAt: stamp(current.updatedAt))]);
   }
 
   /// Marca como hecho (su aviso se cancela) o lo vuelve a poner pendiente (se programa otra vez si todavía no pasó).
   Future<void> toggleDone(Reminder r) async {
-    final next = r.copyWith(done: !r.done);
-    _items = [for (final x in _items) x.id == r.id ? next : x];
-    await _schedule(next);
-    await _persist();
+    final current = rowById(r.id) ?? r;
+    await put([current.copyWith(done: !current.done, updatedAt: stamp(current.updatedAt))]);
   }
 
+  /// Lo mueve a otro momento (arrastrándolo en el calendario).
+  Future<void> moveTo(Reminder r, DateTime at) => update(r, at: at);
+
+  /// Borra el recordatorio (borrado suave: llega también a Supabase y a la web) y cancela su aviso.
   Future<void> delete(Reminder r) async {
-    _items = [for (final x in _items) if (x.id != r.id) x];
-    try {
-      await _scheduler.cancel(r.notifId);
-    } catch (_) {}
-    await _persist();
-  }
-
-  void _tell() {
-    if (!_disposed) notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    super.dispose();
+    final current = rowById(r.id) ?? r;
+    await put([current.copyWith(deletedAt: now(), updatedAt: stamp(current.updatedAt))]);
   }
 }

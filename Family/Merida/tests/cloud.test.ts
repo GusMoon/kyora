@@ -143,6 +143,8 @@ describe("sección Nube", () => {
       prefs: new PrefsStore({ ...DEFAULT_PREFS }),
       backdrop: new Backdrop({ storage: null }),
       library: new Library(),
+      vault: {} as never,
+      userId: "u",
       signOut() {},
       reload,
     };

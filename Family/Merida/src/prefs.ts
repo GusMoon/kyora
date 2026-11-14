@@ -1,6 +1,11 @@
 /** Las preferencias de Merida en este navegador (Configuración): efectos, sección al abrir y color de acento.
  * Se guardan en localStorage; si el navegador no deja (modo privado, datos bloqueados) se usan las de siempre. */
 
+import { DEFAULT_KEYS, type KeyMap } from "./routes";
+import { resolveKeys } from "./hotkeys";
+import type { View } from "./data/agenda";
+import { FREE_DB_MB, FREE_FILES_MB } from "./data/server";
+
 export type StartRoute = "inicio" | "tareas" | "musica" | "chat";
 export type AccentId = "lima" | "naranja" | "cian" | "magenta" | "salvia";
 
@@ -11,6 +16,14 @@ export interface Prefs {
   accent: AccentId;
   tint: boolean; // vestir la app con los colores del fondo y de la portada que suena
   cover: boolean; // la portada de lo que suena, de fondo
+  keys: KeyMap; // las teclas que abren cada sección
+  notify: boolean; // avisar con una notificación del navegador cuando llega un mensaje
+  sound: boolean; // con un sonido corto
+  preview: boolean; // mostrar el texto del mensaje en el aviso (apagado: solo «Mensaje nuevo»)
+  currency: string; // la moneda de Finanzas, código ISO de tres letras
+  calendarView: View; // la vista del Calendario: día, semana o mes
+  quotaDbMb: number; // el límite de la base de datos de tu plan de Supabase, en MB (gratuito: 500)
+  quotaFilesMb: number; // el de los archivos (Storage), en MB (gratuito: 1024)
 }
 
 /** Las paletas de acento de Kyra (Family/Kyra/lib/state/palette_controller.dart). Lima es la de Merida. */
@@ -29,7 +42,22 @@ export const START_OPTIONS: { id: StartRoute; name: string }[] = [
   { id: "chat", name: "Chat" },
 ];
 
-export const DEFAULT_PREFS: Prefs = { hack: true, holo: true, start: "inicio", accent: "lima", tint: true, cover: true };
+export const DEFAULT_PREFS: Prefs = {
+  hack: true,
+  holo: true,
+  start: "inicio",
+  accent: "lima",
+  tint: true,
+  cover: true,
+  keys: DEFAULT_KEYS,
+  notify: false,
+  sound: true,
+  preview: true,
+  currency: "MXN",
+  calendarView: "week",
+  quotaDbMb: FREE_DB_MB,
+  quotaFilesMb: FREE_FILES_MB,
+};
 const KEY = "merida-prefs";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
@@ -41,6 +69,9 @@ function storage(): StorageLike | null {
     return null;
   }
 }
+
+/** Un límite en MB: un entero entre 1 y 10 millones; lo demás vuelve al de siempre. */
+export const validMb = (v: unknown, fallback: number): number => (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 10_000_000 ? v : fallback);
 
 /** Las guardadas, validadas campo a campo (lo que no valga vuelve a su valor de siempre). */
 export function loadPrefs(store: StorageLike | null = storage()): Prefs {
@@ -57,6 +88,14 @@ export function loadPrefs(store: StorageLike | null = storage()): Prefs {
     accent: ACCENTS.some((a) => a.id === raw.accent) ? (raw.accent as AccentId) : DEFAULT_PREFS.accent,
     tint: typeof raw.tint === "boolean" ? raw.tint : DEFAULT_PREFS.tint,
     cover: typeof raw.cover === "boolean" ? raw.cover : DEFAULT_PREFS.cover,
+    keys: resolveKeys(raw.keys),
+    notify: typeof raw.notify === "boolean" ? raw.notify : DEFAULT_PREFS.notify,
+    sound: typeof raw.sound === "boolean" ? raw.sound : DEFAULT_PREFS.sound,
+    preview: typeof raw.preview === "boolean" ? raw.preview : DEFAULT_PREFS.preview,
+    calendarView: raw.calendarView === "day" || raw.calendarView === "week" || raw.calendarView === "month" ? raw.calendarView : DEFAULT_PREFS.calendarView,
+    quotaDbMb: validMb(raw.quotaDbMb, DEFAULT_PREFS.quotaDbMb),
+    quotaFilesMb: validMb(raw.quotaFilesMb, DEFAULT_PREFS.quotaFilesMb),
+    currency: typeof raw.currency === "string" && /^[A-Z]{3}$/.test(raw.currency) ? raw.currency : DEFAULT_PREFS.currency,
   };
 }
 

@@ -40,7 +40,10 @@ class _SoundCircleState extends State<SoundCircle> with SingleTickerProviderStat
 
   bool get _still => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
-  bool get _sounding => widget.active && (_p?.playing ?? false) && !_still;
+  /// Está a la vista: con la lista de canciones abierta el disco queda debajo (`TickerMode` apagado) y no hace falta leer el sonido.
+  bool get _visible => TickerMode.valuesOf(context).enabled;
+
+  bool get _sounding => widget.active && (_p?.playing ?? false) && !_still && _visible;
 
   @override
   void initState() {
@@ -77,6 +80,7 @@ class _SoundCircleState extends State<SoundCircle> with SingleTickerProviderStat
   }
 
   void _sync() {
+    if (!_visible && _listening) _stopListening(_p);
     if (_sounding && !_listening) {
       final levels = _p?.levels;
       if (levels != null) {

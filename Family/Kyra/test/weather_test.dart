@@ -50,6 +50,64 @@ void main() {
       expect(urls.last.queryParameters['longitude'], '-74.08');
     });
 
+    test('pide también el día hora a hora y lo devuelve ordenado', () async {
+      final urls = <Uri>[];
+      final client = MockClient((request) async {
+        urls.add(request.url);
+        if (request.url.host == 'geocoding-api.open-meteo.com') {
+          return http.Response(jsonEncode({'results': [{'name': 'Lima', 'latitude': -12.0, 'longitude': -77.0}]}), 200);
+        }
+        return http.Response(
+          jsonEncode({
+            'current': {'time': '2026-11-09T14:15', 'temperature_2m': 21.0, 'weather_code': 3, 'relative_humidity_2m': 70, 'wind_speed_10m': 11.6},
+            'hourly': {
+              'time': ['2026-11-09T13:00', '2026-11-09T14:00', '2026-11-09T15:00'],
+              'temperature_2m': [20.5, 21.0, 21.4],
+              'weather_code': [3, 3, 61],
+              'precipitation_probability': [5, 10, 60],
+              'wind_speed_10m': [10.0, 11.0, 12.0],
+              'relative_humidity_2m': [72, 70, 68],
+              'is_day': [1, 1, 0],
+            },
+            'daily': {
+              'temperature_2m_max': [23.4],
+              'temperature_2m_min': [17.2],
+              'sunrise': ['2026-11-09T05:40'],
+              'sunset': ['2026-11-09T18:20'],
+            },
+          }),
+          200,
+        );
+      });
+      final weather = await OpenMeteoWeather(client: client).fetch('Lima');
+      final q = urls.last.queryParameters;
+      expect(q['hourly'], contains('precipitation_probability'));
+      expect(q['daily'], contains('sunrise'));
+      expect(q['forecast_days'], '2');
+      expect(weather.hasDetail, isTrue);
+      expect(weather.high, 23.4);
+      expect(weather.low, 17.2);
+      expect(weather.humidity, 70);
+      expect(weather.wind, 11.6);
+      expect(weather.sunrise, DateTime(2026, 11, 9, 5, 40));
+      // desde la hora actual (14:15 → 14:00) en adelante: la de las 13:00 ya pasó
+      final next = weather.upcoming();
+      expect(next.map((h) => h.time.hour), [14, 15]);
+      expect(next.last.rainChance, 60);
+      expect(next.last.isDay, isFalse);
+    });
+
+    test('lo guardado de antes (sin horas) se sigue leyendo y lo nuevo da la vuelta por JSON', () {
+      final old = Weather.fromJson({'city': 'Lima', 'temperature': 19.0, 'code': 3});
+      expect(old, isNotNull);
+      expect(old!.hasDetail, isFalse);
+      final full = Weather(city: 'Lima', temperature: 20, code: 0, time: DateTime(2026, 11, 9, 8, 30), high: 25, hourly: [HourlyForecast(time: DateTime(2026, 11, 9, 8), temperature: 20, code: 0, rainChance: 3)]);
+      final back = Weather.fromJson(jsonDecode(jsonEncode(full.toJson())))!;
+      expect(back.high, 25);
+      expect(back.hourly.single.rainChance, 3);
+      expect(back.time, DateTime(2026, 11, 9, 8, 30));
+    });
+
     test('una ciudad que no existe lanza CityNotFound', () async {
       final client = MockClient((_) async => http.Response(jsonEncode({'generationtime_ms': 0.4}), 200));
       await expectLater(OpenMeteoWeather(client: client).fetch('Xyzzy'), throwsA(isA<CityNotFound>()));

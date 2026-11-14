@@ -60,6 +60,37 @@ try {
   const conv = (await call("POST", "/rest/v1/rpc/ensure_default_conversation", {})).data;
   const messages = (await call("POST", "/rest/v1/rpc/list_messages", { p_conversation_id: conv, p_before: null, p_after: null, p_limit: 100 })).data;
   console.log(`Mensajes (últimos 100): ${messages.length}`);
+
+  // las tablas de la ronda 5 (solo conteos; de la bóveda NO se lee el contenido: solo cuántas filas cifradas hay)
+  const missingTables: string[] = [];
+  for (const [label, table, filter] of [
+    ["Etiquetas", "tags", "&deleted_at=is.null"],
+    ["Eventos", "events", "&deleted_at=is.null"],
+    ["Recordatorios", "reminders", "&deleted_at=is.null"],
+    ["Hábitos", "habits", "&deleted_at=is.null"],
+    ["Movimientos", "finance_entries", "&deleted_at=is.null"],
+    ["Categorías de finanzas", "finance_categories", "&deleted_at=is.null"],
+    ["Entradas de la bóveda (cifradas)", "vault_entries", "&deleted_at=is.null"],
+  ] as const) {
+    try {
+      const r = await call("GET", `/rest/v1/${table}?select=id&limit=1${filter}`, undefined, { Prefer: "count=exact" });
+      console.log(`${label}: ${r.headers.get("content-range")?.split("/")[1] ?? "?"}`);
+    } catch (err) {
+      const text = (err as Error).message;
+      if (/PGRST205|Could not find the table/i.test(text)) missingTables.push(table);
+      else throw err;
+    }
+  }
+  try {
+    const meta = await call("GET", "/rest/v1/vault_meta?select=version&limit=1");
+    console.log(`Bóveda: ${(meta.data as unknown[]).length ? "creada" : "sin crear"}`);
+  } catch (err) {
+    if (!/PGRST205|Could not find the table/i.test((err as Error).message)) throw err;
+    if (!missingTables.includes("vault_meta")) missingTables.push("vault_meta");
+  }
+  if (missingTables.length) {
+    console.log(`Faltan tablas (${missingTables.join(", ")}): vuelve a ejecutar Server/supabase/schema.sql en el SQL Editor de Supabase.`);
+  }
   console.log("Todo bien: Merida puede leer tareas, música, chat y la nube.");
 } catch (err) {
   console.error(`Falló: ${(err as Error).message}`);

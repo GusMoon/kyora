@@ -166,6 +166,9 @@ abstract class TrackSaver {
   /// original no se toca. Lanza `TrackSaveException` solo si falla todo (la carpeta ya no sirve, etc.).
   Future<MoveResult> moveSongs(String treeUri, {required List<String> uris, String? fromUri, String? toUri});
 
+  /// Borra de verdad canciones del almacenamiento. Las que fallan salen en `failures`. Lanza `TrackSaveException` solo si falla todo.
+  Future<DeleteResult> deleteSongs(List<String> uris);
+
   /// Lo que dura cada archivo (por su dirección `content://`). Los que no se puedan leer no salen en el resultado.
   Future<Map<String, Duration>> readDurations(List<String> uris);
 
@@ -272,6 +275,19 @@ class AndroidTrackSaver implements TrackSaver {
       throw TrackSaveException(e.message ?? 'No se pudo mover.', folderLost: e.code == 'folder_lost');
     } on MissingPluginException {
       throw const TrackSaveException('Este teléfono no puede mover canciones desde la app.');
+    }
+  }
+
+  @override
+  Future<DeleteResult> deleteSongs(List<String> uris) async {
+    try {
+      final map = await _channel.invokeMapMethod<String, Object?>('deleteSongs', {'uris': uris});
+      final failed = Map<Object?, Object?>.from((map?['failed'] as Map?) ?? const {});
+      return DeleteResult(deleted: (map?['deleted'] as num?)?.toInt() ?? 0, failures: {for (final e in failed.entries) e.key! as String: e.value as String});
+    } on PlatformException catch (e) {
+      throw TrackSaveException(e.message ?? 'No se pudo borrar.', folderLost: e.code == 'folder_lost');
+    } on MissingPluginException {
+      throw const TrackSaveException('Este teléfono no puede borrar canciones desde la app.');
     }
   }
 

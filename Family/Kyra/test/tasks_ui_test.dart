@@ -254,7 +254,7 @@ void main() {
       expect(options, isNot(contains('calendar'))); // ya no es una sección
       expect(options, isNot(contains('tasks')));
       await openAgenda(tester);
-      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
+      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-week')), matching: find.byType(Scrollable)));
       await tester.tap(find.byKey(const Key('cal-all-tasks')));
       await settle(tester);
       expect(find.byType(TasksView), findsOneWidget);
@@ -267,7 +267,7 @@ void main() {
     testWidgets('el pasante también las alcanza en la hora de Inicio', (tester) async {
       await gate(tester, FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern)));
       await openAgenda(tester);
-      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-day')), matching: find.byType(Scrollable)));
+      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-week')), matching: find.byType(Scrollable)));
       await tester.tap(find.byKey(const Key('cal-all-tasks')));
       await settle(tester);
       expect(find.byType(TasksView), findsOneWidget);

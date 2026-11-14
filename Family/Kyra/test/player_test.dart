@@ -173,6 +173,56 @@ void main() {
       expect(engine.shuffle, isTrue);
     });
 
+    test('la velocidad (y el tono con ella) llega al motor, se acota entre 0,5× y 1,5× y no repite lo que ya está', () async {
+      expect(player.rate, 1);
+      await player.setRate(0.85);
+      expect(player.rate, 0.85);
+      expect(engine.rate, 0.85);
+      await player.setRate(0.85);
+      expect(engine.calls.where((c) => c.startsWith('rate:')), ['rate:0.85']); // sin llamadas de más
+      await player.setRate(3);
+      expect(player.rate, 1.5);
+      await player.setRate(0.1);
+      expect(player.rate, 0.5);
+      expect(engine.rate, 0.5);
+    });
+
+    test('la velocidad se vuelve a poner al cargar otra cola y no se toca si es la normal', () async {
+      await player.play(tracks[0], tracks);
+      expect(engine.calls.where((c) => c.startsWith('rate:')), isEmpty); // 1×: no hace falta decirlo
+      await player.setRate(1.25);
+      engine.calls.clear();
+      await player.play(tracks[1], tracks);
+      expect(engine.calls, ['setQueue:1', 'rate:1.25', 'play']);
+      await player.setRate(1);
+      await player.play(tracks[2], tracks);
+      expect(engine.calls.last, 'play');
+      expect(engine.rate, 1);
+    });
+
+    test('el aleatorio del álbum activa el aleatorio y solo mezcla las canciones de ese álbum', () async {
+      final album = [tracks[0], tracks[1]];
+      await player.playAlbumShuffled(album);
+      expect(player.shuffle, isTrue);
+      expect(engine.shuffle, isTrue);
+      expect(engine.queue.map((q) => q.id).toSet(), {'c', 'b'}); // la «a» no es de ese álbum
+      expect(album.map((t) => t.id), contains(player.current?.id));
+      expect(player.playing, isTrue);
+      await player.playAlbumShuffled(const []); // sin canciones no hace nada
+      expect(engine.queue, hasLength(2));
+    });
+
+    test('«parar» detiene el motor y vacía la cola (antes de borrar sus archivos)', () async {
+      await player.play(tracks[0], tracks);
+      await settle();
+      await player.stop();
+      expect(engine.calls.last, 'stop');
+      expect(player.current, isNull);
+      expect(player.queue, isEmpty);
+      expect(player.playing, isFalse);
+      expect(player.position, Duration.zero);
+    });
+
     test('al terminar la cola se queda en pausa, lista para empezar otra vez', () async {
       await player.play(tracks[2], tracks);
       await settle();

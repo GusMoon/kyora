@@ -55,6 +55,14 @@ class MoveResult {
   final Map<String, String> failures;
 }
 
+/// El resultado de borrar canciones: cuántas se borraron y, de las que no, el motivo (por dirección).
+class DeleteResult {
+  const DeleteResult({required this.deleted, this.failures = const {}});
+
+  final int deleted;
+  final Map<String, String> failures;
+}
+
 /// Una canción: la que te mandaron (tabla `music_tracks`, se escucha por internet) o un archivo de tu carpeta del teléfono
 /// (`localUri`, se escucha directo del archivo).
 class Track {

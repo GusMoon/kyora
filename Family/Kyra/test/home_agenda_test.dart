@@ -5,13 +5,16 @@ import 'package:kyora_chat/data/reminder_store.dart';
 import 'package:kyora_chat/data/system_info.dart';
 import 'package:kyora_chat/data/task_store.dart';
 import 'package:kyora_chat/data/weather_store.dart';
+import 'package:kyora_chat/models/habit.dart';
 import 'package:kyora_chat/state/habit_controller.dart';
 import 'package:kyora_chat/state/reminder_controller.dart';
 import 'package:kyora_chat/state/system_controller.dart';
 import 'package:kyora_chat/state/task_controller.dart';
 import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
+import 'package:kyora_chat/ui/agenda_view.dart';
 import 'package:kyora_chat/ui/home_page.dart';
+import 'package:kyora_chat/util/agenda.dart';
 import 'package:kyora_chat/ui/widgets/home_grid.dart';
 
 import 'habit_test.dart' show FakeHabitBackend;
@@ -32,6 +35,7 @@ void main() {
   var n = 0;
 
   setUp(() {
+    AgendaView.lastMode = CalendarMode.week;
     n = 0;
     scheduler = FakeScheduler();
     tasks = TaskController(MemoryTaskStore(), FakeTaskBackend(), now: () => now.toUtc(), newId: () => 't${++n}', retry: const Duration(hours: 1));
@@ -91,12 +95,11 @@ void main() {
         await tasks.add('Informe', due: DateTime(2026, 11, 5, 18).toUtc());
       });
       final collapsed = tester.getRect(find.byKey(const Key('home-grid')));
-      expect(find.byKey(const Key('cal-panels')), findsNothing); // cerrada: solo la hora
+      expect(find.byKey(const Key('cal-week')), findsNothing); // cerrada: solo la hora
       expect(find.byKey(const Key('home-weather')), findsOneWidget);
 
       await expand(tester);
-      expect(find.byKey(const Key('cal-panels')), findsOneWidget);
-      expect(find.byKey(const Key('cal-day')), findsOneWidget); // empieza en Hoy: las tareas
+      expect(find.byKey(const Key('cal-week')), findsOneWidget);
       expect(find.text('Informe'), findsOneWidget);
       expect(find.byKey(const Key('home-time-small')), findsOneWidget);
       // las otras tres teselas siguen ahí, en su versión compacta, debajo de la agenda
@@ -109,18 +112,21 @@ void main() {
       expect(tester.getRect(find.byKey(const Key('home-grid'))).height, greaterThan(collapsed.height)); // el tablero creció hasta la pantalla
     });
 
-    testWidgets('deslizando se pasa a los hábitos y a los recordatorios', (tester) async {
+    testWidgets('se puede cambiar a Mes y a Día, y la agenda enseña lo de ese día', (tester) async {
       await open(tester, seed: () async {
-        await habits.add('Leer');
+        await habits.add('Leer', weekdays: Habit.maskOf([4]));
         await reminders.add('Llamar', DateTime(2026, 11, 5, 9).toUtc());
       });
       await expand(tester);
-      await tester.drag(find.byKey(const Key('cal-panels')), const Offset(-300, 0));
+      expect(find.text('Llamar'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('cal-mode-month')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('habit-list')), findsOneWidget);
-      await tester.drag(find.byKey(const Key('cal-panels')), const Offset(-300, 0));
+      expect(find.byKey(const Key('cal-cell-2026-11-05')), findsOneWidget);
+      expect(find.byKey(const Key('cal-day')), findsOneWidget);
+      expect(find.text('Llamar'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('cal-mode-day')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('cal-reminders')), findsOneWidget);
+      expect(find.byKey(const Key('cal-timeline')), findsOneWidget);
       expect(find.text('Llamar'), findsOneWidget);
     });
 
@@ -149,7 +155,7 @@ void main() {
       await expand(tester);
       await tester.tap(find.byKey(const Key('home-time-close')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('cal-panels')), findsNothing);
+      expect(find.byKey(const Key('cal-week')), findsNothing);
       expect(find.byKey(const Key('home-weather')), findsOneWidget); // la cuadrícula vuelve
 
       await expand(tester);
@@ -158,16 +164,16 @@ void main() {
       await tester.binding.handlePopRoute(); // 1.º: cierra el mini calendario
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('month-dial')), findsNothing);
-      expect(find.byKey(const Key('cal-panels')), findsOneWidget);
+      expect(find.byKey(const Key('cal-week')), findsOneWidget);
       await tester.binding.handlePopRoute(); // 2.º: contrae la hora
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('cal-panels')), findsNothing);
+      expect(find.byKey(const Key('cal-week')), findsNothing);
     });
 
     testWidgets('en una pantalla pequeña también cabe, sin desbordarse', (tester) async {
       await open(tester, size: const Size(320, 560));
       await expand(tester);
-      expect(find.byKey(const Key('cal-panels')), findsOneWidget);
+      expect(find.byKey(const Key('cal-week')), findsOneWidget);
       expect(tester.takeException(), isNull);
       expect(tester.getRect(find.byKey(const Key('home-grid'))).height, greaterThanOrEqualTo(HomeGrid.minExpandedHeight));
     });
@@ -177,7 +183,7 @@ void main() {
       expect(find.byKey(const Key('home-time-tile')), findsNothing);
       await tester.tap(find.byKey(const Key('home-time')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('cal-panels')), findsNothing);
+      expect(find.byKey(const Key('cal-week')), findsNothing);
     });
   });
 }

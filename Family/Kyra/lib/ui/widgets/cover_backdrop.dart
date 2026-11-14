@@ -84,10 +84,11 @@ class _CoverBackdropState extends State<CoverBackdrop> {
       valueListenable: CoverTints.watch(source),
       builder: (context, tint, _) {
         final color = tint ?? context.colors.accent;
-        final media = MediaQuery.of(context);
+        // solo el tamaño y la densidad: `MediaQuery.of` reconstruiría el fondo con cada cambio (teclado, márgenes…)
+        final screen = MediaQuery.sizeOf(context);
         const none = SizedBox.shrink();
         // se decodifica al ancho de la pantalla (nítida: ya no se desenfoca)
-        final width = (media.size.width * media.devicePixelRatio).round().clamp(240, 1080);
+        final width = (screen.width * MediaQuery.devicePixelRatioOf(context)).round().clamp(240, 1080);
         final photo = widget.file != null
             ? Image.file(File(widget.file!), key: const Key('backdrop-cover'), fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: width, errorBuilder: (_, _, _) => none)
             : Image.network(widget.url!, key: const Key('backdrop-cover'), fit: BoxFit.cover, gaplessPlayback: true, cacheWidth: width, errorBuilder: (_, _, _) => none);
@@ -102,7 +103,7 @@ class _CoverBackdropState extends State<CoverBackdrop> {
                 children: [
                   ColoredBox(key: const Key('matte-backdrop'), color: Color.lerp(const Color(0xFF050506), base, 0.4)!),
                   // la portada, tal cual
-                  SizedBox(width: media.size.width, height: media.size.height, child: photo),
+                  SizedBox(width: screen.width, height: screen.height, child: photo),
                   // el color de la portada por encima
                   ColoredBox(key: const Key('backdrop-tint'), color: base.withValues(alpha: 0.14)),
                 ],

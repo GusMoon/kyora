@@ -13,8 +13,9 @@ import 'sound_circle.dart';
 import '../../util/cover_tint.dart';
 import 'vinyl_disc.dart';
 
-/// El disco como reproductor. Un toque reproduce o pausa, y mientras suena gira. Girarlo con el dedo adelanta o retrocede la canción, y al
-/// soltar salta ahí. Mantenerlo presionado sin moverlo abre la elección de álbum. Por el contorno, la línea blanca del avance; en el centro, el círculo que reacciona al sonido.
+/// El disco como reproductor. Un toque reproduce o pausa, y mientras suena gira (más rápido o más lento si se cambió la velocidad). Girarlo con
+/// el dedo adelanta o retrocede la canción, y al soltar salta ahí. Mantenerlo presionado sin moverlo abre sus opciones. Por el contorno, la línea
+/// blanca del avance; en el centro, el círculo que reacciona al sonido.
 ///
 /// Los toques solo cuentan dentro del círculo: fuera de él pasan a lo que haya debajo.
 class DiscPlayer extends StatefulWidget {
@@ -45,7 +46,7 @@ class DiscPlayer extends StatefulWidget {
   final bool active;
   final VoidCallback onTap;
 
-  /// Mantener el dedo quieto sobre el disco (para elegir otro álbum).
+  /// Mantener el dedo quieto sobre el disco (abre sus opciones).
   final VoidCallback? onLongPress;
   final PlayerController? player;
 
@@ -63,6 +64,9 @@ class DiscPlayer extends StatefulWidget {
 
   /// Lo que tarda en coger o perder la velocidad (s).
   static const inertia = 0.35;
+
+  /// A cuánto gira con la velocidad de la canción en `rate` (1 = normal): radianes por segundo.
+  static double spinFor(double rate) => speed * rate;
 
   /// La diferencia entre dos ángulos, por el camino corto: de -π a π. Al cruzar el lado izquierdo del disco `atan2` salta una vuelta entera.
   static double wrapAngle(double difference) => difference - 2 * math.pi * (difference / (2 * math.pi)).roundToDouble();
@@ -149,9 +153,10 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
   static double _fractionOf(Duration at, Duration length) => length <= Duration.zero ? 0 : (at.inMicroseconds / length.inMicroseconds).clamp(0.0, 1.0);
 
   void _onTick(Duration elapsed) {
-    final dt = (elapsed - _last).inMicroseconds / 1e6;
+    // tras estar en pausa (la lista abierta) el reloj trae un salto enorme: se acota
+    final dt = math.min((elapsed - _last).inMicroseconds / 1e6, 0.25);
     _last = elapsed;
-    final goal = _spinning ? DiscPlayer.speed : 0.0;
+    final goal = _spinning ? DiscPlayer.spinFor(_p?.rate ?? 1) : 0.0;
     _speed += (goal - _speed) * (1 - math.exp(-dt / DiscPlayer.inertia));
     if (!_held) _angle.value += _speed * dt;
     if (goal == 0 && _speed <= 0.02) {

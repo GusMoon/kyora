@@ -21,18 +21,19 @@ function mount(fetchImpl: typeof fetch) {
   const store = new Store();
   const status = new Status();
   status.set({ account: "kyora1947, admin", username: "kyora1947", role: "admin", email: "yo@correo.com", latency: 120, live: "live" });
-  const shell = new Shell({ store });
+  const prefs = new PrefsStore({ ...DEFAULT_PREFS, keys: { ...DEFAULT_PREFS.keys } });
+  const shell = new Shell({ store, prefs });
   document.body.append(shell.root);
   shell.setSection("configuracion", "");
   const signOut = vi.fn();
-  const prefs = new PrefsStore({ ...DEFAULT_PREFS });
   const backdrop = new Backdrop({ storage: null, prepare: async () => ({ url: "data:image/jpeg;base64,AAAA", accent: "#ff5a1f" }) });
-  const ctx: Ctx = { client: {} as SupabaseClient, shell, store, player: player(), status, prefs, backdrop, library: new Library(fetchImpl), signOut, reload: async () => {} };
+  const ctx: Ctx = { client: {} as SupabaseClient, shell, store, player: player(), status, prefs, backdrop, library: new Library(fetchImpl), vault: {} as never, userId: "u", signOut, reload: async () => {} };
   const unmount = settingsSection(ctx);
   return { shell, signOut, prefs, backdrop, unmount };
 }
 
 const offline = (async () => new Response("{}", { status: 503 })) as unknown as typeof fetch;
+const byLabel = (els: HTMLElement[], text: string) => els.find((e) => e.textContent === text)!;
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -72,10 +73,102 @@ describe("Configuración", () => {
     const { shell } = mount(offline);
     await flush();
     const titles = [...shell.body.querySelectorAll(".cfg-title")].map((t) => t.textContent);
-    expect(titles).toEqual(["Cuenta", "Métricas", "Efectos", "Al abrir Merida", "Color de acento", "Fondo de pantalla", "Comandos del chat", "Música"]);
+    // por grupos: Cuenta, Apariencia, Uso y Módulos
+    expect(titles).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música"]);
     expect(shell.body.textContent).toContain("kyora1947");
     expect(shell.body.textContent).toContain("yo@correo.com");
     expect(shell.body.textContent).toContain("120 ms");
+  });
+
+  it("los atajos se cambian pulsando una tecla en su casilla, no dejan repetir y se pueden restablecer", async () => {
+    const { shell, prefs } = mount(offline);
+    await flush();
+    const press = (label: string, key: string) =>
+      shell.body.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    press("Tecla para Tareas", "x");
+    expect(prefs.value.keys.tareas).toBe("X");
+    expect(shell.body.querySelector<HTMLInputElement>('input[aria-label="Tecla para Tareas"]')!.value).toBe("X");
+    expect(shell.root.querySelector(".tile-tareas .tile-key")?.textContent).toBe("X"); // el tablero lo muestra al momento
+    press("Tecla para Chat", "x");
+    expect(prefs.value.keys.chat).toBe("C"); // no cambió
+    expect(shell.body.textContent).toContain("La tecla X ya abre Tareas.");
+    press("Tecla para Chat", "Escape");
+    expect(prefs.value.keys.chat).toBe("C");
+    shell.body.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.textContent === "Restablecer atajos" && b.click());
+    expect(prefs.value.keys.tareas).toBe("T");
+    expect(shell.body.textContent).toContain("Ctrl + K (fija)");
+  });
+
+  it("la moneda de Finanzas se guarda en las preferencias", async () => {
+    const { shell, prefs } = mount(offline);
+    await flush();
+    const select = shell.body.querySelector<HTMLSelectElement>('select[aria-label="Moneda de Finanzas"]')!;
+    expect(select.value).toBe("MXN");
+    select.value = "USD";
+    select.dispatchEvent(new Event("change"));
+    expect(prefs.value.currency).toBe("USD");
+  });
+
+  it("activar los avisos pide permiso; si lo conceden se encienden y si no, el interruptor vuelve a apagarse", async () => {
+    for (const [answer, expected] of [["granted", true], ["denied", false]] as const) {
+      class N {
+        static permission: NotificationPermission = "default";
+        static requestPermission = vi.fn(async () => ((N.permission = answer), answer));
+      }
+      vi.stubGlobal("Notification", N);
+      const { shell, prefs } = mount(offline);
+      await flush();
+      const label = [...shell.body.querySelectorAll("label")].find((l) => l.textContent === "Avisar de mensajes nuevos")!;
+      const input = shell.body.querySelector<HTMLInputElement>(`#${label.getAttribute("for")}`)!;
+      expect(input.checked).toBe(false);
+      input.checked = true;
+      input.dispatchEvent(new Event("change"));
+      await flush();
+      expect(N.requestPermission).toHaveBeenCalledOnce();
+      expect(prefs.value.notify).toBe(expected);
+      expect(input.checked).toBe(expected);
+      document.body.replaceChildren();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hay un índice con los cuatro grupos y un salto a cada bloque, que deja el foco en él", async () => {
+    const { shell } = mount(offline);
+    await flush();
+    const groups = [...shell.body.querySelectorAll(".cfg-nav-title")].map((e) => e.textContent);
+    expect(groups).toEqual(["Cuenta", "Apariencia", "Uso", "Módulos"]);
+    const links = [...shell.body.querySelectorAll<HTMLButtonElement>(".cfg-nav-link")];
+    expect(links.map((b) => b.textContent)).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música"]);
+    const target = shell.body.querySelector<HTMLElement>("#cfg-atajos-de-teclado")!;
+    const scroll = vi.fn();
+    target.scrollIntoView = scroll;
+    byLabel(links, "Atajos de teclado").click();
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(target);
+    expect(byLabel(links, "Atajos de teclado").getAttribute("aria-current")).toBe("true");
+    expect(byLabel(links, "Cuenta").hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("el buscador deja solo los ajustes que coinciden (sin acentos ni mayúsculas) y esconde los grupos vacíos", async () => {
+    const { shell } = mount(offline);
+    await flush();
+    const search = shell.body.querySelector<HTMLInputElement>('input[aria-label="Buscar un ajuste"]')!;
+    const visible = () => [...shell.body.querySelectorAll<HTMLElement>(".cfg-block")].filter((b) => !b.hidden).map((b) => b.querySelector(".cfg-title")!.textContent);
+    search.value = "NOTIFICACION";
+    search.dispatchEvent(new Event("input"));
+    expect(visible()).toEqual(["Avisos de mensajes"]);
+    expect([...shell.body.querySelectorAll<HTMLElement>(".cfg-group")].filter((g) => !g.hidden)).toHaveLength(1);
+    expect([...shell.body.querySelectorAll<HTMLElement>(".cfg-nav-link")].filter((b) => !b.closest("li")!.hidden).map((b) => b.textContent)).toEqual(["Avisos de mensajes"]);
+    expect(shell.body.querySelector<HTMLElement>(".cfg-nomatch")!.hidden).toBe(true);
+    search.value = "zzzzqq";
+    search.dispatchEvent(new Event("input"));
+    expect(visible()).toEqual([]);
+    expect(shell.body.querySelector<HTMLElement>(".cfg-nomatch")!.hidden).toBe(false);
+    // Esc vacía la búsqueda y muestra todo otra vez, sin salir de Configuración
+    const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    search.dispatchEvent(esc);
+    expect(search.value).toBe("");
+    expect(visible()).toHaveLength(12);
   });
 
   it("Cerrar sesión cierra la sesión", () => {
