@@ -52,6 +52,7 @@ export async function buildPaletteItems(deps: PaletteDeps): Promise<PaletteItem[
     act("new-habit", "Nuevo hábito", "calendario", "new-habit", "rutina costumbre diario"),
     act("new-entry", "Nuevo movimiento (ingreso o gasto)", "finanzas", "new-entry", "dinero pago cobro"),
     act("new-secret", "Nueva contraseña", "contrasenas", "new-secret", "clave correo servicio"),
+    act("new-improvement", "Nueva mejora pendiente", "mejoras", "new-improvement", "idea función agregar mejorar pendiente"),
     { id: "do:lock", label: "Bloquear la bóveda", group: "Acciones", keywords: "contraseñas cerrar", hint: vault.state === "unlocked" ? undefined : "ya está bloqueada", run: () => vault.lock() },
     { id: "do:keys", label: "Cambiar atajos de teclado", group: "Acciones", keywords: "teclas configuración", run: () => go("#/configuracion") },
   );

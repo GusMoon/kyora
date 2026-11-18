@@ -14,6 +14,7 @@ import "./styles/cloud.css";
 import "./styles/forms.css";
 import "./styles/modules.css";
 import "./styles/calendar.css";
+import "./styles/family.css";
 
 import type { Session } from "@supabase/supabase-js";
 import { missingConfig } from "./config";
@@ -34,16 +35,22 @@ import { buildPaletteItems } from "./paletteItems";
 import { countsAsUnread, shouldNotify, showAlert, showNotification } from "./notify";
 import { pendingAlerts } from "./data/agenda";
 import { VaultSession } from "./vault/session";
-import { loginScreen, missingConfigScreen } from "./ui/login";
+import { loginScreen, missingConfigScreen, verifyScreen } from "./ui/login";
+import { myVerified, touchPresence } from "./data/users";
 import { loadTags, loadTaskTags, loadTasks } from "./data/tasks";
 import { loadEvents } from "./data/events";
 import { loadFinance } from "./data/finance";
+import { loadImprovements } from "./data/improvements";
 import { loadReminders } from "./data/reminders";
 import { loadHabits } from "./data/habits";
 import { loadServerStats, loadWarned, overQuota, percent, saveWarned, shouldRenotify, warningText } from "./data/server";
 import { listTracks } from "./data/music";
 import { listCloud } from "./data/cloud";
 import { defaultConversation, latestCreatedAt, listMessages, mergeMessages, watchMessages, type Message } from "./data/chat";
+import { familyMembers, type FamilyMember } from "./data/family-chat";
+import { CallController } from "./data/call-controller";
+import { browserEnv } from "./data/webrtc";
+import { callPanel } from "./ui/call-panel";
 import { tasksSection, tasksStatement } from "./sections/tasks";
 import { calendarSection } from "./sections/calendar";
 import { musicSection, musicStatement } from "./sections/music";
@@ -51,6 +58,7 @@ import { chatSection, chatStatement } from "./sections/chat";
 import { cloudSection, cloudStatement } from "./sections/cloud";
 import { vaultSection } from "./sections/vault";
 import { financeSection } from "./sections/finance";
+import { improvementsSection, improvementsStatement } from "./sections/improvements";
 import { settingsSection, settingsStatement } from "./sections/settings";
 import type { Ctx, Section } from "./sections/context";
 
@@ -80,6 +88,7 @@ const SECTIONS: Record<RouteId, { mount: Section; statement: (s: Store, st: Stat
   chat: { mount: chatSection, statement: (s) => chatStatement(s.messages, s.loaded.messages, s.errors.messages) },
   contrasenas: { mount: vaultSection, statement: () => "" },
   finanzas: { mount: financeSection, statement: () => "" },
+  mejoras: { mount: improvementsSection, statement: (s) => improvementsStatement(s.improvements, s.loaded.improvements, s.errors.improvements) },
   configuracion: { mount: settingsSection, statement: (_s, st) => settingsStatement(st.data) },
 };
 
@@ -131,6 +140,7 @@ function startApp(session: Session): () => void {
         store.financeEntries = f.entries;
         store.financeCategories = f.categories;
       }
+      if (area === "improvements") store.improvements = await loadImprovements(client);
       if (area === "messages") {
         store.conversationId ??= await defaultConversation(client);
         store.messages = mergeMessages([], await listMessages(client, store.conversationId, { limit: 100 }));
@@ -202,9 +212,10 @@ function startApp(session: Session): () => void {
     const start = performance.now();
     const { data, error } = await client.rpc("my_profile");
     status.set({ latency: error ? null : performance.now() - start });
+    if (!error) void touchPresence(client); // «sigo aquí»: así el administrador ve quién está en línea
     if (!error) {
       const p = data as { username?: string; role?: string } | null;
-      const role = p?.role === "admin" ? "admin" : p?.role ? "pasante" : "";
+      const role = p?.role === "admin" ? "admin" : p?.role ? "visitante" : "";
       status.set({
         account: p?.username ? `${p.username}, ${role}` : (session.user.email ?? "sin perfil"),
         username: p?.username ?? "",
@@ -221,7 +232,15 @@ function startApp(session: Session): () => void {
   };
   cleanups.push(player.on(syncCover), prefs.on(syncCover));
 
-  const ctx: Ctx = { client, shell, store, player, status, prefs, backdrop, library, vault, userId: session.user.id, signOut, reload };
+  // Las llamadas de la familia suenan en cualquier sección: el controlador y su panel flotante viven mientras dure la sesión.
+  let family: FamilyMember[] = [];
+  const calls = new CallController({ client, userId: session.user.id, env: browserEnv(), members: () => family });
+  void familyMembers(client).then((list) => (family = list)).catch(() => {}); // sin ser de la familia no hay nombres (ni llamadas)
+  const callUi = callPanel(calls);
+  document.body.append(callUi.el);
+  cleanups.push(calls.attach(), callUi.destroy);
+
+  const ctx: Ctx = { client, shell, store, player, status, prefs, backdrop, library, vault, userId: session.user.id, calls, signOut, reload };
 
   const go = (hash: string) => {
     location.hash = hash;
@@ -302,6 +321,7 @@ function startApp(session: Session): () => void {
     void reload("reminders");
     void reload("habits");
     void reload("finance");
+    void reload("improvements");
     void reload("server");
     void catchUp("resume");
     syncUnread();
@@ -360,6 +380,7 @@ function startApp(session: Session): () => void {
   void reload("reminders");
   void reload("habits");
   void reload("finance");
+  void reload("improvements");
   void reload("server");
   void vault.refresh();
   void reload("messages").then(() => {
@@ -409,12 +430,26 @@ async function boot() {
   let userId: string | null = null;
   let onLogin = false;
 
+  /** Una cuenta nueva (creada por el administrador) pide primero su código de 6 dígitos; una ya verificada entra directo. */
+  const enter = async (session: Session) => {
+    const id = session.user.id;
+    const verified = await myVerified(client);
+    if (userId !== id) return; // mientras tanto cambió la sesión
+    if (verified) {
+      stop = startApp(session);
+      return;
+    }
+    root.replaceChildren(verifyScreen(client, () => userId === id && (stop = startApp(session)), () => void client.auth.signOut()));
+    document.title = "Verificar | Merida";
+  };
+
   const apply = (session: Session | null) => {
     if (session && session.user.id !== userId) {
       stop?.();
+      stop = null;
       userId = session.user.id;
       onLogin = false;
-      stop = startApp(session);
+      void enter(session);
     } else if (!session && !onLogin) {
       // sin sesión: a la pantalla de acceso (solo una vez, para no borrar lo que estés escribiendo)
       stop?.();

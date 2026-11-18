@@ -17,8 +17,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.kyora.kyora_chat"
+        // El applicationId de cada app está en `productFlavors` (abajo).
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -29,6 +28,22 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // Dos apps del mismo código (se eligen con `flutter build apk --flavor admin|family`). Tienen identificadores distintos, así que se
+    // instalan a la vez, cada una con sus datos y su sesión: KyraAdmin (solo administradores) y KyraFamily (la de la familia).
+    flavorDimensions += "app"
+    productFlavors {
+        create("admin") {
+            dimension = "app"
+            applicationId = "com.kyora.kyora_chat"
+            manifestPlaceholders["appLabel"] = "KyraAdmin"
+        }
+        create("family") {
+            dimension = "app"
+            applicationId = "com.kyora.kyora_chat.family"
+            manifestPlaceholders["appLabel"] = "KyraFamily"
+        }
     }
 
     buildTypes {

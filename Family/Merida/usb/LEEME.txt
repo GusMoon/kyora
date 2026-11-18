@@ -1,0 +1,41 @@
+MERIDA EN UN USB
+================
+
+Como usarla
+-----------
+1. Copia TODA esta carpeta al USB (o usala donde esta).
+2. Doble clic en "Abrir Merida.bat". Se abre el navegador en http://127.0.0.1:5180.
+3. Escribe tu correo y tu contrasena en la pantalla de acceso.
+4. Para cerrar Merida, cierra la ventana negra del .bat.
+
+Requisitos: Windows de 64 bits, un navegador y conexion a internet. No hay que instalar nada.
+El puerto 5180 debe estar libre (si Merida ya esta abierta en otra ventana, el .bat solo abre el navegador).
+
+Que lleva dentro
+----------------
+  web\            la pagina de Merida (el build).
+  app\kyora\      solo el codigo del servicio de musica.
+  runtime\        Python, Node y FFmpeg propios (no toca los de la PC).
+  server.mjs      servidor local de la pagina.
+
+Seguridad
+---------
+- Esta carpeta NO lleva contrasenas: ni el .env, ni chat.env, ni cookies.txt. Lo unico que lleva la
+  pagina es la direccion de tu Supabase y su clave publica (anon), que protegen las politicas RLS.
+- Si pierdes el USB nadie puede entrar a tus datos sin tu correo y tu contrasena, pero conviene
+  cifrarlo igual. En Windows Home BitLocker To Go no existe: usa VeraCrypt.
+- En una PC ajena, cierra sesion al terminar y cierra la ventana del .bat.
+
+Musica
+------
+- Las listas de YouTube usan las cookies del navegador de ESA PC (por defecto Chrome). Hay que haber
+  iniciado sesion en YouTube en ese navegador. Se cambia en Musica > Ajustes.
+- Sin tus credenciales de servicio, las canciones se escuchan y se bajan en la PC, pero no se suben a
+  Supabase para el movil.
+- El servicio deja un pequeno rastro en %APPDATA%\Kyora de la PC (merida_service.json, merida.json y
+  la carpeta merida). Puedes borrarlo al terminar.
+
+Si algo falla
+-------------
+- "Faltan archivos": en el equipo de desarrollo ejecuta "npm run build:usb" dentro de Family\Merida.
+- El antivirus puede preguntar por node.exe o python.exe la primera vez: son los de esta carpeta.

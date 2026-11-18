@@ -121,12 +121,12 @@ void main() {
       expect(find.byKey(const Key('pick-folder')), findsOneWidget);
     });
 
-    testWidgets('un pasante se ve como pasante y sin nombre dice «Tu cuenta»', (tester) async {
+    testWidgets('un visitante se ve como visitante y sin nombre dice «Tu cuenta»', (tester) async {
       await open(tester, role: Role.intern, username: null);
-      expect(find.text('PASANTE'), findsOneWidget);
+      expect(find.text('VISITANTE'), findsOneWidget);
       expect(find.text('Tu cuenta'), findsOneWidget);
       await openSettingsTile(tester, 'account');
-      expect(find.text('Pasante'), findsOneWidget);
+      expect(find.text('Visitante'), findsOneWidget);
     });
 
     testWidgets('cerrar sesión vuelve a la base y avisa', (tester) async {
@@ -238,6 +238,7 @@ void main() {
       tester.view.physicalSize = const Size(400, 850);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
+      reduceMotion(tester);
       chat = FakeBackend();
       musicBackend = FakeMusicBackend();
       await tester.pumpWidget(MaterialApp(
@@ -269,11 +270,11 @@ void main() {
       expect(find.text('Administrador'), findsOneWidget);
     });
 
-    testWidgets('el pasante llega a Configuración desde el menú y cierra sesión desde allí', (tester) async {
-      final account = FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern));
+    testWidgets('el administrador llega a Configuración desde el menú y, al cerrar sesión desde allí, vuelve al modo visitante', (tester) async {
+      final account = FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.admin));
       await openGate(tester, account);
       await goToSection(tester, 'settings');
-      expect(find.text('PASANTE'), findsOneWidget);
+      expect(find.text('ADMIN'), findsOneWidget);
       await revealSignOut(tester);
       await tester.tap(find.byKey(const Key('settings-sign-out')));
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
@@ -281,7 +282,8 @@ void main() {
       expect(account.signedIn, isFalse);
       expect(find.byType(SettingsPage), findsNothing);
       expect(find.byKey(const Key('login-button')), findsNothing); // ya no se pide el acceso: la app sigue abierta
-      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing); // sin sesión: solo Música y Chat
+      expect(find.byKey(const Key('nav-music')), findsOneWidget);
     });
   });
 }

@@ -9,10 +9,14 @@ import 'ui/widgets/app_backdrop.dart';
 /// El color de acento (un neón) con el que se viste la app y el texto que va encima. Sale del fondo de pantalla; sin fondo, [standard].
 @immutable
 class AppPalette {
-  const AppPalette({required this.accent});
+  const AppPalette({required this.accent, this.extras = const []});
 
   /// El acento: el color de lo elegido, de los botones principales y de las tarjetas destacadas.
   final Color accent;
+
+  /// Otros colores del fondo (los que no son el predominante): el primero es el de las tareas, el segundo el de los recordatorios y el tercero
+  /// el de los hábitos. Los que falten quedan con los de siempre.
+  final List<Color> extras;
 
   /// El texto que va sobre el acento: casi negro, o blanco si el acento es muy oscuro.
   Color get onAccent => accent.computeLuminance() > 0.18 ? const Color(0xFF0A0B0D) : const Color(0xFFFFFFFF);
@@ -92,9 +96,9 @@ class KyoraColors extends ThemeExtension<KyoraColors> {
         onAccent: palette.onAccent,
         warn: const Color(0xFFFF6B6B),
         ok: const Color(0xFF7CE38B),
-        reminders: const Color(0xFFFFD166),
-        tasks: const Color(0xFF5BC8FF),
-        habits: const Color(0xFF7CE38B),
+        tasks: palette.extras.isNotEmpty ? palette.extras[0] : const Color(0xFF5BC8FF),
+        reminders: palette.extras.length > 1 ? palette.extras[1] : const Color(0xFFFFD166),
+        habits: palette.extras.length > 2 ? palette.extras[2] : const Color(0xFF7CE38B),
       );
 
   /// Los de siempre (el naranja de acento).
@@ -261,12 +265,13 @@ ThemeData buildTheme([KyoraColors? colors]) {
     iconTheme: IconThemeData(color: c.ink),
     dividerTheme: DividerThemeData(color: c.edge, thickness: 1, space: 1),
     inputDecorationTheme: InputDecorationTheme(
+      // de cristal: un velo del acento sobre lo que haya detrás (el fondo se ve), no un bloque negro
       filled: true,
-      fillColor: c.field,
+      fillColor: c.accent.withValues(alpha: 0.07),
       hintStyle: TextStyle(fontFamily: appFont, color: c.dim, fontSize: 16),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      border: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: line),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: line),
+      border: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: c.accent.withValues(alpha: 0.3))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: c.accent.withValues(alpha: 0.3))),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: c.accent, width: 1.5)),
     ),
     filledButtonTheme: FilledButtonThemeData(
@@ -331,8 +336,10 @@ class KyraScrollBehavior extends MaterialScrollBehavior {
 
 final _accentThemes = <int, ThemeData>{};
 
-/// El tema de la app para un color de acento, el que sale del fondo de pantalla (`null` = el de siempre). Se guarda lo ya calculado.
-ThemeData buildAccentTheme(Color? accent) {
-  final palette = accent == null ? AppPalette.standard : AppPalette(accent: accent);
-  return _accentThemes[palette.accent.toARGB32()] ??= buildTheme(KyoraColors.of(palette));
+/// El tema de la app para un color de acento, el que sale del fondo de pantalla (`null` = el de siempre), y los colores secundarios del fondo
+/// (`extras`: tareas, recordatorios y hábitos). Se guarda lo ya calculado.
+ThemeData buildAccentTheme(Color? accent, [List<Color> extras = const []]) {
+  final palette = accent == null ? AppPalette.standard : AppPalette(accent: accent, extras: extras);
+  final key = Object.hash(palette.accent.toARGB32(), Object.hashAll([for (final e in palette.extras) e.toARGB32()]));
+  return _accentThemes[key] ??= buildTheme(KyoraColors.of(palette));
 }

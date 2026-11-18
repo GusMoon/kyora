@@ -57,6 +57,13 @@ class DockController extends ChangeNotifier {
   /// Pide a Android que Kyra sea la pantalla de inicio.
   Future<bool> chooseLauncher() => _apps.chooseLauncher();
 
+  /// Deja (o quita) que Kyra se ofrezca como pantalla de inicio del teléfono. Solo el administrador puede: para el resto Kyra es una app normal.
+  Future<void> allowLauncher(bool allowed) async {
+    await _apps.setLauncherEnabled(allowed);
+    _launcher = await _apps.isDefaultLauncher();
+    notifyListeners();
+  }
+
   /// Las ranuras sin elegir nunca: el disco se rellena solo.
   bool get automatic => _saved == null;
 

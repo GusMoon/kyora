@@ -242,6 +242,46 @@ class VaultController extends ChangeNotifier {
     _changed();
   }
 
+  // ---- exportar, renombrar, compartir ----
+
+  /// «Exportar»: elige archivos del almacenamiento (o de otro dispositivo) y los **mueve** a la carpeta del Vault donde se está (la raíz si se
+  /// ve el árbol). `null` si no hay Vault o se cerró el selector sin elegir; si algo falla, deja el motivo en [error].
+  Future<VaultImport?> exportHere({bool move = true}) async {
+    final root = _root;
+    if (root == null) return null;
+    try {
+      final result = await _source.importFiles(root.uri, dirUri: _view == VaultView.tree ? null : currentUri, move: move);
+      if (result == null) return null;
+      await refresh();
+      return result;
+    } on VaultException catch (e) {
+      _error = e.message;
+      _lost = e.lost;
+      _changed();
+      return null;
+    }
+  }
+
+  /// Le cambia el nombre a un archivo o carpeta del Vault y vuelve a leer. Devuelve el texto del error, o `null` si salió bien.
+  Future<String?> rename(VaultEntry entry, String name) async {
+    final clean = name.trim();
+    if (clean.isEmpty || clean == entry.name) return null;
+    try {
+      await _source.rename(entry.uri, clean);
+    } on VaultException catch (e) {
+      return e.message;
+    }
+    _thumbs.remove(entry.uri);
+    await refresh();
+    return null;
+  }
+
+  /// Lo manda con el menú de compartir del sistema.
+  Future<bool> share(VaultEntry entry) => _source.share(entry.uri, entry.mime, entry.name);
+
+  /// Dónde está: el nombre de la carpeta del Vault y las carpetas por las que se ha entrado (para los atributos).
+  String get location => [?_root?.name, for (final e in _trail) e.name].join(' / ');
+
   // ---- archivos ----
 
   /// La imagen reducida de un archivo (se recuerda: no se pide dos veces).

@@ -4,12 +4,14 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Lo que se recuerda del fondo de pantalla: la ruta de una copia de la imagen dentro de la app y su color de acento (ARGB).
+/// Lo que se recuerda del fondo de pantalla: la ruta de una copia de la imagen dentro de la app, su color de acento (ARGB) y otros colores
+/// suyos (los secundarios, para las tareas, los recordatorios y los hábitos).
 class WallpaperState {
-  const WallpaperState({this.path, this.accent});
+  const WallpaperState({this.path, this.accent, this.extras = const []});
 
   final String? path;
   final int? accent;
+  final List<int> extras;
 }
 
 /// Dónde se guarda el fondo de pantalla de Inicio y su color (solo en el teléfono).
@@ -52,6 +54,7 @@ class PrefsWallpaperStore implements WallpaperStore {
 
   static const _pathKey = 'wallpaper.path';
   static const _accentKey = 'wallpaper.accent';
+  static const _extrasKey = 'wallpaper.extras';
 
   final SharedPreferences _prefs;
 
@@ -62,7 +65,7 @@ class PrefsWallpaperStore implements WallpaperStore {
     final path = _prefs.getString(_pathKey);
     // la copia pudo borrarse (limpiar datos): sin archivo no hay fondo
     if (path == null || !File(path).existsSync()) return const WallpaperState();
-    return WallpaperState(path: path, accent: _prefs.getInt(_accentKey));
+    return WallpaperState(path: path, accent: _prefs.getInt(_accentKey), extras: [for (final v in _prefs.getStringList(_extrasKey) ?? const <String>[]) ?int.tryParse(v)]);
   }
 
   @override
@@ -76,6 +79,11 @@ class PrefsWallpaperStore implements WallpaperStore {
       await _prefs.remove(_accentKey);
     } else {
       await _prefs.setInt(_accentKey, state.accent!);
+    }
+    if (state.extras.isEmpty) {
+      await _prefs.remove(_extrasKey);
+    } else {
+      await _prefs.setStringList(_extrasKey, [for (final v in state.extras) '$v']);
     }
   }
 

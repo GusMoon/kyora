@@ -3,28 +3,32 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/favorites_store.dart';
-import '../data/music_store.dart';
 import '../models/track.dart';
 import '../state/local_music_controller.dart';
 import '../state/music_controller.dart';
 import '../state/player_controller.dart';
 import '../theme.dart';
 import '../util/picker.dart';
+import 'admin_music_dialogs.dart';
 import 'album_view.dart';
+import 'cover_picker.dart';
 import 'folder_settings.dart';
-import 'move_sheet.dart';
-import 'widgets/album_stack.dart';
+import 'music_actions.dart';
+import 'widgets/album_grid.dart';
 import 'widgets/music_rows.dart';
 import 'widgets/section_motion.dart';
 
-/// La música: **solo los álbumes**, en una pila vertical de portadas grandes que ocupa la pantalla y se desplaza con el dedo («Canciones enviadas»,
-/// tu carpeta del teléfono y las carpetas de primer nivel que tenga). Tocar la del centro lo abre (`AlbumView`): un disco sale de la portada.
+/// La música: **solo los álbumes**, en una cuadrícula de **tres por fila** que ocupa la pantalla y se desplaza en vertical («Canciones enviadas»,
+/// tu carpeta del teléfono y las carpetas de primer nivel que tenga). Tocar uno lo abre (`AlbumView`): un disco sale de la portada.
 /// Sin título, sin favoritas y sin la tarjeta de lo que suena; solo dos iconos discretos arriba: el aleatorio entre todos los álbumes (si no
 /// empieza solo, según Configuración) y volver a leer.
 class MusicPage extends StatefulWidget {
-  const MusicPage({super.key, required this.controller, this.player, this.local, this.favorites, this.pickCover = pickCoverImage});
+  const MusicPage({super.key, required this.controller, this.player, this.local, this.favorites, this.openAlbum, this.pickCover = pickCoverImage});
 
   final MusicController controller;
+
+  /// Un álbum que otra pantalla pide abrir (su id: `received`, `root` o la carpeta). Al leerlo se vacía.
+  final ValueNotifier<String?>? openAlbum;
 
   /// Los .mp3 de la carpeta elegida. Sin esto no hay álbumes del teléfono y solo se ven las enviadas.
   final LocalMusicController? local;
@@ -46,12 +50,6 @@ class _MusicPageState extends State<MusicPage> {
   StreamSubscription<String>? _notices;
   final DeckController _deck = DeckController();
 
-  /// Dónde está en la pantalla la portada de cada tarjeta (de ahí sale el disco y ahí vuelve).
-  final Map<String, GlobalKey> _cardKeys = {};
-
-  /// La tarjeta cuya portada no se pinta mientras el álbum está abierto (la está pintando el disco al volver).
-  String? _hidden;
-
   /// Se están reuniendo las canciones de todos los álbumes para el aleatorio.
   bool _preparing = false;
 
@@ -64,15 +62,29 @@ class _MusicPageState extends State<MusicPage> {
     _notices = widget.controller.notices.listen((text) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
     });
+    widget.openAlbum?.addListener(_openRequested);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openRequested());
   }
 
   @override
   void dispose() {
+    widget.openAlbum?.removeListener(_openRequested);
     unawaited(_notices?.cancel());
     super.dispose();
   }
 
-  GlobalKey _keyFor(String id) => _cardKeys.putIfAbsent(id, GlobalKey.new);
+  /// Otra pantalla (el botón del álbum del reproductor de Inicio) pidió abrir un álbum: se lleva la cuadrícula hasta él y se abre.
+  void _openRequested() {
+    final request = widget.openAlbum;
+    final id = request?.value;
+    if (id == null || !mounted) return;
+    request!.value = null;
+    final albums = _albums(widget.local);
+    final at = albums.indexWhere((a) => a.id == id);
+    if (at < 0) return;
+    _deck.jumpTo(at);
+    _openAlbum(albums, at, hologram: false); // viene de otra sección, que ya se materializa con su holograma
+  }
 
   /// **Aleatorio entre todo**: reúne las canciones de todos los álbumes (las enviadas y las de cada carpeta) y pone una cualquiera, con todas
   /// como cola y el aleatorio puesto: después sigue al azar saltando de un álbum a otro.
@@ -107,7 +119,7 @@ class _MusicPageState extends State<MusicPage> {
 
   Future<void> _settings() => showFolderSettings(context, widget.controller);
 
-  /// Los álbumes que se pueden abrir, en el orden del mazo.
+  /// Los álbumes que se pueden abrir, en el orden de la cuadrícula.
   List<AlbumEntry> _albums(LocalMusicController? local) {
     final broken = local != null && local.atRoot && local.error != null;
     return [
@@ -126,11 +138,6 @@ class _MusicPageState extends State<MusicPage> {
     _ => 'card-folder-${e.title}',
   };
 
-  Rect _originOf(String id) {
-    final context = _cardKeys[id]?.currentContext;
-    return context == null ? Rect.zero : rectOf(context);
-  }
-
   /// Pone al controlador en la carpeta del álbum que se ve (la raíz o una de sus carpetas), para leerla y poder marcar sus canciones.
   void _showAlbum(AlbumEntry entry) {
     final local = widget.local;
@@ -142,21 +149,16 @@ class _MusicPageState extends State<MusicPage> {
     if (folder != null) unawaited(local.open(folder));
   }
 
-  /// Abre el álbum `index` de `albums`: el disco sale de la tarjeta (`origin`). Se puede pasar a los demás deslizando.
-  void _openAlbum(List<AlbumEntry> albums, int index, Rect origin) {
+  /// Abre el álbum `index` de `albums` (con el efecto de holograma).
+  void _openAlbum(List<AlbumEntry> albums, int index, {bool hologram = true}) {
     final local = widget.local;
     final first = albums[index];
     _showAlbum(first);
-    setState(() => _hidden = first.id);
     final route = albumOpenRoute<void>(
-      builder: (_, animation) => AlbumView(
+      hologram: hologram,
+      builder: (_) => AlbumView(
         albums: albums,
         initial: index,
-        animation: animation,
-        originOf: (id) {
-          final rect = _originOf(id);
-          return rect.isEmpty && id == first.id ? origin : rect;
-        },
         music: widget.controller,
         local: local,
         player: widget.player,
@@ -165,54 +167,47 @@ class _MusicPageState extends State<MusicPage> {
         onShown: (entry) {
           _showAlbum(entry);
           final at = albums.indexWhere((a) => a.id == entry.id);
-          if (at >= 0) _deck.jumpTo(at); // al volver, la ruleta está en el último álbum que se vio
-          if (mounted) setState(() => _hidden = entry.id);
+          if (at >= 0) _deck.jumpTo(at); // al volver, la cuadrícula está en el último álbum que se vio
         },
         onMove: local == null ? null : () => _moveSelected(local),
       ),
     );
     unawaited(Navigator.of(context).push(route));
-    // cuando termina de volver (no cuando empieza), la tarjeta vuelve a pintarse y el controlador a la raíz
+    // cuando termina de volver (no cuando empieza), el controlador vuelve a la raíz
     unawaited(
       route.completed.then((_) {
-        if (mounted) setState(() => _hidden = null);
         if (local != null) unawaited(local.goTo(0));
       }),
     );
   }
 
-  /// «Mover»: elige el álbum de destino para las canciones marcadas y las mueve de verdad.
-  Future<void> _moveSelected(LocalMusicController local) async {
-    final target = await showMoveSheet(context, local, count: local.selectedCount);
-    if (target == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final result = await local.moveSelected(toUri: target.uri);
-      final bad = result.failures.length;
-      final done = result.moved == 1 ? 'Se movió 1 canción' : 'Se movieron ${result.moved} canciones';
-      final text = result.moved == 0 && bad == 0
-          ? 'No había nada que mover.'
-          : [
-              if (result.moved > 0) '$done a «${target.name}».',
-              if (bad > 0) 'No se ${bad == 1 ? 'pudo mover 1' : 'pudieron mover $bad'}: ${result.failures.values.first}',
-            ].join(' ');
-      messenger.showSnackBar(SnackBar(content: Text(text)));
-    } on TrackSaveException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
+  /// Las acciones de música (las mismas que en KyraFamily), con los paneles de KyraAdmin.
+  MusicActions _actions(LocalMusicController local) => MusicActions(local: local, player: widget.player, dialogs: AdminMusicDialogs(this));
 
-  Future<void> _newFolder(LocalMusicController local) async {
-    final name = await askFolderName(context);
-    if (name == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final folder = await local.createFolder(name);
-      messenger.showSnackBar(SnackBar(content: Text('Se creó el álbum «${folder.name}».')));
-    } on TrackSaveException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    }
-  }
+  /// «Mover»: elige el álbum de destino para las canciones marcadas y las mueve de verdad.
+  Future<void> _moveSelected(LocalMusicController local) => _actions(local).moveSelected();
+
+  // ---------- el menú de consola de una tarjeta: cambiar nombre, borrar álbum, cambiar foto ----------
+
+  /// Las opciones de la tarjeta de un álbum. Cambiar el nombre y borrar solo valen en las carpetas (no en «Canciones enviadas» ni en la carpeta
+  /// elegida, que es la raíz); la foto, en todos.
+  List<CardAction> _actionsFor(AlbumEntry e, LocalMusicController local) => [
+    if (e.folder != null) CardAction(id: 'rename', label: 'Cambiar nombre', icon: Icons.edit_outlined, onTap: () => unawaited(_renameAlbum(e, local))),
+    if (e.folder != null) CardAction(id: 'delete', label: 'Borrar álbum', icon: Icons.delete_outline_rounded, warn: true, onTap: () => unawaited(_deleteAlbum(e, local))),
+    CardAction(
+      id: 'cover',
+      label: 'Cambiar foto',
+      icon: Icons.image_outlined,
+      onTap: () => unawaited(changeAlbumCover(context, local: local, albumId: e.id, title: e.title, pickCover: widget.pickCover)),
+    ),
+  ];
+
+  Future<void> _renameAlbum(AlbumEntry e, LocalMusicController local) => _actions(local).renameAlbum(e);
+
+  /// **Borrar álbum.** Vacío: se confirma y se borra. Con canciones, pasarlas a otro álbum o borrarlo todo (ver `MusicActions.deleteAlbum`).
+  Future<void> _deleteAlbum(AlbumEntry e, LocalMusicController local) => _actions(local).deleteAlbum(e);
+
+  Future<void> _newFolder(LocalMusicController local) => _actions(local).newAlbum();
 
   @override
   Widget build(BuildContext context) => _page(context);
@@ -283,14 +278,12 @@ class _MusicPageState extends State<MusicPage> {
           icon: albums[i].icon,
           coverFile: coverOf(albums[i]).file,
           coverUrl: coverOf(albums[i]).url,
-          onTap: (origin) => _openAlbum(albums, i, origin),
+          onTap: () => _openAlbum(albums, i),
+          actions: _actionsFor(albums[i], local),
         ),
-      if (!local.hasFolder) DeckCard(id: 'card-choose', title: 'Elegir carpeta', icon: Icons.folder_open_rounded, onTap: (_) => _settings()),
-      if (local.hasFolder && !broken) DeckCard(id: 'card-new-folder', title: 'Nuevo álbum', icon: Icons.add_rounded, onTap: (_) => _newFolder(local)),
+      if (!local.hasFolder) DeckCard(id: 'card-choose', title: 'Elegir carpeta', icon: Icons.folder_open_rounded, onTap: _settings),
+      if (local.hasFolder && !broken) DeckCard(id: 'card-new-folder', title: 'Nuevo álbum', icon: Icons.add_rounded, onTap: () => _newFolder(local)),
     ];
-    // la clave de cada portada se guarda por el id del álbum (`received`, `root`, la dirección de la carpeta)
-    final keys = {for (final album in albums) _cardId(album): _keyFor(album.id)};
-    final hiddenCard = albums.where((album) => album.id == _hidden).map(_cardId).firstOrNull;
 
     Future<void> refresh() async {
       await Future.wait([c.refresh(), local.refresh()]);
@@ -299,7 +292,7 @@ class _MusicPageState extends State<MusicPage> {
     final colors = context.colors;
     final mono = TextStyle(fontFamily: monoFont, fontSize: 15, color: colors.dim);
 
-    // solo los álbumes: la pila ocupa toda la pantalla; el aleatorio (si no empieza solo) y volver a leer, dos iconos discretos arriba a la derecha
+    // solo los álbumes: la cuadrícula ocupa toda la pantalla; el aleatorio (si no empieza solo) y volver a leer, dos iconos discretos arriba a la derecha
     return Stack(
       key: const Key('music-scroll'),
       children: [
@@ -322,7 +315,7 @@ class _MusicPageState extends State<MusicPage> {
                 child: FlyIn(
                   edge: MotionEdge.left,
                   order: 2,
-                  child: AlbumStack(cards: cards, controller: _deck, hiddenId: hiddenCard, cardKeys: keys, speed: c.settings.deckSpeed),
+                  child: AlbumGrid(cards: cards, controller: _deck),
                 ),
               ),
             ],

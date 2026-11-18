@@ -51,3 +51,9 @@ Future<void> revealSignOut(WidgetTester tester) => openSettingsTile(tester, 'acc
 
 /// Busca un icono de la app (pintado con bloques: `LcdIcon`) por su `IconData`.
 Finder findIcon(IconData icon) => find.byWidgetPredicate((w) => w is LcdIcon && w.icon == icon, description: 'LcdIcon $icon');
+
+/// Pide «menos animaciones» (como en el teléfono): la cinta del modo visitante se queda quieta y `pumpAndSettle` puede terminar.
+void reduceMotion(WidgetTester tester) {
+  tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+}

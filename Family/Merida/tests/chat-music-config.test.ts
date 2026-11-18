@@ -92,7 +92,7 @@ describe("configuración", () => {
   });
 
   it("explica los errores sin jerga", () => {
-    expect(explainError({ message: "Invalid login credentials" })).toMatch(/correo o la contraseña/);
+    expect(explainError({ message: "Invalid login credentials" })).toMatch(/usuario o la contraseña/);
     expect(explainError({ message: "Failed to fetch" })).toMatch(/conexión/);
     expect(explainError({ code: "PGRST202", message: "x" })).toMatch(/schema\.sql/);
   });

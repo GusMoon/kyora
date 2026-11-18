@@ -42,6 +42,12 @@ const PATHS = {
   up: "M6 15 L12 9 L18 15",
   down: "M6 9 L12 15 L18 9",
   bell: "M6 17 V11 A6 6 0 0 1 18 11 V17 L20 19 H4 Z M10 21 H14",
+  list: "M4 6 H6 M9 6 H20 M4 12 H6 M9 12 H20 M4 18 H6 M9 18 H20",
+  call: "M5 4 H9 L11 9 L8.5 10.5 A11 11 0 0 0 13.5 15.5 L15 13 L20 15 V19 H18 A14 14 0 0 1 5 6 Z",
+  video: "M3 7 H15 V17 H3 Z M15 11 L21 7 V17 L15 13",
+  videoOff: "M3 7 H15 V17 H3 Z M15 11 L21 7 V17 L15 13 M3 3 L21 21",
+  mic: "M9 3 H15 V12 A3 3 0 0 1 9 12 Z M5 11 A7 7 0 0 0 19 11 M12 18 V21",
+  micOff: "M9 3 H15 V12 A3 3 0 0 1 9 12 Z M5 11 A7 7 0 0 0 19 11 M12 18 V21 M3 3 L21 21",
 } as const;
 
 export type IconName = keyof typeof PATHS;

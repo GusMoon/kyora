@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// La matemática de las ruletas (la pila de álbumes, el abanico de favoritas y la ruleta de discos del reproductor): cuánto hay que arrastrar
+/// La matemática de las ruletas (el abanico de favoritas y la ruleta de discos del reproductor): cuánto hay que arrastrar
 /// para pasar de uno al siguiente, dónde se detiene al soltar y cómo se reparten en un anillo.
 abstract final class DeckMath {
   /// Cuánto hay que arrastrar el dedo (px) para pasar de un elemento al siguiente, con la sensibilidad normal.

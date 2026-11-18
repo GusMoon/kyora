@@ -68,6 +68,17 @@ class SectionMotion extends InheritedWidget {
     return noise(seed, tick) < 0.3 ? shown * 0.3 : shown;
   }
 
+  /// Lo visible que está algo que **se apaga** (un panel que se cierra) con el avance `shown` (1 entero → 0 ido): baja de forma continua, sin
+  /// parpadeo. Es la versión sutil del glitch para las salidas: rápida y limpia.
+  static double quietOpacity(double shown) => Curves.easeIn.transform(shown.clamp(0.0, 1.0));
+
+  /// Dónde está algo que se apaga: un temblor leve de lado a lado (3 px como mucho) que se acaba al quedar entero.
+  static Offset quietShift(double shown, int seed) {
+    if (shown >= 1) return Offset.zero;
+    final g = 1 - shown.clamp(0.0, 1.0);
+    return Offset((noise(seed, (shown * 6).floor()) - 0.5) * 6 * g, 0);
+  }
+
   /// Dónde está un bloque con el avance `shown`: salta de lado a saltos (más cuanto menos se ve) y viene un poco desde su borde.
   static Offset glitchShift(double shown, int seed, MotionEdge edge) {
     if (shown >= 1) return Offset.zero;
@@ -124,6 +135,41 @@ class FlyIn extends StatelessWidget {
           final t = motion.animation.value;
           shown = motion.leaving ? 1 - SectionMotion.exitProgress(t, order) : SectionMotion.enterProgress(t, order);
         }
+        return Opacity(
+          opacity: SectionMotion.glitchOpacity(shown, seed),
+          child: Transform.translate(
+            offset: SectionMotion.glitchShift(shown, seed, edge),
+            child: CustomPaint(
+              foregroundPainter: _GlitchPainter(amount: shown >= 1 ? 0 : 1 - shown, seed: seed, tick: (shown * SectionMotion.ticks).floor(), color: accent),
+              child: body,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// El efecto de holograma de un cambio **dentro de una pantalla** (de una vista a otra, o al abrir una pantalla empujada): lo de dentro se
+/// materializa con saltos, parpadeo y franjas de interferencia del color de la app según el avance de [animation] (0 oculto → 1 nítido), y al
+/// revés al irse. Es el mismo glitch que el de los bloques de una sección (`FlyIn`), pero movido por la animación que se le da. Se pinta una vez
+/// en su propia capa; con la animación completa no hace nada.
+class HologramReveal extends StatelessWidget {
+  const HologramReveal({super.key, required this.animation, this.edge = MotionEdge.bottom, this.seed = 3, required this.child});
+
+  final Animation<double> animation;
+  final MotionEdge edge;
+  final int seed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return AnimatedBuilder(
+      animation: animation,
+      child: RepaintBoundary(child: child),
+      builder: (context, body) {
+        final shown = Curves.easeOut.transform(animation.value.clamp(0.0, 1.0));
         return Opacity(
           opacity: SectionMotion.glitchOpacity(shown, seed),
           child: Transform.translate(

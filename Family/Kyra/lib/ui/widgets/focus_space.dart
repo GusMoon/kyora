@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -9,7 +8,7 @@ import 'hack_text.dart';
 import 'section_motion.dart';
 
 /// El **espacio focal**: el sitio de la pantalla donde se abre el menú circular y, después, cualquier panel (avisos, hojas de opciones,
-/// editores rápidos). Lo de dentro se ve nítido; el resto del fondo se desenfoca un poco y se oscurece (`FocusVeil`).
+/// editores rápidos). Lo de dentro se ve nítido; el resto del fondo se oscurece (`FocusVeil`).
 abstract final class FocusSpace {
   /// Donde se abrió el menú la última vez (en la pantalla). Los paneles se abren ahí; sin nada, en el centro.
   static Offset? last;
@@ -30,17 +29,20 @@ abstract final class FocusSpace {
 }
 
 /// El velo del espacio focal: todo lo de fuera del hueco ([hole], en coordenadas de este widget) se desenfoca un poco y se oscurece; el hueco
-/// queda limpio. [amount] va de 0 (sin velo) a 1 (entero), para abrirlo y cerrarlo con suavidad. Tocar fuera llama a [onTapOutside].
+/// queda limpio. [amount] va de 0 (sin velo) a 1 (entero), para abrirlo y cerrarlo con suavidad. Tocar fuera llama a [onTapOutside]. Sin
+/// desenfoque (un `BackdropFilter` animado sobre toda la pantalla era lo que hacía lento abrir un panel): solo se oscurece.
 class FocusVeil extends StatelessWidget {
-  const FocusVeil({super.key, required this.hole, this.amount = 1, this.onTapOutside, this.blur = 7, this.dim = 0.45});
+  const FocusVeil({super.key, required this.hole, this.amount = 1, this.onTapOutside, this.dim = defaultDim});
+
+  /// Lo oscurecido que queda lo de atrás de un panel: lo bastante para que el panel sea el protagonista, sin tapar del todo el fondo.
+  static const defaultDim = 0.74;
 
   /// El hueco nítido.
   final Path Function(Size size) hole;
   final double amount;
   final VoidCallback? onTapOutside;
 
-  /// El desenfoque (ligero) y el oscurecido de alrededor.
-  final double blur;
+  /// Lo oscurecido que queda lo de alrededor.
   final double dim;
 
   /// Un hueco redondo de radio `radius` alrededor de `center`.
@@ -58,10 +60,7 @@ class FocusVeil extends StatelessWidget {
       onTap: onTapOutside,
       child: ClipPath(
         clipper: _OutsideClipper(hole),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: blur * amount, sigmaY: blur * amount),
-          child: ColoredBox(color: Colors.black.withValues(alpha: dim * amount), child: const SizedBox.expand()),
-        ),
+        child: ColoredBox(color: Colors.black.withValues(alpha: dim * amount), child: const SizedBox.expand()),
       ),
     );
   }
@@ -80,7 +79,7 @@ class _OutsideClipper extends CustomClipper<Path> {
 }
 
 /// Abre un panel en el **espacio focal**: el contenido de [builder] en un panel ciberpunk centrado donde se abrió el menú (o en el centro),
-/// con el resto del fondo desenfocado y oscurecido. Sustituye a los diálogos y a las hojas que salían desde abajo. Tocar fuera o «atrás» lo
+/// con el resto del fondo oscurecido. Sustituye a los diálogos y a las hojas que salían desde abajo. Tocar fuera o «atrás» lo
 /// cierran (devuelve `null`).
 Future<T?> showFocusPanel<T>(BuildContext context, {required WidgetBuilder builder, double maxWidth = 420, String? title}) =>
     Navigator.of(context, rootNavigator: true).push<T>(FocusPanelRoute<T>(builder: builder, maxWidth: maxWidth, title: title));
@@ -106,7 +105,7 @@ class FocusPanelRoute<T> extends PopupRoute<T> {
   Duration get transitionDuration => const Duration(milliseconds: 220);
 
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 240);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 150);
 
   @override
   Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) => _FocusPanel<T>(route: this);
@@ -141,6 +140,9 @@ class _FocusPanelState<T> extends State<_FocusPanel<T>> {
       animation: route.animation!,
       builder: (context, child) {
         final t = Curves.easeOutCubic.transform(route.animation!.value);
+        // al abrirse se materializa con el glitch; al cerrarse, un apagado rápido y sutil (sin parpadeo)
+        final leaving = route.animation!.status == AnimationStatus.reverse;
+        final raw = route.animation!.value;
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -156,10 +158,10 @@ class _FocusPanelState<T> extends State<_FocusPanel<T>> {
               delegate: _PanelLayout(insets: insets, maxWidth: route.maxWidth, report: _rect),
               // el panel se materializa al abrirse y se deshace al cerrarse con el mismo parpadeo de holograma
               child: Opacity(
-                opacity: SectionMotion.glitchOpacity(t, 5),
+                opacity: leaving ? SectionMotion.quietOpacity(raw) : SectionMotion.glitchOpacity(t, 5),
                 child: Transform.translate(
-                  offset: SectionMotion.glitchShift(t, 5, MotionEdge.bottom),
-                  child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
+                  offset: leaving ? SectionMotion.quietShift(raw, 5) : SectionMotion.glitchShift(t, 5, MotionEdge.bottom),
+                  child: Transform.scale(scale: leaving ? 0.985 + 0.015 * raw : 0.94 + 0.06 * t, child: child),
                 ),
               ),
             ),

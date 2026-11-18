@@ -19,7 +19,8 @@ import 'package:kyora_chat/util/cover_tint.dart';
 import 'package:kyora_chat/ui/album_view.dart';
 import 'package:kyora_chat/ui/music_page.dart';
 import 'package:kyora_chat/ui/widgets/album_art.dart';
-import 'package:kyora_chat/ui/widgets/album_stack.dart';
+import 'package:kyora_chat/ui/widgets/album_grid.dart';
+import 'package:kyora_chat/ui/widgets/options_reactor.dart';
 import 'package:kyora_chat/ui/widgets/app_backdrop.dart';
 import 'package:kyora_chat/ui/widgets/cover.dart';
 import 'package:kyora_chat/ui/widgets/disc_player.dart';
@@ -74,7 +75,7 @@ void main() {
 
   // el orden de la ruleta: enviadas (0), la carpeta (1), Jazz (2), Rock (3), «Nuevo álbum» (4)
   // `moving`: el disco gira de verdad mientras suena (entonces `pumpAndSettle` no terminaría nunca)
-  Future<void> home(WidgetTester tester, {Future<String?> Function()? pickCover, FavoritesController? favorites, bool moving = false}) async {
+  Future<void> home(WidgetTester tester, {Future<String?> Function()? pickCover, FavoritesController? favorites, bool moving = false, ValueNotifier<String?>? openAlbum}) async {
     tester.view.physicalSize = const Size(400, 850);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -87,7 +88,7 @@ void main() {
       MaterialApp(
         theme: buildTheme(),
         builder: moving ? null : (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(disableAnimations: true), child: child!),
-        home: MusicPage(controller: music, local: local, player: player, favorites: favorites, pickCover: pickCover ?? () async => null),
+        home: MusicPage(controller: music, local: local, player: player, favorites: favorites, openAlbum: openAlbum, pickCover: pickCover ?? () async => null),
       ),
     );
     await tester.pump();
@@ -100,28 +101,37 @@ void main() {
 
   String uriKey(String name) => 'local-local:content://tree/musica/document/$name';
 
-  group('la pila de álbumes', () {
-    /// El centro de la portada de un álbum de la pila.
-    Offset centerOf(WidgetTester tester, String id) => tester.getCenter(card(id));
-
-    testWidgets('las portadas van en una pila vertical: la del centro, grande y delante; las demás, detrás y asomando debajo', (tester) async {
+  group('la cuadrícula de álbumes', () {
+    testWidgets('los álbumes van en cuadrícula, tres por fila, todos del mismo tamaño y pegados (con un margen muy pequeño e igual), sin nombre', (tester) async {
       await home(tester);
-      expect(find.byType(AlbumStack), findsOneWidget);
-      expect(find.text('Canciones enviadas'), findsOneWidget); // el nombre de la del centro
-      final first = tester.getRect(find.descendant(of: card('card-received'), matching: find.byKey(const Key('plate-blank'))));
-      expect(first.width, closeTo(first.height, 0.5));
-      final deck = tester.getRect(find.byKey(const Key('album-deck')));
-      expect(first.center.dx, closeTo(deck.center.dx, 1));
-      expect(first.center.dy, closeTo(deck.center.dy, 1));
-      // las siguientes asoman por debajo, cada vez más pequeñas
-      final root = tester.getRect(card('card-root'));
-      final jazz = tester.getRect(card('card-folder-Jazz'));
-      expect(root.center.dy, greaterThan(first.center.dy));
-      expect(jazz.center.dy, greaterThan(root.center.dy));
-      expect(root.width, lessThan(first.width));
-      expect(jazz.width, lessThan(root.width));
-      // y en cascada: una hacia un lado y la siguiente hacia el otro
-      expect((root.center.dx - deck.center.dx).sign, isNot((jazz.center.dx - deck.center.dx).sign));
+      expect(find.byType(AlbumGrid), findsOneWidget);
+      final rects = [for (final id in ['card-received', 'card-root', 'card-folder-Jazz', 'card-folder-Rock', 'card-new-folder']) tester.getRect(find.descendant(of: card(id), matching: find.byType(SizedBox)).first)];
+      // la primera fila: tres, a la misma altura y de izquierda a derecha
+      expect(rects[1].top, closeTo(rects[0].top, 0.5));
+      expect(rects[2].top, closeTo(rects[0].top, 0.5));
+      expect(rects[1].left, greaterThan(rects[0].right));
+      expect(rects[2].left, greaterThan(rects[1].right));
+      // la segunda fila empieza debajo, a la izquierda, con la misma separación
+      expect(rects[3].top, greaterThan(rects[0].bottom));
+      expect(rects[3].left, closeTo(rects[0].left, 0.5));
+      expect(rects[4].top, closeTo(rects[3].top, 0.5));
+      // cuadradas, del mismo lado, y un lado de la tercera parte del ancho
+      for (final r in rects) {
+        expect(r.width, closeTo(r.height, 0.5));
+        expect(r.width, closeTo(AlbumGrid.sideFor(400), 0.5));
+      }
+      // pegados: el mismo margen pequeño entre uno y otro, en horizontal y en vertical, y al borde de la pantalla
+      expect(rects[1].left - rects[0].right, closeTo(AlbumGrid.gap, 0.5));
+      expect(rects[2].left - rects[1].right, closeTo(AlbumGrid.gap, 0.5));
+      expect(rects[3].top - rects[0].bottom, closeTo(AlbumGrid.gap, 0.5));
+      expect(rects[0].left, closeTo(AlbumGrid.margin, 0.5));
+      expect(AlbumGrid.gap, lessThanOrEqualTo(6));
+      expect(AlbumGrid.gap, AlbumGrid.margin);
+      // y no se ve ningún nombre
+      expect(find.text('Canciones enviadas'), findsNothing);
+      expect(find.text('Jazz'), findsNothing);
+      expect(find.text('Mi música'), findsNothing);
+      expect(find.byKey(const Key('deck-title-card-received')), findsNothing);
     });
 
     testWidgets('la pantalla solo enseña los álbumes: sin el texto «Música», sin favoritas y sin la tarjeta de lo que suena', (tester) async {
@@ -135,80 +145,24 @@ void main() {
       expect(find.byKey(const Key('favorites-title')), findsNothing);
       expect(find.byKey(const Key('favorites-empty')), findsNothing);
       expect(find.byType(MiniPlayer), findsNothing);
-      // y las portadas son grandes: la del centro ocupa buena parte del ancho
-      final first = tester.getRect(find.descendant(of: card('card-received'), matching: find.byKey(const Key('plate-blank'))));
-      expect(first.width, greaterThan(400 * 0.7));
       expect(find.byType(ClipRRect), findsNothing);
     });
 
-    testWidgets('la etiqueta dice el nombre del álbum del centro y en qué número va', (tester) async {
+    testWidgets('la etiqueta de arriba dice cuántos álbumes hay', (tester) async {
       await home(tester);
-      expect(find.byKey(const Key('deck-title-card-received')), findsOneWidget);
-      expect(find.text('01/05'), findsOneWidget);
-      await deckTo(tester, 2);
-      expect(find.byKey(const Key('deck-title-card-folder-Jazz')), findsOneWidget);
-      expect(find.text('03/05'), findsOneWidget);
+      expect(find.text('ÁLBUMES'), findsOneWidget);
+      expect(tester.widget<Text>(find.byKey(const Key('deck-count'))).data, '05');
     });
 
-    testWidgets('se recorren todos arrastrando en vertical, en orden, y siempre queda uno en el centro', (tester) async {
+    testWidgets('ya no hay pila: nada se desliza hacia los lados ni se superpone, y las portadas no se oscurecen', (tester) async {
       await home(tester);
-      final deck = tester.getRect(find.byKey(const Key('album-deck')));
-      final names = {'card-root': 'Mi música', 'card-folder-Jazz': 'Jazz', 'card-folder-Rock': 'Rock', 'card-new-folder': 'Nuevo álbum'};
-      var i = 1;
-      for (final entry in names.entries) {
-        await deckTo(tester, i++);
-        expect(centerOf(tester, entry.key).dy, closeTo(deck.center.dy, 1), reason: entry.key);
-        expect(find.byKey(Key('deck-title-${entry.key}')), findsOneWidget);
-      }
+      final a = tester.getRect(card('card-received'));
+      final b = tester.getRect(card('card-root'));
+      expect(a.overlaps(b), isFalse);
+      expect(find.byKey(const Key('deck-index')), findsNothing);
     });
 
-    testWidgets('tiene tope: no se pasa del primero ni del último', (tester) async {
-      await home(tester);
-      final deck = tester.getRect(find.byKey(const Key('album-deck')));
-      await tester.timedDrag(find.byKey(const Key('album-deck')), Offset(0, stackStep(tester) * 3), const Duration(seconds: 1));
-      await tester.pumpAndSettle();
-      expect(centerOf(tester, 'card-received').dy, closeTo(deck.center.dy, 1));
-      await tester.fling(find.byKey(const Key('album-deck')), const Offset(0, -2000), 5000);
-      await tester.pumpAndSettle();
-      await tester.fling(find.byKey(const Key('album-deck')), const Offset(0, -2000), 5000);
-      await tester.pumpAndSettle();
-      expect(centerOf(tester, 'card-new-folder').dy, closeTo(deck.center.dy, 1));
-    });
-
-    testWidgets('al soltar sigue un poco por la inercia y se detiene justo en una portada', (tester) async {
-      await home(tester);
-      final deck = tester.getRect(find.byKey(const Key('album-deck')));
-      await tester.fling(find.byKey(const Key('album-deck')), Offset(0, -stackStep(tester) * 0.6), 900);
-      await tester.pumpAndSettle();
-      final stack = tester.widget<AlbumStack>(find.byType(AlbumStack));
-      final front = stack.controller!.current;
-      expect(front, greaterThanOrEqualTo(1));
-      final id = ['card-received', 'card-root', 'card-folder-Jazz', 'card-folder-Rock', 'card-new-folder'][front];
-      expect(centerOf(tester, id).dy, closeTo(deck.center.dy, 1));
-    });
-
-    testWidgets('tocar una portada que no está en el centro la trae al centro, sin abrirla', (tester) async {
-      await home(tester);
-      final deck = tester.getRect(find.byKey(const Key('album-deck')));
-      final below = tester.getRect(card('card-root'));
-      await tester.tapAt(Offset(below.center.dx, below.center.dy + below.height * 0.25)); // la parte que asoma por debajo
-      await tester.pumpAndSettle();
-      expect(centerOf(tester, 'card-root').dy, closeTo(deck.center.dy, 1));
-      expect(find.byKey(const Key('album-background')), findsNothing);
-    });
-
-    testWidgets('las de atrás se oscurecen cuanto más lejos', (tester) async {
-      final near = AlbumStack.placeOf(1, 0, const Size(400, 500), 200);
-      final far = AlbumStack.placeOf(3, 0, const Size(400, 500), 200);
-      final center = AlbumStack.placeOf(0, 0, const Size(400, 500), 200);
-      expect(center.shade, 0);
-      expect(near.shade, greaterThan(0));
-      expect(far.shade, greaterThan(near.shade));
-      expect(center.scale, 1);
-      expect(far.scale, lessThan(near.scale));
-    });
-
-    testWidgets('al salir de la sección no queda ninguna foto a la vista: la pila se funde y recorta en su rectángulo', (tester) async {
+    testWidgets('al salir de la sección no queda ninguna foto a la vista: la cuadrícula se funde', (tester) async {
       await home(tester);
       await tester.pumpWidget(
         MaterialApp(
@@ -221,7 +175,6 @@ void main() {
       // la sección que se va se funde del todo: no queda ninguna portada a la vista
       final opacity = tester.widget<Opacity>(find.ancestor(of: deck, matching: find.byType(Opacity)).first).opacity;
       expect(opacity, 0);
-      expect(find.descendant(of: deck, matching: find.byType(ClipRect)), findsWidgets);
     });
 
     testWidgets('un álbum sin portada tiene detrás el fondo de la pantalla', (tester) async {
@@ -232,9 +185,8 @@ void main() {
       expect(find.descendant(of: find.byType(AlbumView), matching: find.byKey(const Key('screen-backdrop'))), findsWidgets);
     });
 
-    testWidgets('tocar la del centro abre el álbum', (tester) async {
+    testWidgets('tocar un álbum lo abre', (tester) async {
       await home(tester);
-      await deckTo(tester, 1);
       expect(find.byKey(const Key('album-background')), findsNothing);
       await tester.tap(card('card-root'));
       await tester.pumpAndSettle();
@@ -279,24 +231,7 @@ void main() {
     });
   });
 
-  group('la sensibilidad', () {
-    testWidgets('la pila obedece a la sensibilidad guardada: con menos, el mismo gesto no cambia de álbum', (tester) async {
-      store.settings = store.settings.copyWith(deckSpeed: MusicSettings.deckSpeedMin);
-      await home(tester);
-      expect(tester.widget<AlbumStack>(find.byType(AlbumStack)).speed, MusicSettings.deckSpeedMin);
-      final normal = stackStep(tester) * MusicSettings.deckSpeedMin; // lo que haría falta con la normal
-      await tester.timedDrag(find.byKey(const Key('album-deck')), Offset(0, -normal * 0.9), const Duration(seconds: 1));
-      await tester.pumpAndSettle();
-      expect(tester.widget<AlbumStack>(find.byType(AlbumStack)).controller!.current, 0); // se queda
-    });
-
-    testWidgets('con poco arrastre no se cambia de álbum', (tester) async {
-      await home(tester);
-      await tester.timedDrag(find.byKey(const Key('album-deck')), Offset(0, -stackStep(tester) * 0.3), const Duration(seconds: 1));
-      await tester.pumpAndSettle();
-      expect(tester.widget<AlbumStack>(find.byType(AlbumStack)).controller!.current, 0);
-    });
-
+  group('la sensibilidad (la de las favoritas)', () {
     test('se guarda con los demás ajustes y no se pierde al elegir o quitar la carpeta', () {
       const settings = MusicSettings(deckSpeed: 0.75);
       expect(settings.copyWith(auto: false).deckSpeed, 0.75);
@@ -403,7 +338,7 @@ void main() {
       await tester.tap(find.byKey(const Key('disc-next')));
       await settleIo(tester);
       expect(player.current?.title, 'b');
-      expect(songTitle(tester), 'b');
+      expect(await songTitle(tester), 'b');
       await tester.tap(find.byKey(const Key('disc-previous')));
       await settleIo(tester);
       expect(player.current?.title, 'a');
@@ -437,52 +372,54 @@ void main() {
     });
   });
 
-  group('al abrir un álbum: el disco sale de la tarjeta', () {
-    testWidgets('al empezar el disco y la tarjeta están en el mismo sitio; la tarjeta se va a la izquierda y el disco llega al centro', (tester) async {
+  group('al abrir un álbum: efecto de holograma, sin disco que viaje', () {
+    testWidgets('al abrir, la pantalla del álbum se materializa con el holograma (parpadea y se ve nítida al terminar); no sale ningún disco de la tarjeta', (tester) async {
       await home(tester);
       await deckTo(tester, 3);
-      final cardRect = tester.getRect(find.descendant(of: card('card-folder-Rock'), matching: find.byKey(const Key('plate-blank'))));
       await tester.tap(card('card-folder-Rock'));
       await tester.pump(); // construye la ruta
-      await tester.pump(const Duration(milliseconds: 1));
-      expect(find.byKey(const Key('album-opening')), findsOneWidget);
-      final ghost = tester.getRect(find.byKey(const Key('album-opening-card')));
-      final disc = tester.getRect(find.byKey(const Key('album-opening-disc')));
-      expect(ghost.center.dx, closeTo(cardRect.center.dx, 6)); // la tarjeta, donde estaba
-      expect(ghost.width, closeTo(cardRect.width, 1));
-      expect(disc.center.dx, closeTo(cardRect.center.dx, 12)); // y el disco, detrás de ella
-      expect(disc.center.dy, closeTo(cardRect.center.dy, 12));
-      // a mitad: la tarjeta ya se fue hacia la izquierda y el disco viaja al centro
-      await tester.pump(const Duration(milliseconds: 220));
-      final ghostMid = tester.getRect(find.byKey(const Key('album-opening-card')));
-      final discMid = tester.getRect(find.byKey(const Key('album-opening-disc')));
-      expect(ghostMid.left, lessThan(ghost.left - 40));
-      expect(discMid.center.dy, lessThan(disc.center.dy - 20)); // sube hacia su sitio, algo por encima del centro de la pantalla
-      // al final: la transición desaparece y el disco de la vista está en el centro
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(find.byKey(const Key('album-opening')), findsNothing); // ya no hay disco ni tarjeta que viajen
+      expect(find.byKey(const Key('album-opening-disc')), findsNothing);
+      expect(find.byType(HologramReveal), findsWidgets);
+      // al empezar casi no se ve (con parpadeo), y al terminar está entero y nítido
+      final reveal = find.ancestor(of: find.byType(AlbumView), matching: find.byType(HologramReveal)).first;
+      double opacity() => tester.widget<Opacity>(find.descendant(of: reveal, matching: find.byType(Opacity)).first).opacity;
+      expect(opacity(), lessThan(1));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('album-opening')), findsNothing);
+      expect(opacity(), 1);
       final resting = tester.getRect(find.byKey(Key('album-disc-${rock.uri}')));
-      expect(resting.center, const Offset(200, 357)); // algo por encima del centro de la pantalla
+      expect(resting.center, const Offset(200, 357)); // el disco, en su sitio de siempre
       expect(resting.width, resting.height);
       expect(find.byKey(const Key('vinyl-surface')), findsOneWidget); // es un disco
     });
 
-    testWidgets('al volver hace el camino inverso y, al terminar, la tarjeta vuelve a estar en la ruleta', (tester) async {
+    testWidgets('abrir es corto (no se alarga): el holograma dura menos de medio segundo', (tester) async {
+      await home(tester);
+      await tester.tap(card('card-root'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(); // un cuadro más para que cierre
+      expect(find.byType(AlbumView), findsOneWidget);
+      final reveal = find.ancestor(of: find.byType(AlbumView), matching: find.byType(HologramReveal)).first;
+      expect(tester.widget<HologramReveal>(reveal).animation.value, 1);
+    });
+
+    testWidgets('al volver se deshace con el mismo holograma y, al terminar, la cuadrícula sigue donde estaba', (tester) async {
       await home(tester);
       await deckTo(tester, 3);
-      final cardRect = tester.getRect(find.descendant(of: card('card-folder-Rock'), matching: find.byKey(const Key('plate-blank'))));
+      final cardRect = tester.getRect(card('card-folder-Rock'));
       await tester.tap(card('card-folder-Rock'));
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pump(); // empieza a volver
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(const Key('album-opening')), findsOneWidget); // el disco vuelve a la tarjeta
+      expect(find.byKey(const Key('album-opening')), findsNothing);
       await tester.pumpAndSettle();
       await tester.runAsync(pumpEventQueue);
       await tester.pump();
       expect(find.byKey(const Key('album-background')), findsNothing);
-      final back = tester.getRect(find.descendant(of: card('card-folder-Rock'), matching: find.byKey(const Key('plate-blank'))));
-      expect(back.center, cardRect.center);
+      expect(tester.getRect(card('card-folder-Rock')), cardRect);
       expect(local.atRoot, isTrue);
     });
 
@@ -497,12 +434,29 @@ void main() {
   });
 
   group('la vista del álbum', () {
+    testWidgets('otra pantalla (el botón del álbum del reproductor de Inicio) puede pedir abrir un álbum: se abre solo y la petición se vacía', (tester) async {
+      final request = ValueNotifier<String?>(null);
+      addTearDown(request.dispose);
+      await home(tester, openAlbum: request);
+      expect(find.byKey(const Key('album-back')), findsNothing);
+      request.value = rock.uri;
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Rock');
+      expect(request.value, isNull);
+      // una petición que ya estaba puesta al entrar a Música también se atiende
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      request.value = 'root';
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música');
+    });
+
     testWidgets('el disco algo por encima del centro, debajo el nombre sin fondo, y de fondo la portada nítida con líneas y oscurecida', (tester) async {
       saver.art[song('a.mp3').uri] = '/a.jpg';
       await home(tester);
       await tester.runAsync(pumpEventQueue);
       await openAlbum(tester, 1, 'card-root');
-      expect(songTitle(tester), 'a'); // la primera, por orden
+      expect(await songTitle(tester), 'a'); // la primera, por orden
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música');
       // el disco, en el centro y redondo, con la portada del álbum en la etiqueta
       final disc = tester.getRect(find.byKey(const Key('album-disc-root')));
@@ -547,7 +501,7 @@ void main() {
       await swipeAlbum(tester); // → Rock
       await settleIo(tester);
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Rock');
-      expect(songTitle(tester), 'rock1');
+      expect(find.byKey(const Key('album-song-title')), findsNothing); // sin tocar el centro del disco, solo el disco y el fondo
       await swipeAlbum(tester, next: false);
       await swipeAlbum(tester, next: false);
       await settleIo(tester);
@@ -559,139 +513,210 @@ void main() {
       expect(engine.calls, isNot(contains('pause')));
     });
 
-    testWidgets('mantener el disco abre sus opciones, no la pila de álbumes; tocar fuera las cierra sin cambiar de álbum', (tester) async {
+    testWidgets('al entrar solo se ven el disco y el fondo: el nombre y los controles esperan a que se toque el centro del disco, y ahí empieza a sonar', (tester) async {
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
-      expect(find.byKey(const Key('focus-panel')), findsNothing);
-      await holdDisc(tester);
-      expect(find.byKey(const Key('focus-panel')), findsOneWidget);
-      expect(find.byKey(const Key('album-picker')), findsNothing);
-      expect(find.byType(AlbumStack), findsNothing);
-      for (final key in ['album-opt-shuffle', 'album-opt-move', 'album-opt-delete', 'album-rate']) {
-        expect(find.byKey(Key(key)), findsOneWidget, reason: key);
-      }
-      await tester.tapAt(const Offset(2, 2)); // fuera del panel
+      expect(find.byKey(const Key('album-song-title')), findsNothing);
+      expect(find.byKey(const Key('disc-controls')), findsNothing);
+      expect(find.byKey(const Key('disc-play-hint')), findsOneWidget);
+      expect(player.current, isNull);
+      // un toque en el borde del disco (fuera del centro) no reproduce
+      final disc = tester.getRect(find.byKey(const Key('album-disc-root')));
+      await tester.tapAt(disc.center + Offset(disc.width * 0.35, 0));
+      await settleIo(tester);
+      expect(player.current, isNull);
+      // mantener presionado sin haber empezado no abre nada
+      await tester.longPress(find.byType(DiscPlayer));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('options-disc')), findsNothing);
+      // el centro: reproduce y destapa el nombre y los controles
+      await tester.tap(find.byKey(const Key('album-disc-root')));
+      await settleIo(tester);
+      expect(player.playing, isTrue);
+      expect(find.byKey(const Key('album-song-title')), findsOneWidget);
+      expect(find.byKey(const Key('disc-controls')), findsOneWidget);
+      expect(find.byKey(const Key('disc-play-hint')), findsNothing);
+    });
+
+    testWidgets('mantener el disco abre el reactor de opciones sobre un velo oscuro, solo con iconos; el centro lo cierra sin cambiar de álbum', (tester) async {
+      await home(tester);
+      await openAlbum(tester, 1, 'card-root');
+      expect(find.byKey(const Key('options-disc')), findsNothing);
+      await holdDisc(tester);
+      expect(find.byKey(const Key('options-disc')), findsOneWidget);
       expect(find.byKey(const Key('focus-panel')), findsNothing);
+      expect(find.byType(AlbumGrid), findsNothing);
+      // lo de atrás queda oscurecido: el panel es el protagonista
+      expect(find.byKey(const Key('focus-veil')), findsOneWidget);
+      for (final id in ['move', 'delete', 'speed', 'rename']) {
+        expect(find.byKey(Key('disc-option-$id')), findsOneWidget, reason: id);
+      }
+      // las opciones están dentro del reactor y no llevan texto
+      final reactor = tester.getRect(find.byKey(const Key('options-disc')));
+      for (final id in ['move', 'delete', 'speed', 'rename']) {
+        expect(reactor.inflate(1).contains(tester.getCenter(find.byKey(Key('disc-option-$id')))), isTrue, reason: id);
+        expect(find.descendant(of: find.byKey(Key('disc-option-$id')), matching: find.byType(Text)), findsNothing, reason: id);
+      }
+      await tester.tap(find.byKey(const Key('disc-options-close')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('options-disc')), findsNothing);
+      expect(find.byKey(const Key('focus-veil')), findsNothing);
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música'); // sigue aquí
     });
 
-    testWidgets('en las canciones enviadas solo salen el aleatorio y la velocidad (no se mueven ni se borran de aquí)', (tester) async {
+    testWidgets('tocar fuera del reactor lo cierra', (tester) async {
+      await home(tester);
+      await openAlbum(tester, 1, 'card-root');
+      await holdDisc(tester);
+      expect(find.byKey(const Key('options-disc')), findsOneWidget);
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('options-disc')), findsNothing);
+    });
+
+    testWidgets('en las canciones enviadas solo sale la velocidad y el tono (no se mueven, borran ni renombran desde aquí)', (tester) async {
       backend.add('s1', at: DateTime.utc(2026, 9, 1));
       await home(tester);
       await openAlbum(tester, 0, 'card-received');
       await holdDisc(tester);
-      expect(find.byKey(const Key('album-opt-shuffle')), findsOneWidget);
-      expect(find.byKey(const Key('album-opt-move')), findsNothing);
-      expect(find.byKey(const Key('album-opt-delete')), findsNothing);
-      expect(find.byKey(const Key('album-rate')), findsOneWidget);
+      expect(find.byKey(const Key('disc-option-speed')), findsOneWidget);
+      for (final id in ['move', 'delete', 'rename']) {
+        expect(find.byKey(Key('disc-option-$id')), findsNothing, reason: id);
+      }
     });
 
-    testWidgets('«Aleatorio del álbum» pone a sonar solo las canciones de ese álbum, con el aleatorio puesto', (tester) async {
-      await home(tester);
-      await openAlbum(tester, 3, 'card-folder-Rock');
-      await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-shuffle')));
-      await settleIo(tester);
-      expect(find.byKey(const Key('focus-panel')), findsNothing);
-      expect(player.shuffle, isTrue);
-      expect(engine.shuffle, isTrue);
-      expect(player.playing, isTrue);
-      expect(player.queue.map((t) => t.title), ['rock1']); // solo las de Rock, no las de las demás carpetas
-    });
-
-    testWidgets('«Borrar álbum» pide confirmación; al cancelar no borra nada y al confirmar borra de verdad sus canciones', (tester) async {
+    testWidgets('«Borrar canción» pide confirmación; al cancelar no borra nada y al confirmar borra de verdad solo esa, parando antes lo que suena', (tester) async {
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
       await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-delete')));
+      expect(player.playing, isTrue);
+      await tester.tap(find.byKey(const Key('disc-option-delete')));
       await tester.pumpAndSettle();
-      expect(tester.widget<Text>(find.byKey(const Key('album-delete-text'))).data, contains('3 canciones'));
-      expect(tester.widget<Text>(find.byKey(const Key('album-delete-text'))).data, contains('Mi música'));
-      await tester.tap(find.byKey(const Key('album-delete-cancel')));
+      expect(tester.widget<Text>(find.byKey(const Key('song-delete-text'))).data, contains('a'));
+      await tester.tap(find.byKey(const Key('song-delete-cancel')));
       await tester.pumpAndSettle();
       expect(saver.deletes, isEmpty);
       expect(saver.files, hasLength(3));
       await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-delete')));
+      await tester.tap(find.byKey(const Key('disc-option-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('album-delete-confirm')));
+      await tester.tap(find.byKey(const Key('song-delete-confirm')));
       await settleIo(tester);
-      expect(saver.deletes, hasLength(1));
-      expect(saver.deletes.single, hasLength(3));
-      expect(saver.files, isEmpty);
-      expect(find.text('Se borraron 3 canciones de «Mi música».'), findsOneWidget);
-      expect(find.text('No hay archivos .mp3 en «Mi música».'), findsOneWidget); // el álbum se ve vacío
-    });
-
-    testWidgets('si suena una canción del álbum que se borra, primero se para', (tester) async {
-      await home(tester);
-      await openAlbum(tester, 1, 'card-root');
-      await tester.tap(find.byKey(const Key('album-disc-root')));
-      await settleIo(tester);
-      expect(player.playing, isTrue);
-      await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-delete')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('album-delete-confirm')));
-      await settleIo(tester);
+      expect(saver.deletes.single, [song('a.mp3').uri]);
+      expect(saver.files.map((f) => f.name), ['b.mp3', 'c.mp3']);
       expect(engine.calls, contains('stop'));
       expect(player.current, isNull);
-      expect(player.queue, isEmpty);
-      expect(saver.files, isEmpty);
+      expect(find.text('Se borró la canción.'), findsOneWidget);
     });
 
-    testWidgets('un borrado que falla a medias lo cuenta y deja lo que no se pudo borrar', (tester) async {
-      saver.deleteFailures[song('b.mp3').uri] = 'Android no lo borró.';
+    testWidgets('un borrado que falla lo cuenta con el motivo y deja la canción', (tester) async {
+      saver.deleteFailures[song('a.mp3').uri] = 'Android no lo borró.';
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
       await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-delete')));
+      await tester.tap(find.byKey(const Key('disc-option-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('album-delete-confirm')));
+      await tester.tap(find.byKey(const Key('song-delete-confirm')));
       await settleIo(tester);
-      expect(saver.files.map((f) => f.name), ['b.mp3']);
-      expect(find.textContaining('Se borraron 2 canciones de «Mi música».'), findsOneWidget);
-      expect(find.textContaining('No se pudo borrar 1: Android no lo borró.'), findsOneWidget);
+      expect(saver.files, hasLength(3));
+      expect(find.textContaining('No se pudo borrar: Android no lo borró.'), findsOneWidget);
     });
 
-    testWidgets('«Mover álbum» lleva todas sus canciones a la carpeta que se elija', (tester) async {
+    testWidgets('«Mover a otro álbum» lleva solo esa canción a la carpeta que se elija', (tester) async {
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
       await holdDisc(tester);
-      await tester.tap(find.byKey(const Key('album-opt-move')));
+      await tester.tap(find.byKey(const Key('disc-option-move')));
       await settleIo(tester);
-      expect(tester.widget<Text>(find.byKey(const Key('move-title'))).data, 'Mover 3 canciones a…');
+      expect(tester.widget<Text>(find.byKey(const Key('move-title'))).data, 'Mover 1 canción a…');
       await tester.tap(find.byKey(const Key('move-folder-Jazz')));
       await settleIo(tester);
       await tester.tap(find.byKey(const Key('move-here')));
       await settleIo(tester);
-      expect(saver.moves, hasLength(1));
-      expect(saver.moves.single.uris, hasLength(3));
+      expect(saver.moves.single.uris, [song('a.mp3').uri]);
       expect(saver.moves.single.to, jazz.uri);
-      expect(saver.files, isEmpty);
-      expect(saver.dirSongs[jazz.uri], hasLength(3));
-      expect(find.text('Se movieron 3 canciones a «Jazz».'), findsOneWidget);
+      expect(saver.files.map((f) => f.name), ['b.mp3', 'c.mp3']);
+      expect(saver.dirSongs[jazz.uri], hasLength(1));
+      expect(find.text('Se movió a «Jazz».'), findsOneWidget);
     });
 
-    testWidgets('el medidor cambia la velocidad y el tono a la vez, al instante, y «1×» la devuelve a la normal', (tester) async {
+    testWidgets('«Cambiar nombre» renombra el archivo de la canción (con su «.mp3») y para lo que suena', (tester) async {
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
       await holdDisc(tester);
-      expect(tester.widget<Text>(find.byKey(const Key('album-rate-label'))).data, '1×');
-      expect(tester.widget<TextButton>(find.byKey(const Key('album-rate-reset'))).onPressed, isNull); // ya está en 1×
-      final slider = tester.widget<Slider>(find.byKey(const Key('album-rate')));
-      expect([slider.min, slider.max], [0.5, 1.5]);
-      slider.onChanged!(0.85);
-      await tester.pump();
+      await tester.tap(find.byKey(const Key('disc-option-rename')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(find.byKey(const Key('folder-name-field'))).controller!.text, 'a'); // con el nombre de ahora
+      await tester.enterText(find.byKey(const Key('folder-name-field')), 'Zeta');
+      await tester.tap(find.byKey(const Key('folder-create')));
+      await settleIo(tester);
+      expect(saver.renames.single, (uri: song('a.mp3').uri, name: 'Zeta.mp3'));
+      expect(engine.calls, contains('stop'));
+      expect(local.songs.map((t) => t.title), contains('Zeta'));
+    });
+
+    testWidgets('«Velocidad y tono»: el propio reactor pasa a ser un dial; girando el dedo por el aro se ajusta, cada cosa por separado, y «restablecer» las devuelve a 1×', (tester) async {
+      await home(tester);
+      await openAlbum(tester, 1, 'card-root');
+      await holdDisc(tester);
+      await tester.tap(find.byKey(const Key('disc-option-speed')));
+      await tester.pumpAndSettle();
+      // sigue siendo el mismo reactor (no se abre otro panel ni salen deslizadores)
+      expect(find.byKey(const Key('options-disc')), findsOneWidget);
+      expect(find.byKey(const Key('focus-panel')), findsNothing);
+      expect(find.byType(Slider), findsNothing);
+      expect(tester.widget<Text>(find.byKey(const Key('reactor-value'))).data, '1×');
+      final box = tester.getRect(find.byKey(const Key('options-disc')));
+      Offset at(double fraction) {
+        final angle = OptionsReactor.gaugeStart + OptionsReactor.gaugeSweep * fraction;
+        return box.center + Offset.fromDirection(angle, box.width / 2 * 0.7);
+      }
+
+      Future<void> turn(double from, double to) async {
+        final g = await tester.startGesture(at(from));
+        await g.moveTo(at((from + to) / 2));
+        await g.moveTo(at(to));
+        await g.up();
+        await tester.pump();
+      }
+
+      await turn(0.2, 0.35); // la velocidad: de 0,5× a 1,5× en 270°
       expect(player.rate, 0.85);
       expect(engine.rate, 0.85);
+      expect(player.pitch, 1); // el tono no se movió
       expect(engine.calls, contains('rate:0.85'));
-      expect(tester.widget<Text>(find.byKey(const Key('album-rate-label'))).data, '0,85×');
-      await tester.tap(find.byKey(const Key('album-rate-reset')));
+      expect(tester.widget<Text>(find.byKey(const Key('reactor-value'))).data, '0,85×');
+      // el tono, aparte
+      await tester.tap(find.byKey(const Key('reactor-dial-pitch')));
       await tester.pump();
-      expect(player.rate, 1);
-      expect(engine.rate, 1);
+      expect(tester.widget<Text>(find.byKey(const Key('reactor-value'))).data, '1×');
+      await turn(0.5, 0.7);
+      expect(player.pitch, 1.2);
+      expect(engine.pitch, 1.2);
+      expect(player.rate, 0.85); // ni la velocidad
+      expect(engine.calls, contains('pitch:1.2'));
+      expect(tester.widget<Text>(find.byKey(const Key('reactor-value'))).data, '1,2×');
+      // restablecer devuelve a 1× el ajuste que se está girando
+      await tester.tap(find.byKey(const Key('reactor-reset')));
+      await tester.pump();
+      expect([player.rate, player.pitch], [0.85, 1]);
+      await tester.tap(find.byKey(const Key('reactor-dial-rate')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('reactor-reset')));
+      await tester.pump();
+      expect([player.rate, player.pitch, engine.rate, engine.pitch], [1, 1, 1, 1]);
+      // el núcleo vuelve a las opciones
+      await tester.tap(find.byKey(const Key('reactor-back')));
+      await tester.pump();
+      expect(find.byKey(const Key('disc-option-speed')), findsOneWidget);
+    });
+
+    testWidgets('el dial no se sale de los extremos: más allá del arco se queda en el mínimo o el máximo', (tester) async {
+      expect(OptionsReactor.fractionAt(OptionsReactor.gaugeStart), 0);
+      expect(OptionsReactor.fractionAt(OptionsReactor.gaugeStart + OptionsReactor.gaugeSweep), closeTo(1, 1e-9));
+      expect(OptionsReactor.fractionAt(OptionsReactor.gaugeStart + OptionsReactor.gaugeSweep / 2), closeTo(0.5, 1e-9));
+      expect(OptionsReactor.fractionAt(math.pi / 2 + 0.1), 0); // abajo, algo a la izquierda del hueco: el mínimo
+      expect(OptionsReactor.fractionAt(math.pi / 2 - 0.1), 1); // abajo, algo a la derecha: el máximo
     });
 
     testWidgets('la velocidad se queda entre canciones y la pastilla del disco la muestra y la devuelve a 1×', (tester) async {
@@ -725,7 +750,7 @@ void main() {
       await tester.flingFrom(Offset(stage.center.dx, stage.top + 120), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música');
-      expect(songTitle(tester), 'a');
+      expect(await songTitle(tester), 'a');
     });
 
     testWidgets('pasar de álbum no deja de leer su carpeta: la del álbum que se ve es la que el controlador tiene abierta', (tester) async {
@@ -738,10 +763,10 @@ void main() {
       await swipeAlbum(tester); // Rock
       await settleIo(tester);
       expect(local.path.map((f) => f.name), ['Rock']);
-      expect(songTitle(tester), 'rock1');
+      expect(await songTitle(tester), 'rock1');
     });
 
-    testWidgets('al volver, la ruleta está en el último álbum que se vio', (tester) async {
+    testWidgets('al volver, la cuadrícula sigue ahí y la portada del último álbum que se vio vuelve a pintarse', (tester) async {
       await home(tester);
       await openAlbum(tester, 1, 'card-root');
       await swipeAlbum(tester);
@@ -752,13 +777,15 @@ void main() {
       await tester.runAsync(pumpEventQueue);
       await tester.pump();
       expect(find.byKey(const Key('album-background')), findsNothing);
-      expect(tester.getRect(find.descendant(of: card('card-folder-Rock'), matching: find.byKey(const Key('plate-blank')))).center.dx, closeTo(200, 1));
+      expect(card('card-folder-Rock'), findsOneWidget);
+      expect(find.byKey(const Key('deck-hidden')), findsNothing);
+      expect(find.descendant(of: card('card-folder-Rock'), matching: find.byKey(const Key('plate-blank'))), findsOneWidget);
     });
 
-    testWidgets('«atrás» vuelve a la ruleta y el controlador a la raíz', (tester) async {
+    testWidgets('«atrás» vuelve a la cuadrícula y el controlador a la raíz', (tester) async {
       await home(tester);
       await openAlbum(tester, 3, 'card-folder-Rock');
-      expect(songTitle(tester), 'rock1');
+      expect(await songTitle(tester), 'rock1');
       expect(find.byKey(const Key('album-title')), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -1036,8 +1063,6 @@ void main() {
           home: AlbumView(
             albums: const [AlbumEntry(id: 'root', title: 'Mi música', icon: Icons.smartphone_rounded)],
             initial: 0,
-            animation: kAlwaysCompleteAnimation,
-            originOf: (_) => Rect.zero,
             music: music,
             local: local,
             player: player,
@@ -1187,7 +1212,7 @@ void main() {
       await tester.tap(find.byKey(Key(uriKey('c.mp3'))));
       await tester.pumpAndSettle();
       await openList(tester);
-      expect(songTitle(tester), 'c');
+      expect(await songTitle(tester), 'c');
     });
 
     testWidgets('si pasa a sonar otra canción, la lista va hasta ella', (tester) async {
@@ -1264,12 +1289,152 @@ void main() {
       expect(covers.load(), isEmpty);
     });
 
-    testWidgets('mantener pulsada la tarjeta ya no abre nada: la portada se cambia dentro del álbum', (tester) async {
+    testWidgets('mantener pulsado un álbum abre el menú de consola: cambiar nombre, borrar álbum y cambiar foto', (tester) async {
+      await home(tester);
+      await deckTo(tester, 2); // Jazz
+      expect(find.byKey(const Key('deck-menu-card-folder-Jazz')), findsNothing);
+      await tester.longPress(card('card-folder-Jazz'));
+      await tester.pumpAndSettle();
+      final menu = find.byKey(const Key('deck-menu-card-folder-Jazz'));
+      expect(menu, findsOneWidget);
+      expect(find.byKey(const Key('deck-action-rename')), findsOneWidget);
+      expect(find.byKey(const Key('deck-action-delete')), findsOneWidget);
+      expect(find.byKey(const Key('deck-action-cover')), findsOneWidget);
+      expect(find.text('CAMBIAR NOMBRE'), findsOneWidget);
+      expect(find.text('BORRAR ÁLBUM'), findsOneWidget);
+      expect(find.text('CAMBIAR FOTO'), findsOneWidget);
+      expect(find.byType(AlbumGrid), findsOneWidget); // no se abrió el álbum
+      // la «x» cierra el menú sin abrir el álbum
+      await tester.tap(find.byKey(const Key('deck-menu-close')));
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      expect(find.byType(AlbumGrid), findsOneWidget);
+    });
+
+    testWidgets('en «Canciones enviadas» y en la carpeta elegida el menú solo ofrece cambiar la foto', (tester) async {
       await home(tester);
       await tester.longPress(card('card-received'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('album-cover-pick')), findsNothing);
-      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byKey(const Key('deck-action-cover')), findsOneWidget);
+      expect(find.byKey(const Key('deck-action-rename')), findsNothing);
+      expect(find.byKey(const Key('deck-action-delete')), findsNothing);
+      await tester.tap(find.byKey(const Key('deck-action-cover')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('album-cover-pick')), findsOneWidget);
+    });
+
+    testWidgets('«Cambiar nombre» pide el nombre (con el de ahora) y renombra la carpeta', (tester) async {
+      await home(tester);
+      await deckTo(tester, 3); // Rock
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-rename')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(find.byKey(const Key('folder-name-field'))).controller!.text, 'Rock');
+      await tester.enterText(find.byKey(const Key('folder-name-field')), 'Metal');
+      await tester.tap(find.byKey(const Key('folder-create')));
+      await settleIo(tester);
+      expect(saver.renames.single, (uri: rock.uri, name: 'Metal'));
+      expect(find.text('El álbum ahora se llama «Metal».'), findsOneWidget);
+      expect(find.byKey(const Key('card-folder-Metal')), findsOneWidget);
+    });
+
+    testWidgets('«Borrar álbum» vacío pide confirmación y borra la carpeta', (tester) async {
+      await home(tester);
+      await deckTo(tester, 2); // Jazz: sin canciones
+      await tester.longPress(card('card-folder-Jazz'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-cancel')));
+      await settleIo(tester);
+      expect(saver.folderDeletes, isEmpty);
+      await tester.longPress(card('card-folder-Jazz'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-confirm')));
+      await settleIo(tester);
+      expect(saver.folderDeletes, [jazz.uri]);
+      expect(find.byKey(const Key('card-folder-Jazz')), findsNothing);
+    });
+
+    testWidgets('«Borrar álbum» con canciones avisa de que deben pasarse a otro álbum o se borrarán con él; «Borrar todo» borra la carpeta entera', (tester) async {
+      await home(tester);
+      await deckTo(tester, 3); // Rock: 1 canción
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      final warning = tester.widget<Text>(find.byKey(const Key('album-delete-warning'))).data!;
+      expect(warning, contains('Rock'));
+      expect(warning, contains('1 canción'));
+      expect(warning, contains('otro álbum'));
+      expect(warning, contains('se borrarán'));
+      await tester.tap(find.byKey(const Key('album-delete-cancel'))); // cancelar no toca nada
+      await settleIo(tester);
+      expect(saver.folderDeletes, isEmpty);
+      expect(saver.moves, isEmpty);
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-all')));
+      await settleIo(tester);
+      expect(saver.folderDeletes, [rock.uri]);
+      expect(saver.moves, isEmpty);
+      expect(find.byKey(const Key('card-folder-Rock')), findsNothing);
+    });
+
+    testWidgets('«Pasarlas a otro álbum» mueve todas las canciones al destino y después borra la carpeta; sin destino no se borra nada', (tester) async {
+      await home(tester);
+      await deckTo(tester, 3); // Rock
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-move')));
+      await settleIo(tester);
+      expect(tester.widget<Text>(find.byKey(const Key('move-title'))).data, 'Mover 1 canción a…');
+      // se cierra la hoja sin elegir: nada se mueve ni se borra
+      await tester.tapAt(const Offset(2, 2));
+      await settleIo(tester);
+      expect(saver.moves, isEmpty);
+      expect(saver.folderDeletes, isEmpty);
+      // ahora sí: a Jazz
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-move')));
+      await settleIo(tester);
+      await tester.tap(find.byKey(const Key('move-folder-Jazz')));
+      await settleIo(tester);
+      await tester.tap(find.byKey(const Key('move-here')));
+      await settleIo(tester);
+      expect(saver.moves.single.uris, [song('rock1.mp3', dir: 'rock').uri]);
+      expect(saver.moves.single.to, jazz.uri);
+      expect(saver.folderDeletes, [rock.uri]);
+      expect(saver.dirSongs[jazz.uri], hasLength(1));
+      expect(find.byKey(const Key('card-folder-Rock')), findsNothing);
+    });
+
+    testWidgets('si alguna canción no se pudo pasar, el álbum no se borra', (tester) async {
+      saver.moveFailures[song('rock1.mp3', dir: 'rock').uri] = 'No se pudo borrar el original.';
+      await home(tester);
+      await deckTo(tester, 3); // Rock
+      await tester.longPress(card('card-folder-Rock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deck-action-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('album-delete-move')));
+      await settleIo(tester);
+      await tester.tap(find.byKey(const Key('move-folder-Jazz')));
+      await settleIo(tester);
+      await tester.tap(find.byKey(const Key('move-here')));
+      await settleIo(tester);
+      expect(saver.folderDeletes, isEmpty);
+      expect(find.textContaining('no se borró'), findsOneWidget);
     });
 
     testWidgets('si se cancela la elección de la imagen, el álbum se queda como estaba', (tester) async {
@@ -1325,10 +1490,24 @@ void main() {
       await openList(tester);
     }
 
-    testWidgets('mantener pulsada una canción marca, tocar otra suma y «Cancelar» quita todo', (tester) async {
-      await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('a.mp3'))));
+    /// Entra en el modo selección con el botón «Seleccionar» (marca la canción del centro de la lista, `a.mp3`) y deja marcadas justo `names`.
+    Future<void> mark(WidgetTester tester, List<String> names) async {
+      await tester.tap(find.byKey(const Key('album-select')));
       await tester.pump();
+      for (final n in names) {
+        if (n == 'a.mp3') continue;
+        await tester.tap(find.byKey(Key(uriKey(n))));
+        await tester.pump();
+      }
+      if (!names.contains('a.mp3')) {
+        await tester.tap(find.byKey(Key(uriKey('a.mp3'))));
+        await tester.pump();
+      }
+    }
+
+    testWidgets('«Seleccionar» marca la canción del centro, tocar otra suma y «Cancelar» quita todo', (tester) async {
+      await openRoot(tester);
+      await mark(tester, ['a.mp3']);
       expect(find.byKey(const Key('selection-count')), findsOneWidget);
       expect(tester.widget<Text>(find.byKey(const Key('selection-count'))).data, '1 seleccionada');
       await tester.tap(find.byKey(Key(uriKey('b.mp3'))));
@@ -1347,8 +1526,7 @@ void main() {
 
     testWidgets('con canciones marcadas «atrás» primero quita la marca, luego cierra la lista y luego sale del álbum', (tester) async {
       await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('a.mp3'))));
-      await tester.pump();
+      await mark(tester, ['a.mp3']);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('selection-count')), findsNothing);
@@ -1364,8 +1542,7 @@ void main() {
 
     testWidgets('«Mover»: se elige la carpeta, «Mover aquí» y las canciones cambian de carpeta de verdad', (tester) async {
       await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('a.mp3'))));
-      await tester.pump();
+      await mark(tester, ['a.mp3']);
       await tester.tap(find.byKey(Key(uriKey('b.mp3'))));
       await tester.pump();
       await tester.tap(find.byKey(const Key('move-selected')));
@@ -1386,8 +1563,7 @@ void main() {
 
     testWidgets('en la hoja de mover se puede crear una carpeta nueva y mandar las canciones a ella', (tester) async {
       await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('c.mp3'))));
-      await tester.pump();
+      await mark(tester, ['c.mp3']);
       await tester.tap(find.byKey(const Key('move-selected')));
       await settleIo(tester);
       expect(tester.widget<Text>(find.byKey(const Key('move-title'))).data, 'Mover 1 canción a…');
@@ -1405,11 +1581,24 @@ void main() {
       expect(saver.dirSongs['content://tree/musica/document/Nuevas']!.map((s) => s.name), ['c.mp3']);
     });
 
+    testWidgets('la hoja de mover enseña los álbumes en cuadrícula (cuadrados, tres por fila), no en lista', (tester) async {
+      await openRoot(tester);
+      await mark(tester, ['a.mp3']);
+      await tester.tap(find.byKey(const Key('move-selected')));
+      await settleIo(tester);
+      expect(find.byKey(const Key('move-grid')), findsOneWidget);
+      expect(find.byType(ListTile), findsNothing);
+      final rock = tester.getRect(find.byKey(const Key('move-folder-Rock')));
+      final jazz = tester.getRect(find.byKey(const Key('move-folder-Jazz')));
+      expect(rock.width, closeTo(rock.height, 1)); // cuadrados
+      expect(rock.width, jazz.width);
+      expect(rock.top, jazz.top); // en la misma fila
+    });
+
     testWidgets('la hoja de mover solo ofrece los álbumes: dentro de uno no se ven sus subcarpetas ni se pueden crear', (tester) async {
       saver.dirFolders[rock.uri] = [const LocalFolder(uri: 'content://tree/musica/document/Rock/Viejo', name: 'Viejo', count: 0)];
       await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('a.mp3'))));
-      await tester.pump();
+      await mark(tester, ['a.mp3']);
       await tester.tap(find.byKey(const Key('move-selected')));
       await settleIo(tester);
       await tester.tap(find.byKey(const Key('move-folder-Rock')));
@@ -1422,8 +1611,7 @@ void main() {
     testWidgets('si alguna no se pudo mover, el aviso lo dice con el motivo', (tester) async {
       saver.moveFailures['content://tree/musica/document/b.mp3'] = 'No se pudo borrar el original.';
       await openRoot(tester);
-      await tester.longPress(find.byKey(Key(uriKey('a.mp3'))));
-      await tester.pump();
+      await mark(tester, ['a.mp3']);
       await tester.tap(find.byKey(Key(uriKey('b.mp3'))));
       await tester.pump();
       await tester.tap(find.byKey(const Key('move-selected')));
@@ -1435,6 +1623,88 @@ void main() {
       expect(find.textContaining('Se movió 1 canción a «Jazz».'), findsOneWidget);
       expect(find.textContaining('No se pudo mover 1: No se pudo borrar el original.'), findsOneWidget);
     });
+    testWidgets('mantener pulsada una canción abre su menú con «Mover» y «Borrar» (ya no la marca)', (tester) async {
+      await openRoot(tester);
+      await tester.longPress(find.byKey(Key(uriKey('b.mp3'))));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('song-opt-move')), findsOneWidget);
+      expect(find.byKey(const Key('song-opt-delete')), findsOneWidget);
+      expect(find.byKey(const Key('selection-count')), findsNothing);
+      await tester.tap(find.byKey(const Key('song-opt-move')));
+      await settleIo(tester);
+      expect(tester.widget<Text>(find.byKey(const Key('move-title'))).data, 'Mover 1 canción a…');
+      await tester.tap(find.byKey(const Key('move-folder-Jazz')));
+      await settleIo(tester);
+      await tester.tap(find.byKey(const Key('move-here')));
+      await settleIo(tester);
+      expect(saver.moves.single.uris, [song('b.mp3').uri]);
+      expect(find.byKey(Key(uriKey('b.mp3'))), findsNothing);
+    });
+
+    testWidgets('«Borrar» del menú de una canción pide confirmación y borra solo esa', (tester) async {
+      await openRoot(tester);
+      await tester.longPress(find.byKey(Key(uriKey('c.mp3'))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('song-opt-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('song-delete-confirm')));
+      await settleIo(tester);
+      expect(saver.deletes.single, [song('c.mp3').uri]);
+      expect(find.byKey(Key(uriKey('c.mp3'))), findsNothing);
+      expect(find.byKey(Key(uriKey('a.mp3'))), findsOneWidget);
+    });
+
+    testWidgets('con canciones marcadas, el botón de borrar pide confirmación y borra todas las marcadas', (tester) async {
+      await openRoot(tester);
+      await mark(tester, ['a.mp3', 'b.mp3']);
+      await tester.tap(find.byKey(const Key('delete-selected')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('album-delete-text'))).data, contains('2 canciones'));
+      await tester.tap(find.byKey(const Key('album-delete-confirm')));
+      await settleIo(tester);
+      expect(saver.deletes.single, hasLength(2));
+      expect(saver.files.map((f) => f.name), ['c.mp3']);
+    });
+
+    testWidgets('el buscador del álbum filtra la lista por lo que se escribe (sin importar mayúsculas ni acentos) y al cerrarlo vuelven todas', (tester) async {
+      saver.files = [song('Álvaro - Mar.mp3'), song('Beta.mp3'), song('Gamma - Mar azul.mp3')];
+      await home(tester);
+      await openAlbum(tester, 1, 'card-root');
+      await tester.tap(find.byKey(const Key('album-search')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('album-search-field')), findsOneWidget);
+      expect(find.byKey(Key(uriKey('Beta.mp3'))), findsOneWidget); // sin escribir, todas
+      await tester.enterText(find.byKey(const Key('album-search-field')), 'ALVARO');
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key(uriKey('Álvaro - Mar.mp3'))), findsOneWidget);
+      expect(find.byKey(Key(uriKey('Beta.mp3'))), findsNothing);
+      await tester.enterText(find.byKey(const Key('album-search-field')), 'mar');
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key(uriKey('Álvaro - Mar.mp3'))), findsOneWidget);
+      expect(find.byKey(Key(uriKey('Gamma - Mar azul.mp3'))), findsOneWidget);
+      expect(find.byKey(Key(uriKey('Beta.mp3'))), findsNothing);
+      await tester.enterText(find.byKey(const Key('album-search-field')), 'zzz');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('album-search-empty')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('album-search-close')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('album-search-field')), findsNothing);
+      expect(find.byKey(Key(uriKey('Beta.mp3'))), findsOneWidget);
+    });
+
+    testWidgets('tocar una canción encontrada la reproduce con todo el álbum como cola', (tester) async {
+      await home(tester);
+      await openAlbum(tester, 1, 'card-root');
+      await tester.tap(find.byKey(const Key('album-search')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('album-search-field')), 'c');
+      await tester.pumpAndSettle();
+      await playRow(tester, find.byKey(Key(uriKey('c.mp3'))), 'local:${song('c.mp3').uri}');
+      await settleIo(tester);
+      expect(player.current?.title, 'c');
+      expect(player.queue.map((t) => t.title), ['a', 'b', 'c']);
+    });
+
   });
 
   group('canciones enviadas', () {
@@ -1443,7 +1713,7 @@ void main() {
       backend.add('r2', at: DateTime.utc(2026, 9, 2)); // la más nueva sale primera
       await home(tester);
       await openAlbum(tester, 0, 'card-received');
-      expect(songTitle(tester), 'Canción r2');
+      expect(await songTitle(tester), 'Canción r2');
       await openList(tester);
       expect(find.byKey(const Key('received-r2')), findsOneWidget);
       expect(find.byKey(const Key('more-r2')), findsOneWidget);
@@ -1453,7 +1723,7 @@ void main() {
       expect(find.byKey(const Key('received-r1')), findsOneWidget);
       expect(engine.queue.map((q) => q.title), contains('Canción r1'));
       await openList(tester);
-      expect(songTitle(tester), 'Canción r1');
+      expect(await songTitle(tester), 'Canción r1');
     });
 
     testWidgets('«Recibido» guarda la canción y avisa a Supabase', (tester) async {
@@ -1498,15 +1768,13 @@ void main() {
         home: AlbumView(
           albums: const [AlbumEntry(id: 'root', title: 'Mi música', icon: Icons.smartphone_rounded)],
           initial: 0,
-          animation: kAlwaysCompleteAnimation,
-          originOf: (_) => Rect.zero,
           music: music,
           local: local,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(songTitle(tester), 'a');
+    expect(await songTitle(tester), 'a');
     expect(find.byKey(const Key('album-opening')), findsNothing);
   });
   group('el aleatorio entre todos los álbumes', () {

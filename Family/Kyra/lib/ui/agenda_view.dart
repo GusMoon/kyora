@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/event.dart';
 import '../models/habit.dart';
@@ -13,35 +12,22 @@ import '../state/reminder_controller.dart';
 import '../state/task_controller.dart';
 import '../theme.dart';
 import '../util/agenda.dart';
-import '../util/calendar_marks.dart';
 import '../util/format.dart';
 import 'calendar_views.dart';
 import 'event_editor.dart';
 import 'reminder_editor.dart';
 import 'task_detail_page.dart';
-import 'tasks_page.dart';
+import 'widgets/agenda_card.dart';
 import 'widgets/app_backdrop.dart';
-import 'widgets/month_dial.dart';
 import 'widgets/pixel_glyph.dart';
 import 'widgets/cut_border.dart';
 import 'widgets/focus_space.dart';
 import 'widgets/section_motion.dart';
-import 'widgets/cyber_panel.dart';
 
-export '../util/agenda.dart' show addDays, dateOnly, mondayOf, monthNames, minutesLabel;
+export '../util/agenda.dart' show addDays, dateOnly, mondayOf, monthNames, minutesLabel, habitDaysLabel;
+export 'widgets/agenda_card.dart' show SquareCheck;
 
-/// Los días de un hábito, en palabras: «Todos los días», «Entre semana», «Fines de semana» o las letras («L M V»).
-String habitDaysLabel(int mask) {
-  if (mask & Habit.everyDay == Habit.everyDay) return 'Todos los días';
-  if (mask == Habit.maskOf([1, 2, 3, 4, 5])) return 'Entre semana';
-  if (mask == Habit.maskOf([6, 7])) return 'Fines de semana';
-  return [
-    for (var d = 1; d <= 7; d++)
-      if (mask & (1 << (d - 1)) != 0) weekdayLetters[d - 1],
-  ].join(' ');
-}
-
-/// Un día corto, para la columna de la hora en la agenda: «Ayer», «Mañana» o «3 nov».
+/// Un día corto: «Ayer», «Mañana» o «3 nov».
 String shortDayLabel(DateTime moment, DateTime today) {
   final d = dateOnly(moment);
   final t = dateOnly(today);
@@ -50,22 +36,21 @@ String shortDayLabel(DateTime moment, DateTime today) {
   return '${d.day} ${monthNames[d.month - 1].substring(0, 3).toLowerCase()}';
 }
 
-/// El calendario (eventos, tareas con entrega, recordatorios y hábitos), con la organización de Merida pero compacto. Arriba, el rango que se ve
-/// (‹ título ›, «Hoy»), las tres vistas **Día · Semana · Mes** (la semana es la de siempre al abrir), las clases que se muestran (cada una con su
-/// color y cuántas hay) y los botones de **Actualizar**, mini calendario y «+».
+/// El calendario (eventos, tareas con entrega, recordatorios y hábitos). Arriba, en una sola fila, el rango que se ve (‹ título ›, «Hoy») y, en la
+/// esquina, **Actualizar** y «+». Las dos vistas **Semana · Mes** (por defecto la que se elige en Configuración, y si no, la semana) se
+/// cambian **pellizcando**: juntar los dedos pasa a Mes; separarlos, a Semana. Siempre se ve todo —no hay filtros— y
+/// todo se enseña en **tarjetas** (`AgendaCard`).
 ///
-/// - **Mes**: seis semanas con un pequeño margen entre días y puntos de color; el día elegido enseña debajo todo lo suyo.
-/// - **Semana**: la tira de siete días y, debajo, lo de cada día de la semana.
-/// - **Día**: la columna de 24 h con cada cosa en su hora, la de todo el día arriba y la línea de «ahora». Mantener el dedo en un hueco crea un
-///   evento a esa hora.
+/// - **Mes**: a pantalla completa. El número grande del día elegido (con lo que falta para él), el mes y el año, la cuadrícula de cuadros
+///   (que se estira hasta llenar la pantalla, con puntos de color y acabado sci-fi) y, debajo, las tarjetas del día elegido.
+/// - **Semana**: los siete días apilados en bandas; el día elegido se abre con su fecha, sus tarjetas y un campo para añadir una tarea.
 ///
-/// Se pone al día con Supabase solo (Realtime, al volver a la app y tras cada cambio) y con el botón «Actualizar». **Pellizcando** con dos dedos
-/// (o con el botón) se abre el mini calendario del mes. Lo que no esté disponible (sin eventos, sin tareas, sin avisos…) no se ofrece.
+/// Se pone al día con Supabase solo (Realtime, al volver a la app y tras cada cambio) y con el botón «Actualizar». Lo que no esté disponible
+/// (sin eventos, sin tareas, sin avisos…) no se ofrece.
 ///
-/// Vive dentro de la tesela de la hora de Inicio, que se **expande** al tocarla (`HomeGrid`). Con [embedded] va sin el marco propio y «atrás»
-/// llama a [onClose] cuando no hay mini calendario abierto.
+/// Vive dentro de la tesela de la hora de Inicio. Con [embedded] va sin el marco propio y «atrás» llama a [onClose].
 class AgendaView extends StatefulWidget {
-  const AgendaView({super.key, this.tasks, this.reminders, this.habits, this.events, this.now, this.embedded = false, this.onClose});
+  const AgendaView({super.key, this.tasks, this.reminders, this.habits, this.events, this.now, this.embedded = false, this.onClose, this.initialMode = CalendarMode.week});
 
   final Future<TaskController>? tasks;
   final Future<ReminderController>? reminders;
@@ -78,38 +63,49 @@ class AgendaView extends StatefulWidget {
   /// Dentro de la tesela de Inicio: sin el panel propio.
   final bool embedded;
 
-  /// Cerrar la agenda (contraer la tesela). Si no es nulo, «atrás» cierra primero el mini calendario y después llama a esto.
+  /// Cerrar la agenda (contraer la tesela). Si no es nulo, «atrás» lo llama.
   final VoidCallback? onClose;
 
-  /// Cuánto hay que juntar los dedos (de la distancia inicial) para que se abra el mini calendario, y separarlos para cerrarlo.
+  /// La vista con la que se abre (la elegida en Configuración; por defecto, la semana). Con el pellizco se cambia mientras está abierto.
+  final CalendarMode initialMode;
+
+  /// Cuánto hay que juntar los dedos (sobre lo que estaban separados) para pasar al mes, y cuánto separarlos para volver a la semana.
   static const pinchIn = 0.82;
   static const pinchOut = 1.2;
-
-  /// La vista que se usó la última vez en esta sesión (la semana, al abrir por primera vez).
-  static CalendarMode lastMode = CalendarMode.week;
 
   @override
   State<AgendaView> createState() => _AgendaViewState();
 }
 
-class _AgendaViewState extends State<AgendaView> {
+class _AgendaViewState extends State<AgendaView> with SingleTickerProviderStateMixin {
   TaskController? _tasks;
   ReminderController? _reminders;
   HabitController? _habits;
   EventController? _events;
 
-  late CalendarMode _mode = AgendaView.lastMode;
+  late CalendarMode _mode = widget.initialMode;
   late DateTime _selected = _today;
-  final Set<AgendaKind> _hidden = {};
-  bool _dialOpen = false;
   bool _refreshing = false;
+
+  /// El cambio de vista (semana ↔ mes): el cuerpo se materializa con el efecto de holograma (0 oculto → 1 nítido).
+  late final AnimationController _swap = AnimationController(vsync: this, duration: const Duration(milliseconds: 420), value: 1);
+
+  /// Los dedos que tocan la pantalla (para el pellizco: minimizar pasa de la semana al mes; separar, del mes a la semana).
+  final Map<int, Offset> _pointers = {};
+  double? _pinchStart;
+
+  /// El campo de «añadir una tarea» del día abierto de la semana.
+  final TextEditingController _quickTask = TextEditingController();
 
   /// Para llevar la lista de la semana al día elegido.
   final Map<String, GlobalKey> _dayKeys = {};
 
-  /// Los dedos que hay en la pantalla (para el pellizco), y la distancia entre los dos primeros al empezar.
-  final Map<int, Offset> _pointers = {};
-  double? _pinchStart;
+  @override
+  void dispose() {
+    _swap.dispose();
+    _quickTask.dispose();
+    super.dispose();
+  }
 
   DateTime get _clock => (widget.now ?? DateTime.now)();
   DateTime get _today => dateOnly(_clock);
@@ -121,6 +117,16 @@ class _AgendaViewState extends State<AgendaView> {
     _attach<ReminderController>(widget.reminders, (c) => _reminders = c);
     _attach<HabitController>(widget.habits, (c) => _habits = c);
     _attach<EventController>(widget.events, (c) => _events = c);
+    _revealDay();
+  }
+
+  /// En la semana, lleva el día abierto hasta arriba (si no, con varios días cerrados encima, sus tarjetas quedarían fuera de la pantalla).
+  void _revealDay() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _mode != CalendarMode.week) return;
+      final ctx = _dayKeys[dayKey(_selected)]?.currentContext;
+      if (ctx != null && ctx.mounted) unawaited(Scrollable.ensureVisible(ctx, alignment: 0, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic));
+    });
   }
 
   void _attach<T>(Future<T>? future, void Function(T controller) set) {
@@ -160,7 +166,8 @@ class _AgendaViewState extends State<AgendaView> {
     if (widget.habits != null) AgendaKind.habit,
   ];
 
-  Set<AgendaKind> get _visible => {for (final k in _kinds) if (!_hidden.contains(k)) k};
+  /// Siempre se ve todo: eventos, tareas, recordatorios y hábitos.
+  Set<AgendaKind> get _visible => {..._kinds};
 
   AgendaData get _data {
     final habits = _habits;
@@ -170,20 +177,11 @@ class _AgendaViewState extends State<AgendaView> {
       reminders: _reminders?.items ?? const [],
       habitsOn: habits?.habitsFor,
       habitDone: habits?.isDone,
+      taskProgress: _tasks?.progress,
     );
   }
 
   List<AgendaItem> _itemsFor(DateTime day, {Set<AgendaKind>? kinds}) => agendaForDay(_data, day, kinds: kinds ?? _visible);
-
-  /// Cuántas cosas de esa clase hay en lo que se ve.
-  int _count(AgendaKind kind) {
-    final data = _data;
-    var total = 0;
-    for (final d in daysFor(_mode, _selected)) {
-      total += agendaForDay(data, d, kinds: {kind}).length;
-    }
-    return total;
-  }
 
   /// Lo de antes de hoy que sigue sin hacerse (recordatorios y tareas), para enseñarlo en hoy.
   List<AgendaItem> _overdue() {
@@ -192,7 +190,7 @@ class _AgendaViewState extends State<AgendaView> {
     if (_visible.contains(AgendaKind.reminder)) {
       for (final r in _reminders?.items ?? const <Reminder>[]) {
         if (!r.done && dateOnly(r.at).isBefore(today)) {
-          out.add(AgendaItem(kind: AgendaKind.reminder, id: r.id, title: r.title, day: dateOnly(r.at), start: null, end: null, allDay: false, done: false, span: Span.single, time: '${shortDayLabel(r.at, today)} ${clockText(r.at)}'));
+          out.add(AgendaItem(kind: AgendaKind.reminder, id: r.id, title: r.title, day: dateOnly(r.at), start: r.at.toLocal().hour * 60 + r.at.toLocal().minute, end: null, allDay: false, done: false, span: Span.single, time: '${shortDayLabel(r.at, today)} ${clockText(r.at)}', subtitle: r.notes.trim(), footer: 'Recordatorio'));
         }
       }
     }
@@ -200,7 +198,7 @@ class _AgendaViewState extends State<AgendaView> {
       for (final t in _tasks?.roots() ?? const <TaskItem>[]) {
         final due = t.due;
         if (!t.isDone && due != null && dateOnly(due).isBefore(today)) {
-          out.add(AgendaItem(kind: AgendaKind.task, id: t.id, title: t.name, day: dateOnly(due), start: null, end: null, allDay: false, done: false, span: Span.single, time: '${shortDayLabel(due, today)} ${clockText(due)}'));
+          out.add(AgendaItem(kind: AgendaKind.task, id: t.id, title: t.name, day: dateOnly(due), start: due.toLocal().hour * 60 + due.toLocal().minute, end: null, allDay: false, done: false, span: Span.single, time: '${shortDayLabel(due, today)} ${clockText(due)}', subtitle: t.description.trim(), footer: taskFooter(_tasks?.progress(t))));
         }
       }
     }
@@ -213,17 +211,55 @@ class _AgendaViewState extends State<AgendaView> {
   void _select(DateTime day) => setState(() => _selected = dateOnly(day));
 
   void _setMode(CalendarMode mode) {
-    AgendaView.lastMode = mode;
+    if (mode == _mode) return;
     setState(() => _mode = mode);
+    unawaited(_swap.forward(from: 0));
+    _revealDay();
   }
 
-  void _step(int delta) => setState(() => _selected = stepSelected(_mode, _selected, delta));
+  // ---- el pellizco: se mira a mano (con un Listener), para no quitarle el deslizamiento a la lista ----
 
-  void _goToday() => setState(() => _selected = _today);
+  double? _spread() {
+    if (_pointers.length < 2) return null;
+    final points = _pointers.values.take(2).toList();
+    return (points[0] - points[1]).distance;
+  }
 
-  void _toggleKind(AgendaKind kind) => setState(() {
-        if (!_hidden.remove(kind)) _hidden.add(kind);
-      });
+  void _pointerDown(PointerDownEvent e) {
+    _pointers[e.pointer] = e.position;
+    if (_pointers.length == 2) _pinchStart = _spread();
+  }
+
+  void _pointerMove(PointerMoveEvent e) {
+    if (!_pointers.containsKey(e.pointer)) return;
+    _pointers[e.pointer] = e.position;
+    final start = _pinchStart;
+    final now = _spread();
+    if (start == null || now == null || start < 1) return;
+    final ratio = now / start;
+    if (_mode == CalendarMode.week && ratio < AgendaView.pinchIn) {
+      _pinchStart = null;
+      _setMode(CalendarMode.month);
+    } else if (_mode == CalendarMode.month && ratio > AgendaView.pinchOut) {
+      _pinchStart = null;
+      _setMode(CalendarMode.week);
+    }
+  }
+
+  void _pointerUp(PointerEvent e) {
+    _pointers.remove(e.pointer);
+    if (_pointers.length < 2) _pinchStart = null;
+  }
+
+  void _step(int delta) {
+    setState(() => _selected = stepSelected(_mode, _selected, delta));
+    _revealDay();
+  }
+
+  void _goToday() {
+    setState(() => _selected = _today);
+    _revealDay();
+  }
 
   /// Pone al día todo con Supabase a mano.
   Future<void> _refresh() async {
@@ -256,61 +292,12 @@ class _AgendaViewState extends State<AgendaView> {
     return null;
   }
 
-  void _openDial() {
-    if (_dialOpen) return;
-    unawaited(HapticFeedback.lightImpact().catchError((Object _) {}));
-    setState(() => _dialOpen = true);
-  }
-
-  void _closeDial() {
-    if (_dialOpen) setState(() => _dialOpen = false);
-  }
-
-  // ---- el pellizco: se mira a mano (con un Listener), para no quitarle el deslizamiento a la lista ----
-
-  double? _spread() {
-    if (_pointers.length < 2) return null;
-    final points = _pointers.values.take(2).toList();
-    return (points[0] - points[1]).distance;
-  }
-
-  void _pointerDown(PointerDownEvent e) {
-    _pointers[e.pointer] = e.position;
-    if (_pointers.length == 2) _pinchStart = _spread();
-  }
-
-  void _pointerMove(PointerMoveEvent e) {
-    if (!_pointers.containsKey(e.pointer)) return;
-    _pointers[e.pointer] = e.position;
-    final start = _pinchStart;
-    final now = _spread();
-    if (start == null || now == null || start < 1) return;
-    final ratio = now / start;
-    if (!_dialOpen && ratio < AgendaView.pinchIn) {
-      _pinchStart = null;
-      _openDial();
-    } else if (_dialOpen && ratio > AgendaView.pinchOut) {
-      _pinchStart = null;
-      _closeDial();
-    }
-  }
-
-  void _pointerUp(PointerEvent e) {
-    _pointers.remove(e.pointer);
-    if (_pointers.length < 2) _pinchStart = null;
-  }
-
-  DayMarks _marksOf(DateTime day) => marksFor(day, tasks: _tasks, reminders: _reminders, habits: _habits);
-
   // ---- acciones ----
 
-  Future<void> _add({int? minutes, DateTime? day}) async {
+  Future<void> _add({DateTime? day}) async {
     final c = context.colors;
     final at = day ?? _selected;
-    // desde un hueco de la columna de horas solo tiene sentido crear un evento
-    final choice = minutes != null && widget.events != null
-        ? 'event'
-        : await showFocusPanel<String>(context, title: 'Añadir', builder: (sheet) => SafeArea(
+    final choice = await showFocusPanel<String>(context, title: 'Añadir', builder: (sheet) => SafeArea(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -331,7 +318,7 @@ class _AgendaViewState extends State<AgendaView> {
     switch (choice) {
       case 'event':
         final events = _events ?? await widget.events;
-        if (events != null && mounted) await showEventEditor(context, events, day: at, minutes: minutes);
+        if (events != null && mounted) await showEventEditor(context, events, day: at);
       case 'task':
         final tasks = _tasks ?? await widget.tasks;
         if (tasks != null && mounted) await showQuickTaskEditor(context, tasks, at);
@@ -342,13 +329,6 @@ class _AgendaViewState extends State<AgendaView> {
         final habits = _habits ?? await widget.habits;
         if (habits != null && mounted) await showHabitEditor(context, habits);
     }
-  }
-
-  /// «Todas las tareas»: la lista completa con sus filtros, en su propia página.
-  void _openAllTasks() {
-    final tasks = _tasks;
-    if (tasks == null) return;
-    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TasksPage(controller: tasks))));
   }
 
   /// Tocar una cosa abre su editor.
@@ -394,209 +374,171 @@ class _AgendaViewState extends State<AgendaView> {
 
   // ---- dibujo ----
 
-  Widget _row(BuildContext context, AgendaItem item, {bool overdue = false}) {
+  /// Una tarjeta de la agenda. Claves: `cal-<clase>-<id>` (la tarjeta) y `cal-<clase>-check-<id>` (su casilla; los eventos no la llevan).
+  Widget _card(BuildContext context, AgendaItem item, {bool overdue = false}) {
     final color = itemColor(context, item);
     final name = item.kind.name;
-    final Widget check = item.kind == AgendaKind.event
-        ? SizedBox(
-            width: 44,
-            height: 44,
-            child: Align(alignment: Alignment.centerLeft, child: Container(key: Key('cal-event-mark-${item.id}'), width: 14, height: 14, color: color)),
-          )
-        : SquareCheck(
-            key: Key('cal-$name-check-${item.id}'),
-            color: color,
-            done: item.done,
-            label: item.title,
-            onTap: _canToggle(item) ? () => _toggle(item) : null,
-          );
-    return _AgendaRow(
-      key: Key('cal-$name-${item.id}'),
-      check: check,
-      when: item.time,
-      whenWarn: overdue,
-      tone: color,
-      title: item.title,
-      done: item.done,
-      onTap: () => _open(item),
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: AgendaCard(
+        key: Key('cal-$name-${item.id}'),
+        item: item,
+        color: color,
+        overdue: overdue,
+        check: item.kind == AgendaKind.event
+            ? null
+            : SquareCheck(
+                key: Key('cal-$name-check-${item.id}'),
+                color: overdue ? context.colors.warn : color,
+                done: item.done,
+                label: item.title,
+                onTap: _canToggle(item) ? () => _toggle(item) : null,
+              ),
+        onTap: () => _open(item),
+      ),
     );
   }
 
-  Widget _rows(BuildContext context, List<AgendaItem> items, {bool overdue = false}) {
-    final c = context.colors;
-    return Column(
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) ColoredBox(color: c.edge, child: const SizedBox(height: 1)),
-          _row(context, items[i], overdue: overdue),
-        ],
-      ],
+  /// Un aviso con un margen a los lados (la agenda va de borde a borde).
+  Widget? _sidePadded(Widget? child) => child == null ? null : Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: child);
+
+  /// El aviso de notificaciones desactivadas (solo si lo están).
+  Widget? _blockedNote(BuildContext context, {double top = 4}) {
+    if (!(_reminders?.notificationsBlocked ?? false)) return null;
+    return _Note(
+      'Las notificaciones están desactivadas: los recordatorios y los hábitos se guardan pero no avisarán. Actívalas para esta app en los ajustes del teléfono.',
+      key: const Key('reminders-blocked'),
+      color: context.colors.warn,
+      top: top,
     );
   }
 
-  /// Lo del día: el aviso de notificaciones, lo vencido (si es hoy) y todo lo suyo.
-  List<Widget> _dayChildren(BuildContext context, DateTime day, {bool withAll = true}) {
+  /// Lo de un día en tarjetas: lo vencido (si es hoy) y todo lo suyo, o «Nada para este día».
+  List<Widget> _dayCards(BuildContext context, DateTime day) {
     final c = context.colors;
     final items = _itemsFor(day);
     final overdue = day == _today ? _overdue() : const <AgendaItem>[];
     return [
-      if (_reminders?.notificationsBlocked ?? false)
-        _Note(
-          'Las notificaciones están desactivadas: los recordatorios y los hábitos se guardan pero no avisarán. Actívalas para esta app en los ajustes del teléfono.',
-          key: const Key('reminders-blocked'),
-          color: c.warn,
-          top: 4,
-        ),
-      if (overdue.isNotEmpty) _Block('Vencido', color: c.warn, count: overdue.length, children: [for (final i in overdue) _row(context, i, overdue: true)]),
-      if (items.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: CyberPanel(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: _rows(context, items))),
-        ),
+      if (overdue.isNotEmpty) _Block('Vencido', color: c.warn, count: overdue.length, children: [for (final i in overdue) _card(context, i, overdue: true)]),
+      for (final i in items) _card(context, i),
       if (items.isEmpty && overdue.isEmpty) _Note('Nada para este día.', key: const Key('cal-day-empty'), color: c.dim, top: 8),
-      if (withAll && widget.tasks != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 14),
-          child: OutlinedButton(
-            key: const Key('cal-all-tasks'),
-            onPressed: _openAllTasks,
-            style: OutlinedButton.styleFrom(foregroundColor: c.accent, minimumSize: const Size.fromHeight(48), side: BorderSide(color: c.accent.withValues(alpha: 0.6)), shape: const CutBorder()),
-            child: Text('TODAS LAS TAREAS ›', style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.5, color: c.accent)),
-          ),
-        ),
     ];
   }
 
+  /// El mes, a pantalla completa: el número grande del día elegido, la cuadrícula —que se estira hasta llenar lo que queda de pantalla, con un
+  /// mínimo por fila— y, debajo, las tarjetas de ese día. Si no caben, todo se desliza junto.
   Widget _monthBody(BuildContext context) {
     final bottom = 24 + MediaQuery.paddingOf(context).bottom;
     return LayoutBuilder(
       builder: (context, box) {
-        final grid = (box.maxHeight * 0.5).clamp(250.0, 340.0);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        final blocked = _reminders?.notificationsBlocked ?? false;
+        final room = box.maxHeight - MonthHeader.height - MonthGrid.cardsReserve - bottom - (blocked ? 96 : 0);
+        final gridHeight = room < MonthGrid.minHeight ? MonthGrid.minHeight : room;
+        return ListView(
+          key: const Key('cal-day'),
+          padding: EdgeInsets.only(bottom: bottom),
           children: [
-            SizedBox(
-              height: grid,
-              child: MonthGrid(days: daysFor(CalendarMode.month, _selected), selected: _selected, today: _today, month: _selected.month, itemsOf: _itemsFor, onTap: _select),
+            ?_sidePadded(_blockedNote(context)),
+            MonthHeader(day: _selected, today: _today),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: SizedBox(
+                height: gridHeight,
+                child: MonthGrid(days: daysFor(CalendarMode.month, _selected), selected: _selected, today: _today, month: _selected.month, itemsOf: _itemsFor, onTap: _select),
+              ),
             ),
             const SizedBox(height: 6),
-            Expanded(child: ListView(key: const Key('cal-day'), padding: EdgeInsets.only(bottom: bottom), children: _dayChildren(context, _selected))),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _dayCards(context, _selected))),
           ],
         );
       },
     );
   }
 
-  Widget _weekBody(BuildContext context) {
+  /// «Noviembre 5, 2026» (y la hora de ahora si es hoy).
+  String _dateLine(DateTime day) => '${monthNames[day.month - 1]} ${day.day}, ${day.year}${day == _today ? ' · ${clockText(_clock)}' : ''}';
+
+  /// La hora de entrega de una tarea que se añade desde la semana: las 18:00 de ese día (o las 23:59 si hoy ya pasaron).
+  DateTime _quickDue(DateTime day) {
+    final late = day == _today && _clock.hour >= 18;
+    return atMinutes(day, late ? 23 * 60 + 59 : 18 * 60);
+  }
+
+  /// Añade la tarea escrita en el campo del día abierto, con entrega ese día.
+  Future<void> _addQuick(DateTime day) async {
+    final name = _quickTask.text.trim();
+    if (name.isEmpty) return;
+    final tasks = _tasks ?? await widget.tasks;
+    if (tasks == null || !mounted) return;
+    _quickTask.clear();
+    await tasks.add(name, due: _quickDue(day));
+  }
+
+  /// El campo de «Añadir una tarea…» del día abierto.
+  Widget _quickAdd(BuildContext context, DateTime day) {
     final c = context.colors;
-    final days = daysFor(CalendarMode.week, _selected);
-    final bottom = 24 + MediaQuery.paddingOf(context).bottom;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        WeekStrip(
-          days: days,
-          selected: _selected,
-          today: _today,
-          itemsOf: _itemsFor,
-          onTap: (day) {
-            _select(day);
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              final ctx = _dayKeys[dayKey(day)]?.currentContext;
-              if (ctx != null && ctx.mounted) unawaited(Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic));
-            });
-          },
+    final k = dayKey(day);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: TextField(
+        key: Key('cal-week-add-$k'),
+        controller: _quickTask,
+        textCapitalization: TextCapitalization.sentences,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => unawaited(_addQuick(day)),
+        decoration: InputDecoration(
+          hintText: 'Añadir una tarea…',
+          prefixIcon: LcdIcon(Icons.add_rounded, color: c.tasks),
+          suffixIcon: IconButton(key: Key('cal-week-add-send-$k'), tooltip: 'Añadir', onPressed: () => unawaited(_addQuick(day)), icon: LcdIcon(Icons.keyboard_return_rounded, color: c.accent)),
         ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: ListView(
-            key: const Key('cal-week'),
-            padding: EdgeInsets.only(bottom: bottom),
-            children: [
-              if (_reminders?.notificationsBlocked ?? false)
-                _Note(
-                  'Las notificaciones están desactivadas: los recordatorios y los hábitos se guardan pero no avisarán. Actívalas para esta app en los ajustes del teléfono.',
-                  key: const Key('reminders-blocked'),
-                  color: c.warn,
-                  top: 4,
-                ),
-              for (final day in days) ...[
-                Builder(
-                  builder: (context) {
-                    final items = _itemsFor(day);
-                    final overdue = day == _today ? _overdue() : const <AgendaItem>[];
-                    return Column(
-                      key: _dayKeys.putIfAbsent(dayKey(day), GlobalKey.new),
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(2, 12, 2, 4),
-                          child: GestureDetector(
-                            key: Key('cal-week-day-${dayKey(day)}'),
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _select(day),
-                            child: Text(
-                              '${weekdayNames[day.weekday - 1]} ${day.day} ${monthNames[day.month - 1].substring(0, 3).toLowerCase()}${day == _today ? ' · HOY' : ''}',
-                              style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.4, fontWeight: day == _selected ? FontWeight.w700 : FontWeight.w500, color: day == _selected ? c.accent : (day == _today ? c.ink : c.dim)),
-                            ),
-                          ),
-                        ),
-                        if (overdue.isNotEmpty) _Block('Vencido', color: c.warn, count: overdue.length, children: [for (final i in overdue) _row(context, i, overdue: true)]),
-                        if (items.isNotEmpty)
-                          CyberPanel(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: _rows(context, items)))
-                        else if (overdue.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(2, 0, 2, 2),
-                            child: Text('Nada', key: day == _selected ? const Key('cal-day-empty') : null, style: TextStyle(color: c.dim.withValues(alpha: 0.7), fontSize: 15)),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ],
-              if (widget.tasks != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 14),
-                  child: OutlinedButton(
-                    key: const Key('cal-all-tasks'),
-                    onPressed: _openAllTasks,
-                    style: OutlinedButton.styleFrom(foregroundColor: c.accent, minimumSize: const Size.fromHeight(48), side: BorderSide(color: c.accent.withValues(alpha: 0.6)), shape: const CutBorder()),
-                    child: Text('TODAS LAS TAREAS ›', style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.5, color: c.accent)),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _dayBody(BuildContext context) {
-    final c = context.colors;
-    final items = _itemsFor(_selected);
-    final overdue = _selected == _today ? _overdue() : const <AgendaItem>[];
-    final allDay = [
-      if (_reminders?.notificationsBlocked ?? false)
-        _Note(
-          'Las notificaciones están desactivadas: los recordatorios y los hábitos se guardan pero no avisarán. Actívalas para esta app en los ajustes del teléfono.',
-          key: const Key('reminders-blocked'),
-          color: c.warn,
-          top: 0,
+  Widget _weekDay(BuildContext context, DateTime day, int index) {
+    final open = day == _selected;
+    final items = _itemsFor(day);
+    final overdue = day == _today ? _overdue() : const <AgendaItem>[];
+    return KeyedSubtree(
+      key: _dayKeys.putIfAbsent(dayKey(day), GlobalKey.new),
+      child: WeekDayBand(
+        day: day,
+        index: index,
+        today: _today,
+        open: open,
+        count: items.length + overdue.length,
+        dateLine: _dateLine(day),
+        onTap: () {
+          if (day != _selected) _quickTask.clear();
+          _select(day);
+          _revealDay();
+        },
+        children: open ? [..._dayCards(context, day), if (widget.tasks != null) _quickAdd(context, day)] : const [],
+      ),
+    );
+  }
+
+  /// La semana: los siete días apilados, el elegido abierto. La columna **llega hasta abajo de la pantalla**: si los días no llenan el alto,
+  /// las bandas cerradas se estiran (con el nombre centrado) para ocupar el resto; si no caben, se desliza.
+  Widget _weekBody(BuildContext context) {
+    final days = daysFor(CalendarMode.week, _selected);
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        key: const Key('cal-week'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight),
+          child: IntrinsicHeight(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ?_sidePadded(_blockedNote(context)),
+                for (var i = 0; i < days.length; i++)
+                  days[i] == _selected ? _weekDay(context, days[i], i) : Expanded(child: _weekDay(context, days[i], i)),
+              ],
+            ),
+          ),
         ),
-      for (final i in overdue) _row(context, i, overdue: true),
-      for (final i in items)
-        if (i.allDay) _row(context, i),
-    ];
-    return DayTimeline(
-      key: ValueKey('cal-timeline-${dayKey(_selected)}'),
-      day: _selected,
-      items: items,
-      now: _clock,
-      allDay: allDay,
-      onOpen: _open,
-      onToggle: _toggle,
-      canToggle: _canToggle,
-      onCreateAt: (m) => unawaited(_add(minutes: m)),
+      ),
     );
   }
 
@@ -609,15 +551,10 @@ class _AgendaViewState extends State<AgendaView> {
         final canAdd = _kinds.isNotEmpty;
         final problem = _syncProblem;
         return PopScope(
-          // «atrás» cierra primero el mini calendario y, dentro de Inicio, después contrae la agenda
-          canPop: !_dialOpen && widget.onClose == null,
+          // dentro de Inicio, «atrás» contrae la agenda
+          canPop: widget.onClose == null,
           onPopInvokedWithResult: (didPop, _) {
-            if (didPop) return;
-            if (_dialOpen) {
-              _closeDial();
-            } else {
-              widget.onClose?.call();
-            }
+            if (!didPop) widget.onClose?.call();
           },
           child: Scaffold(
             backgroundColor: Colors.transparent,
@@ -626,48 +563,31 @@ class _AgendaViewState extends State<AgendaView> {
               onPointerMove: _pointerMove,
               onPointerUp: _pointerUp,
               onPointerCancel: _pointerUp,
-              child: Stack(
-                fit: StackFit.expand,
+              child: Padding(
+              // a todo el ancho: las bandas de la semana y el mes llegan de borde a borde
+              padding: EdgeInsets.only(top: widget.embedded ? 0 : MediaQuery.paddingOf(context).top + 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(2, widget.embedded ? 0 : MediaQuery.paddingOf(context).top + 8, 2, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        FlyIn(edge: MotionEdge.top, child: _header(context)),
-                        FlyIn(edge: MotionEdge.top, order: 1, child: _toolbar(context, canAdd)),
-                        if (_kinds.length > 1) FlyIn(edge: MotionEdge.top, order: 2, child: _filters(context)),
-                        if (problem != null) _SyncLine(problem),
-                        const SizedBox(height: 4),
-                        Expanded(
-                          child: FlyIn(
-                            edge: MotionEdge.bottom,
-                            order: 3,
-                            child: switch (_mode) {
-                              CalendarMode.month => _monthBody(context),
-                              CalendarMode.week => _weekBody(context),
-                              CalendarMode.day => _dayBody(context),
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_dialOpen)
-                    Positioned.fill(
-                      child: MonthDial(
-                        selected: _selected,
-                        today: _today,
-                        marksOf: _marksOf,
-                        onPick: (day) {
-                          _select(day);
-                          _closeDial();
+                  FlyIn(edge: MotionEdge.top, child: _header(context, canAdd)),
+                  if (problem != null) _SyncLine(problem),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: FlyIn(
+                      edge: MotionEdge.bottom,
+                      order: 3,
+                      child: HologramReveal(
+                        animation: _swap,
+                        child: switch (_mode) {
+                          CalendarMode.month => _monthBody(context),
+                          CalendarMode.week => _weekBody(context),
                         },
-                        onClose: _closeDial,
                       ),
                     ),
+                  ),
                 ],
               ),
+            ),
             ),
           ),
         );
@@ -675,87 +595,45 @@ class _AgendaViewState extends State<AgendaView> {
     );
   }
 
-  /// ‹ título › y «Hoy».
-  Widget _header(BuildContext context) {
+  /// ‹ título ›, «Hoy» y, en la esquina, **Actualizar** y «+».
+  Widget _header(BuildContext context, bool canAdd) {
     final c = context.colors;
     final isToday = _selected == _today;
-    final button = IconButton.styleFrom(fixedSize: const Size(40, 40), padding: EdgeInsets.zero);
-    return Row(
-      children: [
-        IconButton(key: const Key('cal-prev'), tooltip: 'Anterior', onPressed: () => _step(-1), style: button, icon: Icon(Icons.chevron_left_rounded, color: c.ink)),
-        Expanded(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _goToday,
-            child: Text(
-              titleFor(_mode, _selected),
-              key: const Key('cal-title'),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontFamily: monoFont, fontSize: 16, fontWeight: FontWeight.w700, color: c.ink, letterSpacing: 0.3),
-            ),
-          ),
-        ),
-        IconButton(key: const Key('cal-next'), tooltip: 'Siguiente', onPressed: () => _step(1), style: button, icon: Icon(Icons.chevron_right_rounded, color: c.ink)),
-        const SizedBox(width: 2),
-        Semantics(
-          button: true,
-          label: 'Hoy',
-          child: GestureDetector(
-            key: const Key('cal-today'),
-            behavior: HitTestBehavior.opaque,
-            onTap: _goToday,
-            child: Container(
-              height: 36,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(border: Border.all(color: isToday ? c.edge : c.accent.withValues(alpha: 0.7))),
-              child: Text('Hoy', style: TextStyle(fontFamily: monoFont, fontSize: 15, color: isToday ? c.dim : c.accent)),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Las tres vistas y los botones de actualizar, mini calendario y «+».
-  Widget _toolbar(BuildContext context, bool canAdd) {
-    final c = context.colors;
+    final button = IconButton.styleFrom(fixedSize: const Size(36, 40), padding: EdgeInsets.zero);
     final square = IconButton.styleFrom(fixedSize: const Size(40, 40), padding: EdgeInsets.zero, shape: CutBorder(side: BorderSide(color: c.accent.withValues(alpha: 0.45))));
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+      padding: const EdgeInsets.fromLTRB(4, 0, 8, 6),
       child: Row(
         children: [
+          IconButton(key: const Key('cal-prev'), tooltip: 'Anterior', onPressed: () => _step(-1), style: button, icon: Icon(Icons.chevron_left_rounded, color: c.ink)),
           Expanded(
-            child: DecoratedBox(
-              decoration: cutDecoration(color: c.field, edge: c.edge),
-              child: Row(
-                children: [
-                  for (final m in CalendarMode.values)
-                    Expanded(
-                      child: Semantics(
-                        button: true,
-                        selected: m == _mode,
-                        label: calendarModeLabel[m],
-                        child: GestureDetector(
-                          key: Key('cal-mode-${m.name}'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => _setMode(m),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            height: 40,
-                            alignment: Alignment.center,
-                            color: m == _mode ? c.accent.withValues(alpha: 0.16) : Colors.transparent,
-                            child: Text(
-                              calendarModeLabel[m]!,
-                              style: TextStyle(fontFamily: monoFont, fontSize: 15, fontWeight: m == _mode ? FontWeight.w700 : FontWeight.w400, color: m == _mode ? c.accent : c.dim),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _goToday,
+              child: Text(
+                titleFor(_mode, _selected),
+                key: const Key('cal-title'),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontFamily: monoFont, fontSize: 16, fontWeight: FontWeight.w700, color: c.ink, letterSpacing: 0.3),
+              ),
+            ),
+          ),
+          IconButton(key: const Key('cal-next'), tooltip: 'Siguiente', onPressed: () => _step(1), style: button, icon: Icon(Icons.chevron_right_rounded, color: c.ink)),
+          Semantics(
+            button: true,
+            label: 'Hoy',
+            child: GestureDetector(
+              key: const Key('cal-today'),
+              behavior: HitTestBehavior.opaque,
+              onTap: _goToday,
+              child: Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(border: Border.all(color: isToday ? c.edge : c.accent.withValues(alpha: 0.7))),
+                child: Text('Hoy', style: TextStyle(fontFamily: monoFont, fontSize: 15, color: isToday ? c.dim : c.accent)),
               ),
             ),
           ),
@@ -767,8 +645,6 @@ class _AgendaViewState extends State<AgendaView> {
             style: square,
             icon: _refreshing ? SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: c.accent)) : Icon(Icons.refresh_rounded, color: c.ink, size: 24),
           ),
-          const SizedBox(width: 4),
-          IconButton(key: const Key('cal-open-month'), tooltip: 'Calendario', onPressed: _openDial, style: square, icon: Icon(Icons.blur_circular_rounded, color: c.ink, size: 24)),
           if (canAdd) ...[
             const SizedBox(width: 4),
             Semantics(
@@ -790,28 +666,6 @@ class _AgendaViewState extends State<AgendaView> {
       ),
     );
   }
-
-  /// Qué clases se ven: un recuadro por cada una, con su color y cuántas hay.
-  Widget _filters(BuildContext context) {
-    final c = context.colors;
-    Color colorOf(AgendaKind k) => switch (k) {
-          AgendaKind.event => Color(colorValue(eventColors.first)),
-          AgendaKind.task => c.tasks,
-          AgendaKind.reminder => c.reminders,
-          AgendaKind.habit => c.habits,
-        };
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-      child: Wrap(
-        key: const Key('cal-show'),
-        spacing: 6,
-        runSpacing: 4,
-        children: [
-          for (final k in _kinds) KindChip(kind: k, label: agendaKindPlural[k]!, count: _count(k), on: !_hidden.contains(k), color: colorOf(k), onTap: () => _toggleKind(k)),
-        ],
-      ),
-    );
-  }
 }
 
 /// Una línea con lo que falla al actualizar (sin conexión, o un error de Supabase).
@@ -827,132 +681,7 @@ class _SyncLine extends StatelessWidget {
   );
 }
 
-/// Una casilla cuadrada: vacía, o rellena con ✓. Sin `onTap` queda apagada (un día que todavía no llega). Con [color] va del color de su tipo
-/// (recordatorio, tarea, hábito); sin él, del acento.
-class SquareCheck extends StatelessWidget {
-  const SquareCheck({super.key, required this.done, required this.onTap, this.label, this.color});
-
-  final bool done;
-  final VoidCallback? onTap;
-  final String? label;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final enabled = onTap != null;
-    final tone = color ?? c.accent;
-    final on = tone.computeLuminance() > 0.18 ? const Color(0xFF0A0B0D) : const Color(0xFFFFFFFF);
-    return Semantics(
-      button: true,
-      checked: done,
-      label: label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: done ? tone : tone.withValues(alpha: enabled ? 0.08 : 0),
-                border: Border.all(color: done ? tone : (enabled ? tone.withValues(alpha: 0.75) : c.edge), width: 1.5),
-              ),
-              child: done ? LcdIcon(Icons.check_rounded, size: 18, color: on) : null,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// La hora (o el día) de una fila, en una etiqueta técnica con filo del color de su tipo; lo vencido, rellena en el color de aviso.
-class _TimeChip extends StatelessWidget {
-  const _TimeChip(this.text, {required this.color, required this.warn});
-
-  final String text;
-  final Color color;
-  final bool warn;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return DecoratedBox(
-      key: warn ? const Key('lcd-tag-inverse') : null,
-      decoration: ShapeDecoration(
-        color: warn ? c.warn : null,
-        shape: CutBorder(side: warn ? BorderSide.none : BorderSide(color: color.withValues(alpha: 0.55))),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontFamily: monoFont, fontSize: 15, fontWeight: FontWeight.w600, color: warn ? const Color(0xFF0A0B0D) : c.ink),
-        ),
-      ),
-    );
-  }
-}
-
-/// Una fila de la agenda: casilla, la hora o el día (si lo hay) y el título; lo hecho, tachado.
-class _AgendaRow extends StatelessWidget {
-  const _AgendaRow({super.key, required this.check, required this.title, required this.done, this.when, this.whenWarn = false, this.tone, this.onTap});
-
-  final Widget check;
-  final String title;
-  final bool done;
-  final String? when;
-  final bool whenWarn;
-
-  /// El color de su tipo (para la etiqueta de la hora).
-  final Color? tone;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Row(
-        children: [
-          check,
-          if (when != null) ...[
-            SizedBox(
-              width: 82,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                // lo vencido, relleno en el color de aviso
-                child: _TimeChip(when!, color: tone ?? c.accent, warn: whenWarn),
-              ),
-            ),
-          ],
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: done ? c.dim : c.ink, fontSize: 16, height: 1.25, decoration: done ? TextDecoration.lineThrough : null),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Un bloque de la agenda como **ficha HUD**: un marcador y el título en el color de su tipo, cuántas hay y debajo las filas separadas por líneas
-/// finas.
+/// Un bloque de la agenda (lo vencido): un marcador y el título en el color que se diga, cuántas hay y debajo sus tarjetas.
 class _Block extends StatelessWidget {
   const _Block(this.title, {required this.color, required this.children, required this.count});
 
@@ -966,28 +695,19 @@ class _Block extends StatelessWidget {
     final c = context.colors;
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: CyberPanel(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 14, 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(width: 9, height: 9, color: color),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(title.toUpperCase(), style: hudLabel(color: color))),
-                  Text(count.toString().padLeft(2, '0'), style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
-                ],
-              ),
-              const SizedBox(height: 2),
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) ColoredBox(color: c.edge, child: const SizedBox(height: 1)),
-                children[i],
-              ],
+              Container(width: 9, height: 9, color: color),
+              const SizedBox(width: 10),
+              Expanded(child: Text(title.toUpperCase(), style: hudLabel(color: color))),
+              Text(count.toString().padLeft(2, '0'), style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
             ],
           ),
-        ),
+          ...children,
+        ],
       ),
     );
   }

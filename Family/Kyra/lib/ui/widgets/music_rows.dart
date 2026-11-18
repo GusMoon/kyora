@@ -215,10 +215,13 @@ class ReceivedButton extends StatelessWidget {
 
 /// Mientras hay canciones marcadas: cuántas, marcar todas, cancelar y «Mover».
 class SelectionBar extends StatelessWidget {
-  const SelectionBar({super.key, required this.local, required this.onMove});
+  const SelectionBar({super.key, required this.local, required this.onMove, this.onDelete});
 
   final LocalMusicController local;
   final VoidCallback onMove;
+
+  /// Borrar las marcadas. Sin esto no hay botón.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -238,6 +241,8 @@ class SelectionBar extends StatelessWidget {
             ),
           ),
           IconButton(key: const Key('select-all'), tooltip: 'Marcar todas', icon: const LcdIcon(Icons.select_all_rounded), onPressed: local.selectAll),
+          if (onDelete != null)
+            IconButton(key: const Key('delete-selected'), tooltip: 'Borrar las marcadas', icon: LcdIcon(Icons.delete_outline_rounded, color: Theme.of(context).colorScheme.error), onPressed: onDelete),
           FilledButton.tonalIcon(
             key: const Key('move-selected'),
             style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),

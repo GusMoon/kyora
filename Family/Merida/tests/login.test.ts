@@ -32,14 +32,14 @@ afterEach(() => {
 });
 
 describe("consola de acceso", () => {
-  it("al abrir solo hay una consola que pide primero el correo", async () => {
+  it("al abrir solo hay una consola que pide primero el usuario", async () => {
     const { screen } = setup();
     await flush();
     expect(document.body.children).toHaveLength(1);
     expect(screen.querySelectorAll(".console")).toHaveLength(1);
     const el = input(screen)!;
-    expect(el.type).toBe("email");
-    expect(screen.querySelector(".prompt-row label")?.textContent).toBe("correo>");
+    expect(el.type).toBe("text");
+    expect(screen.querySelector(".prompt-row label")?.textContent).toBe("usuario>");
     expect(screen.querySelector('input[type="password"]')).toBeNull();
   });
 
@@ -49,7 +49,7 @@ describe("consola de acceso", () => {
     await type(screen, "  yo@correo.com  ");
     expect(input(screen)!.type).toBe("password");
     expect(screen.querySelector(".prompt-row label")?.textContent).toBe("contraseña>");
-    expect(lines(screen)).toContain("correo> yo@correo.com");
+    expect(lines(screen)).toContain("usuario> yo@correo.com");
 
     await type(screen, "secreta123");
     expect(signIn).toHaveBeenCalledWith({ email: "yo@correo.com", password: "secreta123" });
@@ -65,9 +65,9 @@ describe("consola de acceso", () => {
     await type(screen, "yo@correo.com");
     await type(screen, "mala");
     expect(signIn).toHaveBeenCalledTimes(1);
-    expect(screen.querySelector(".console-line.is-err")?.textContent).toMatch(/correo o la contraseña/);
+    expect(screen.querySelector(".console-line.is-err")?.textContent).toMatch(/usuario o la contraseña/);
     const again = input(screen)!;
-    expect(again.type).toBe("email");
+    expect(again.type).toBe("text");
     expect(again.value).toBe("yo@correo.com");
   });
 
@@ -75,8 +75,8 @@ describe("consola de acceso", () => {
     const { screen, signIn } = setup();
     await flush();
     await type(screen, "   ");
-    expect(input(screen)!.type).toBe("email");
-    expect(screen.querySelector(".console-line.is-err")?.textContent).toMatch(/correo/);
+    expect(input(screen)!.type).toBe("text");
+    expect(screen.querySelector(".console-line.is-err")?.textContent).toMatch(/usuario/);
     expect(signIn).not.toHaveBeenCalled();
   });
 
@@ -87,7 +87,7 @@ describe("consola de acceso", () => {
     input(screen)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await flush();
     expect(signIn).not.toHaveBeenCalled();
-    expect(input(screen)!.type).toBe("email");
+    expect(input(screen)!.type).toBe("text");
     expect(input(screen)!.value).toBe("yo@correo.com");
   });
 

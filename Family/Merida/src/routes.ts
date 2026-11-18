@@ -1,6 +1,6 @@
 /** Las secciones de Merida y las teclas con que se abren. Sin dependencias: lo usan el tablero, las preferencias y los atajos. */
 
-export type RouteId = "inicio" | "tareas" | "calendario" | "musica" | "nube" | "chat" | "contrasenas" | "finanzas" | "configuracion";
+export type RouteId = "inicio" | "tareas" | "calendario" | "musica" | "nube" | "chat" | "contrasenas" | "finanzas" | "mejoras" | "configuracion";
 export type SectionId = Exclude<RouteId, "inicio">;
 
 export const ROUTES: { id: RouteId; title: string; key: string }[] = [
@@ -12,6 +12,7 @@ export const ROUTES: { id: RouteId; title: string; key: string }[] = [
   { id: "chat", title: "Chat", key: "C" },
   { id: "contrasenas", title: "Contraseñas", key: "P" },
   { id: "finanzas", title: "Finanzas", key: "F" },
+  { id: "mejoras", title: "Mejoras", key: "J" },
   { id: "configuracion", title: "Configuración", key: "A" },
 ];
 

@@ -346,3 +346,97 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Mejoras: lo que se quiere agregar o mejorar (compartido con Kyra) ---------- */
+.imp-form-box,
+.imp-list {
+  max-inline-size: 52rem;
+}
+.imp-form {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.imp-form > h3 {
+  color: var(--accent);
+}
+.imp-form textarea {
+  resize: vertical;
+  min-block-size: 4rem;
+}
+.imp-cards {
+  display: grid;
+  gap: var(--pad);
+  margin-block-start: var(--pad);
+}
+.imp-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-inline-start: 3px solid var(--accent);
+  background: var(--surface);
+}
+.imp-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.imp-section {
+  font-size: var(--step-0);
+  overflow-wrap: anywhere;
+}
+.imp-when {
+  color: var(--dim);
+  white-space: nowrap;
+}
+.imp-functions {
+  display: grid;
+  gap: 0.25rem;
+  padding-inline-start: 1.1rem;
+  list-style: square;
+}
+.imp-functions li::marker {
+  color: var(--accent);
+}
+.imp-desc {
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.imp-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.imp-toolbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.imp-all,
+.imp-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+.imp-pick {
+  min-inline-size: 0;
+}
+.imp-count {
+  flex: 1;
+  color: var(--dim);
+}
+.imp-card.is-picked {
+  border-color: var(--accent);
+}

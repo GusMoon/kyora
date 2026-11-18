@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:kyora_chat/data/chat_backend.dart';
 import 'package:kyora_chat/data/cloud_files.dart';
@@ -43,6 +44,16 @@ class FakeCloudBackend implements CloudBackend {
   int lists = 0;
   final List<String> deleted = [];
   final List<(String, String?)> urls = [];
+  final List<({String name, String mime, int length})> uploads = [];
+  ChatException? uploadError;
+
+  @override
+  Future<void> uploadCloudFile(String name, String mime, Uint8List bytes) async {
+    final e = uploadError;
+    if (e != null) throw e;
+    uploads.add((name: name, mime: mime, length: bytes.length));
+    files.insert(0, CloudFile(id: 'upload:$name', source: CloudSource.upload, path: 'u/cloud/$name', name: name, mime: mime, size: bytes.length, at: DateTime.utc(2026, 11, 16, 9), from: 'mi nube', kind: kindOf(mime, name)));
+  }
 
   @override
   Future<List<CloudFile>> listCloud() async {

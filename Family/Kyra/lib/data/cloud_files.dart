@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 // La nube: los archivos que se han compartido por medio de Supabase y están ahora mismo en el servidor (bucket `chat-files`). Salen de dos
 // tablas, que la limpieza automática borra junto con sus archivos (lo mismo que `src/data/cloud.ts` de Merida):
 //  - `attachments`: lo que se mandó por el chat (fotos, documentos…), con el dispositivo que lo mandó;
@@ -13,7 +15,7 @@ const cloudKindLabel = {
   CloudKind.other: 'Otros',
 };
 
-enum CloudSource { chat, music }
+enum CloudSource { chat, music, upload }
 
 final _docExt = RegExp(r'\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|rtf|odt|zip|rar|7z)$', caseSensitive: false);
 
@@ -63,6 +65,34 @@ class CloudFile {
   CloudFile withFrom(String value) => CloudFile(id: id, source: source, path: path, name: name, mime: mime, size: size, at: at, from: value, kind: kind, messageId: messageId, thumbPath: thumbPath);
 }
 
+/// Dónde se guarda lo que se sube a la nube desde el teléfono (el Vault): `<usuario>/cloud/<hora>-<nombre>`. La hora delante evita pisar un
+/// archivo con otro del mismo nombre.
+String uploadPath(String uid, String name, DateTime now) {
+  final safe = name.replaceAll(RegExp(r'[^\w.\- áéíóúÁÉÍÓÚñÑüÜ()]'), '_').trim();
+  return '$uid/cloud/${now.toUtc().millisecondsSinceEpoch}-${safe.isEmpty ? 'archivo' : safe}';
+}
+
+/// Un archivo subido desde el teléfono, a partir de lo que dice Storage de él (`name`, `id`, `created_at` y `metadata` con `size` y
+/// `mimetype`). `uid` es la carpeta del usuario.
+CloudFile cloudFileFromUpload(String uid, Map<String, Object?> object) {
+  final stored = (object['name'] as String?) ?? 'archivo';
+  final dash = stored.indexOf('-');
+  final shown = dash > 0 && int.tryParse(stored.substring(0, dash)) != null ? stored.substring(dash + 1) : stored;
+  final meta = object['metadata'] is Map ? Map<String, Object?>.from(object['metadata']! as Map) : const <String, Object?>{};
+  final mime = (meta['mimetype'] as String?) ?? 'application/octet-stream';
+  return CloudFile(
+    id: 'upload:${object['id'] ?? stored}',
+    source: CloudSource.upload,
+    path: '$uid/cloud/$stored',
+    name: shown,
+    mime: mime,
+    size: _int(meta['size']),
+    at: _time(object['created_at']),
+    from: 'mi nube',
+    kind: kindOf(mime, shown),
+  );
+}
+
 /// El dispositivo que mandó algo, en palabras.
 String deviceName(String device) => switch (device) {
       'pc' => 'PC',
@@ -77,8 +107,8 @@ int _int(Object? v) => v is num ? v.toInt() : (int.tryParse('${v ?? ''}') ?? 0);
 
 /// Une las dos listas: un archivo por ruta (una canción para varios pasantes es un solo MP3), lo más nuevo primero. `chat` son las filas de
 /// `attachments` (con su `message` anidado) y `tracks` las de `music_tracks`.
-List<CloudFile> mergeCloud(List<Map<String, Object?>> chat, List<Map<String, Object?>> tracks, String? me, [Map<String, String> names = const {}]) {
-  final byPath = <String, CloudFile>{};
+List<CloudFile> mergeCloud(List<Map<String, Object?>> chat, List<Map<String, Object?>> tracks, String? me, [Map<String, String> names = const {}, List<CloudFile> uploads = const []]) {
+  final byPath = <String, CloudFile>{for (final u in uploads) u.path: u};
   for (final a in chat) {
     final raw = a['message'];
     final msg = raw is List ? (raw.isEmpty ? null : raw.first) : raw;
@@ -179,4 +209,7 @@ abstract class CloudBackend {
   /// Borra un archivo del servidor **de verdad**: primero el archivo en Storage y luego su fila (así, si algo falla a medias, se puede volver
   /// a intentar). Una canción se quita para todos los que la tenían.
   Future<CloudDeleteResult> deleteCloudFile(CloudFile file);
+
+  /// Sube un archivo a **tu nube** (desde el Vault): queda en tu carpeta del servidor y sale en la lista de la Nube hasta que lo borres.
+  Future<void> uploadCloudFile(String name, String mime, Uint8List bytes);
 }

@@ -62,6 +62,18 @@ class CloudController extends ChangeNotifier {
     }
   }
 
+  /// Sube un archivo a tu nube. Devuelve el texto del error si no se pudo, o `null` si salió bien (y la lista se vuelve a leer).
+  Future<String?> upload({required String name, required String mime, required Uint8List bytes}) async {
+    try {
+      await _backend.uploadCloudFile(name, mime, bytes);
+    } on ChatException catch (e) {
+      return e.message;
+    }
+    loading = false; // por si había una lectura a medias: la lista nueva manda
+    await load();
+    return null;
+  }
+
   /// Borra el archivo del servidor. Devuelve el texto del error si no se pudo, o `null` si salió bien.
   Future<String?> delete(CloudFile file) async {
     try {

@@ -43,6 +43,7 @@ class FakeEngine implements AudioEngine {
   bool shuffle = false;
   RepeatKind repeat = RepeatKind.off;
   double rate = 1;
+  double pitch = 1;
   bool disposed = false;
   final List<Duration> seeks = [];
   final List<String> calls = [];
@@ -132,6 +133,12 @@ class FakeEngine implements AudioEngine {
   Future<void> setRate(double value) async {
     calls.add('rate:$value');
     rate = value;
+  }
+
+  @override
+  Future<void> setPitch(double value) async {
+    calls.add('pitch:$value');
+    pitch = value;
   }
 
   @override

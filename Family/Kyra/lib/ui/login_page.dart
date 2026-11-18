@@ -1,17 +1,19 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/chat_backend.dart';
 import '../theme.dart';
-import 'register_page.dart';
 import 'widgets/pixel_glyph.dart';
 
-/// La pantalla de acceso: tu correo y contraseña (el administrador usa los mismos que la PC). La sesión queda guardada en el
-/// teléfono; la contraseña no. Con `onSignUp`, quien aún no tiene cuenta puede crearla (pasantes).
+/// El acceso del **administrador**: su correo y contraseña (los mismos que la PC). La sesión queda guardada en el teléfono; la contraseña no.
+/// Ya no se puede crear una cuenta aquí: las cuentas las crea el administrador (los visitantes entran por Ajustes, con su nombre).
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, required this.onSignIn, this.onSignUp});
+  const LoginPage({super.key, required this.onSignIn, this.notice});
 
   final Future<void> Function(String email, String password) onSignIn;
-  final Future<bool> Function(String username, String email, String password)? onSignUp;
+
+  /// Un aviso de la puerta de acceso (por ejemplo, «esa cuenta no es de administrador»): sale aunque esta pantalla se haya vuelto a abrir.
+  final ValueListenable<String?>? notice;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -51,13 +53,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> _createAccount() async {
-    final notice = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(builder: (_) => RegisterPage(onSignUp: widget.onSignUp!)),
-    );
-    if (notice != null && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -83,7 +78,7 @@ class _LoginPageState extends State<LoginPage> {
                   Text('Kyra', textAlign: TextAlign.center, style: display(size: 48, color: context.colors.ink)),
                   const SizedBox(height: 6),
                   Text(
-                    'Entra con tu correo y contraseña.',
+                    'Acceso de administrador: tu correo y contraseña.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: context.colors.dim),
                   ),
@@ -113,6 +108,16 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                   ),
+                  if (widget.notice != null)
+                    ValueListenableBuilder<String?>(
+                      valueListenable: widget.notice!,
+                      builder: (context, text, _) => text == null
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 14),
+                              child: Text(text, key: const Key('login-notice'), textAlign: TextAlign.center, style: TextStyle(color: context.colors.warn)),
+                            ),
+                    ),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
                     Text(_error!, key: const Key('login-error'), textAlign: TextAlign.center, style: TextStyle(color: context.colors.warn)),
@@ -125,10 +130,6 @@ class _LoginPageState extends State<LoginPage> {
                         ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4))
                         : const Text('Entrar'),
                   ),
-                  if (widget.onSignUp != null) ...[
-                    const SizedBox(height: 10),
-                    TextButton(key: const Key('create-account'), onPressed: _busy ? null : _createAccount, child: const Text('Crear cuenta')),
-                  ],
                 ],
               ),
             ),

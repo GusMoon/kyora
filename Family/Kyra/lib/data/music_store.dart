@@ -28,7 +28,7 @@ class MusicSettings {
   /// El nombre de esa carpeta, para enseñarlo.
   final String? treeName;
 
-  /// La sensibilidad de la ruleta de álbumes y del abanico de favoritas: 1 es lo normal, menos es más lenta. Ver [deckSpeedMin] y [deckSpeedMax].
+  /// La sensibilidad de la ruleta de discos y del abanico de favoritas: 1 es lo normal, menos es más lenta. Ver [deckSpeedMin] y [deckSpeedMax].
   final double deckSpeed;
 
   /// Al abrir Música, empezar a sonar sola en aleatorio entre todos los álbumes (si no suena nada). Si no, sale el botón «Aleatorio».
@@ -169,6 +169,13 @@ abstract class TrackSaver {
   /// Borra de verdad canciones del almacenamiento. Las que fallan salen en `failures`. Lanza `TrackSaveException` solo si falla todo.
   Future<DeleteResult> deleteSongs(List<String> uris);
 
+  /// Le cambia el nombre a una carpeta o a un archivo (`name` es el nombre completo, con su «.mp3» si es una canción) y devuelve su dirección
+  /// nueva (Android puede cambiarla). Lanza `TrackSaveException` si no se pudo; entonces se queda como estaba.
+  Future<String> renameEntry(String uri, String name);
+
+  /// Borra una carpeta con todo lo que tenga dentro. Lanza `TrackSaveException` si no se pudo.
+  Future<void> deleteFolder(String uri);
+
   /// Lo que dura cada archivo (por su dirección `content://`). Los que no se puedan leer no salen en el resultado.
   Future<Map<String, Duration>> readDurations(List<String> uris);
 
@@ -289,6 +296,15 @@ class AndroidTrackSaver implements TrackSaver {
     } on MissingPluginException {
       throw const TrackSaveException('Este teléfono no puede borrar canciones desde la app.');
     }
+  }
+
+  @override
+  Future<String> renameEntry(String uri, String name) => _call<String>('renameEntry', {'uri': uri, 'name': name}, 'No se pudo cambiar el nombre.');
+
+  @override
+  Future<void> deleteFolder(String uri) async {
+    final result = await deleteSongs([uri]); // para Android una carpeta es un documento más: se borra con todo lo que lleva dentro
+    if (result.deleted == 0) throw TrackSaveException(result.failures[uri] ?? 'No se pudo borrar la carpeta.');
   }
 
   @override

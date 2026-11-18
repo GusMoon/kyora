@@ -8,6 +8,7 @@ import '../data/chat_backend.dart';
 import '../data/cloud_files.dart';
 import '../data/server_stats.dart';
 import '../state/cloud_controller.dart';
+import '../state/player_controller.dart';
 import '../state/server_controller.dart';
 import '../state/vault_controller.dart';
 import '../theme.dart';
@@ -30,7 +31,8 @@ enum NubeTab { cloud, local, chat }
 /// La **Nube**: una sola sección con lo del servidor y lo que hay en el teléfono, en tres pestañas.
 ///  - **Nube**: cuánto ocupa tu proyecto de Supabase (con la advertencia al llegar al 80 %) y los archivos que hay en el servidor, que se abren,
 ///    se bajan y se borran de verdad (lo mismo que ve Merida).
-///  - **Local**: el Vault, una carpeta de tu almacenamiento para ver sus archivos e imágenes.
+///  - **Local**: el Vault, la carpeta de tu almacenamiento donde se guarda lo tuyo (se elige en Configuración): ver imágenes, vídeos, audios y
+///    textos, exportar archivos de otros sitios, compartir, subir a tu nube, cambiar nombres y ver atributos.
 ///  - **Chat**: el chat con la PC (solo el administrador).
 /// Local funciona siempre; Nube y Chat necesitan sesión y lo dicen si no la hay.
 class NubePage extends StatefulWidget {
@@ -42,6 +44,8 @@ class NubePage extends StatefulWidget {
     this.cloud,
     this.vault,
     this.chat,
+    this.player,
+    this.onOpenSettings,
     this.onSignIn,
     this.openUrl = _launch,
     this.now,
@@ -56,6 +60,10 @@ class NubePage extends StatefulWidget {
   final CloudController? cloud;
   final VaultController? vault;
   final ChatBackend? chat;
+
+  /// El reproductor de la app (para los audios del Vault) y cómo se abre Configuración (donde se elige la carpeta del Vault).
+  final PlayerController? player;
+  final VoidCallback? onOpenSettings;
 
   /// Abre el acceso (entrar o crear cuenta). Sin esto no sale el botón de «Iniciar sesión».
   final VoidCallback? onSignIn;
@@ -133,7 +141,7 @@ class _NubePageState extends State<NubePage> with WidgetsBindingObserver {
           },
         );
       case NubeTab.local:
-        return VaultPage(controller: widget.vault!);
+        return VaultPage(controller: widget.vault!, cloud: widget.cloud, player: widget.player, onOpenSettings: widget.onOpenSettings);
       case NubeTab.chat:
         return StreamBuilder<void>(
           stream: widget.account.authChanges,

@@ -44,7 +44,7 @@ void main() {
       return ctx;
     }
 
-    testWidgets('se abre donde se abrió el menú, con su título, y alrededor el fondo desenfocado con un hueco nítido del tamaño del panel', (tester) async {
+    testWidgets('se abre donde se abrió el menú, con su título, y alrededor el fondo oscurecido (sin desenfoque) con un hueco nítido del tamaño del panel', (tester) async {
       final context = await app(tester);
       FocusSpace.last = const Offset(200, 500);
       unawaited(showFocusPanel<void>(context, title: 'Opciones', builder: (_) => const SizedBox(height: 120, child: Text('dentro'))));
@@ -54,10 +54,10 @@ void main() {
       expect(find.text('Opciones'), findsOneWidget);
       expect(find.text('dentro'), findsOneWidget);
       final veil = find.byKey(const Key('focus-veil'));
-      expect(find.descendant(of: veil, matching: find.byType(BackdropFilter)), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing); // un desenfoque animado a pantalla completa hacía lento abrir el panel
       final clip = tester.widget<ClipPath>(find.descendant(of: veil, matching: find.byType(ClipPath))).clipper!.getClip(const Size(400, 800));
       expect(clip.contains(panel.center), isFalse); // el panel, nítido
-      expect(clip.contains(const Offset(5, 5)), isTrue); // el resto, desenfocado
+      expect(clip.contains(const Offset(5, 5)), isTrue); // el resto, oscurecido
     });
 
     testWidgets('tocar fuera lo cierra sin respuesta; un botón de dentro lo cierra con la suya', (tester) async {

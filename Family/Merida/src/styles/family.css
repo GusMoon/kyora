@@ -1,0 +1,158 @@
+/* ---------- Chat familiar y llamadas ----------
+   Mismo lenguaje que el chat General (barra del acento por mensaje, mono, sin bordes redondeados); aquí solo lo que cambia:
+   las pestañas General | Familia, el nombre de quien escribe, los videos adjuntos y el panel flotante de la llamada. */
+
+.chat-wrap {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  block-size: 100%;
+  min-block-size: 20rem;
+}
+.chat-wrap > .chat,
+.chat-wrap > .fam-host {
+  min-block-size: 0;
+  padding-block-start: 0.75rem;
+}
+.fam-host[hidden],
+.chat-wrap > .chat[hidden] {
+  display: none;
+}
+.fam-host > .fam {
+  block-size: 100%;
+}
+
+/* la vista de la familia tiene una barra más: estado, botones de llamada, aviso de las 24 h y errores */
+.fam-bar {
+  display: grid;
+  gap: 0.4rem;
+}
+.fam-call-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.fam-call-tools .icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  margin-inline-end: 0.4rem;
+}
+.fam-note {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+.fam.is-dropping {
+  outline: 1px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.fam-sender {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.fam-msg .msg-main {
+  gap: 0.3rem;
+}
+.msg-video {
+  display: block;
+  max-inline-size: min(100%, 26rem);
+  max-block-size: 18rem;
+  background: var(--field);
+  border: var(--hair);
+}
+.msg-audio {
+  inline-size: min(100%, 22rem);
+}
+
+/* ---------- El panel de la llamada: flota abajo a la derecha, encima de todo ---------- */
+.call-panel {
+  position: fixed;
+  z-index: 40;
+  inset-block-end: 1rem;
+  inset-inline-end: 1rem;
+  display: grid;
+  gap: 0.6rem;
+  inline-size: min(22rem, calc(100vw - 2rem));
+  padding: 0.9rem;
+  border: 1px solid var(--accent);
+  background: var(--field);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent), 0 10px 30px rgb(0 0 0 / 0.55);
+}
+.call-panel[hidden] {
+  display: none;
+}
+.call-panel[data-phase="incoming"] {
+  animation: call-ring 1.1s steps(2, end) infinite;
+}
+@keyframes call-ring {
+  50% {
+    border-color: var(--on-accent);
+    background: var(--accent-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-panel[data-phase="incoming"] {
+    animation: none;
+  }
+}
+.call-title {
+  font-family: var(--mono);
+  font-size: var(--step-0);
+  font-weight: 700;
+  color: var(--accent);
+}
+.call-clock {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--dim);
+}
+.call-clock:empty,
+.call-problem:empty {
+  display: none;
+}
+.call-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border: var(--hair);
+}
+.call-stage[hidden] {
+  display: none;
+}
+.call-remote {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.call-local {
+  position: absolute;
+  inset-block-end: 0.4rem;
+  inset-inline-end: 0.4rem;
+  inline-size: 28%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid var(--accent);
+  background: #000;
+}
+/* en una llamada de voz el video del otro no se ve, pero sigue sonando */
+.call-panel[data-kind="audio"] .call-remote {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.call-actions .icon {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  margin-inline-end: 0.4rem;
+}

@@ -140,12 +140,17 @@ class PlayerController extends ChangeNotifier {
   bool shuffle = false;
   RepeatKind repeat = RepeatKind.off;
 
-  /// Velocidad (y tono, que la sigue) de lo que suena: 1 = normal.
+  /// Velocidad de lo que suena: 1 = normal. Va aparte del tono.
   double rate = 1;
 
-  /// Lo que se puede ir más lento o más rápido.
+  /// El tono de lo que suena: 1 = normal.
+  double pitch = 1;
+
+  /// Lo que se puede ir más lento o más rápido, y más grave o más agudo.
   static const minRate = 0.5;
   static const maxRate = 1.5;
+  static const minPitch = 0.5;
+  static const maxPitch = 1.5;
 
   /// El avance de la canción. Avisa por separado (ver `positionListenable`).
   final ValueNotifier<Duration> positionListenable = ValueNotifier(Duration.zero);
@@ -188,6 +193,7 @@ class PlayerController extends ChangeNotifier {
       if (shuffle) await _engine.setShuffle(true);
       if (repeat != RepeatKind.off) await _engine.setRepeat(repeat);
       if (rate != 1) await _engine.setRate(rate);
+      if (pitch != 1) await _engine.setPitch(pitch);
       await _engine.play();
     } on ChatException catch (e) {
       error = e.message;
@@ -219,13 +225,22 @@ class PlayerController extends ChangeNotifier {
   /// Pone a sonar **solo** las canciones de un álbum, en aleatorio, empezando por una cualquiera.
   Future<void> playAlbumShuffled(List<Track> album, {math.Random? random}) => playShuffled(album, random: random);
 
-  /// Cambia la velocidad y el tono a la vez (se queda entre canciones hasta volver a 1).
+  /// Cambia la velocidad, sin tocar el tono (se queda entre canciones hasta volver a 1).
   Future<void> setRate(double value) async {
     final next = value.clamp(minRate, maxRate).toDouble();
     if (next == rate) return;
     rate = next;
     _tell();
     await _engine.setRate(rate);
+  }
+
+  /// Cambia el tono, sin tocar la velocidad (se queda entre canciones hasta volver a 1).
+  Future<void> setPitch(double value) async {
+    final next = value.clamp(minPitch, maxPitch).toDouble();
+    if (next == pitch) return;
+    pitch = next;
+    _tell();
+    await _engine.setPitch(pitch);
   }
 
   /// Detiene lo que suena y vacía la cola (antes de borrar sus archivos).

@@ -92,9 +92,29 @@ create table if not exists public.profiles (
   username    text        not null check (char_length(btrim(username)) between 3 and 24),
   email       text,
   role        text        not null default 'intern' check (role in ('admin', 'intern')),
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  -- Cuentas que crea el administrador (ver §2c): verified = la persona ya canjeó su código de 6 dígitos.
+  verified         boolean     not null default false,
+  code_hash        text,
+  code_expires_at  timestamptz,
+  code_attempts    integer     not null default 0,
+  last_seen        timestamptz
 );
 create unique index if not exists profiles_username_key on public.profiles (lower(username));
+
+-- Tabla que ya existía sin esas columnas: se añaden, y SOLO esta vez las cuentas que ya había quedan verificadas
+-- (así no se vuelve a pedir código a nadie; volver a ejecutar el script no verifica cuentas nuevas).
+do $$ begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'profiles' and column_name = 'verified') then
+    alter table public.profiles add column verified boolean not null default true;
+    alter table public.profiles alter column verified set default false;
+    alter table public.profiles add column if not exists code_hash text;
+    alter table public.profiles add column if not exists code_expires_at timestamptz;
+    alter table public.profiles add column if not exists code_attempts integer not null default 0;
+    alter table public.profiles add column if not exists last_seen timestamptz;
+  end if;
+end $$;
 
 alter table public.profiles enable row level security;
 revoke all on public.profiles from anon;
@@ -112,7 +132,7 @@ create or replace function public.is_admin()
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin');
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin' and verified);
 $$;
 revoke all on function public.is_admin() from public, anon;
 grant execute on function public.is_admin() to authenticated;
@@ -145,12 +165,12 @@ create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- Solo la primera vez (tabla vacía): quienes ya existían son administradores.
-insert into public.profiles (id, username, email, role)
+insert into public.profiles (id, username, email, role, verified)
 select u.id,
        case when char_length(regexp_replace(split_part(coalesce(u.email, ''), '@', 1), '[^A-Za-z0-9_.-]', '', 'g')) >= 3
             then left(regexp_replace(split_part(u.email, '@', 1), '[^A-Za-z0-9_.-]', '', 'g'), 24)
             else 'admin-' || substr(u.id::text, 1, 6) end,
-       u.email, 'admin'
+       u.email, 'admin', true
   from auth.users u
  where not exists (select 1 from public.profiles)
 on conflict do nothing;
@@ -600,12 +620,15 @@ begin
 end;
 $$;
 
--- Quién es quien llama: {id, username, email, role, created_at}, o null si no tiene perfil. La app decide con esto qué vista enseñar.
+-- Quién es quien llama: {id, username, email, role, created_at, verified}, o null si no tiene perfil. La app decide con esto qué
+-- vista enseñar. (Sin code_hash ni intentos: eso no sale del servidor.)
 create or replace function public.my_profile()
 returns jsonb
-language sql stable security invoker set search_path = public
+language sql stable security definer set search_path = public
 as $$
-  select to_jsonb(p) from public.profiles p where p.id = auth.uid();
+  select jsonb_build_object('id', p.id, 'username', p.username, 'email', p.email, 'role', p.role,
+                            'created_at', p.created_at, 'verified', p.verified)
+    from public.profiles p where p.id = auth.uid();
 $$;
 
 -- ¿Está libre ese nombre de usuario? Es lo único que puede preguntar alguien sin cuenta (para el registro); solo responde sí o no.
@@ -647,6 +670,95 @@ grant execute on function public.confirm_track_received(uuid)                   
 grant execute on function public.my_profile()                                                to authenticated;
 grant execute on function public.list_recipients()                                          to authenticated;
 grant execute on function public.username_available(text)                                    to anon, authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 7b. Cuentas que crea el administrador: código de 6 dígitos y presencia (quién está en línea)
+--     Las cuentas ya NO se crean solas: el registro público se apaga (Authentication > «Allow new users to sign up» = OFF)
+--     y solo la función admin-users (con la clave de servicio) las crea, con un correo inventado <nombre>@kyra.local.
+--     Esa función guarda solo el HASH del código; la persona lo canjea una vez con claim_account y desde entonces entra solo
+--     con su contraseña. Hasta canjearlo (verified = false) no entra al chat familiar (is_family_member).
+-- ---------------------------------------------------------------------------------------------------------------------
+
+-- El hash del código y los intentos no salen del servidor: cada quien solo lee las columnas «públicas» de su perfil.
+revoke select on public.profiles from authenticated;
+grant select (id, username, email, role, created_at, verified, last_seen) on public.profiles to authenticated;
+
+-- Canjea el código de 6 dígitos que el administrador le dio a quien llama. Caduca a las 72 h y se bloquea tras 5 fallos
+-- (el administrador genera otro). Devuelve true si quedó verificada.
+create or replace function public.claim_account(p_code text)
+returns boolean
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_p public.profiles;
+  v_code text := btrim(coalesce(p_code, ''));
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  select * into v_p from public.profiles where id = auth.uid() for update;
+  if v_p.id is null then
+    raise exception 'no_profile' using errcode = 'P0002';
+  end if;
+  if v_p.verified then
+    return true;                                  -- ya estaba (el administrador, o un código ya canjeado)
+  end if;
+  if v_p.code_hash is null or v_p.code_expires_at is null or v_p.code_expires_at < now() then
+    raise exception 'code_expired' using errcode = 'P0001';
+  end if;
+  if v_p.code_attempts >= 5 then
+    raise exception 'code_locked' using errcode = 'P0001';
+  end if;
+  if v_code !~ '^[0-9]{6}$'
+     or encode(sha256(convert_to(v_code || v_p.id::text, 'utf8')), 'hex') <> v_p.code_hash then
+    update public.profiles set code_attempts = code_attempts + 1 where id = v_p.id;
+    raise exception 'code_invalid' using errcode = 'P0001';
+  end if;
+  update public.profiles
+     set verified = true, code_hash = null, code_expires_at = null, code_attempts = 0
+   where id = v_p.id;
+  return true;
+end;
+$$;
+
+-- «Sigo aquí»: la app lo llama cada ~30 s mientras está abierta. Solo toca la fila de quien llama.
+create or replace function public.touch_presence()
+returns void
+language sql security definer set search_path = public
+as $$
+  update public.profiles set last_seen = now() where id = auth.uid();
+$$;
+
+-- Quién está en línea (solo el administrador). En línea = visto en los últimos 90 s.
+create or replace function public.list_presence()
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  if not public.is_admin() then
+    raise exception 'not_admin' using errcode = '42501';
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', p.id, 'username', p.username, 'role', p.role, 'verified', p.verified,
+             'last_seen', p.last_seen,
+             'online', (p.last_seen is not null and p.last_seen > now() - interval '90 seconds'),
+             'code_pending', coalesce(p.code_hash is not null and p.code_expires_at > now() and p.code_attempts < 5, false),
+             'me', p.id = auth.uid())
+           order by (p.last_seen is not null and p.last_seen > now() - interval '90 seconds') desc, lower(p.username))
+      from public.profiles p), '[]'::jsonb);
+end;
+$$;
+
+revoke all on function public.claim_account(text)  from public, anon;
+revoke all on function public.touch_presence()     from public, anon;
+revoke all on function public.list_presence()      from public, anon;
+grant execute on function public.claim_account(text) to authenticated;
+grant execute on function public.touch_presence()    to authenticated;
+grant execute on function public.list_presence()     to authenticated;
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- 8. Tareas: las del móvil (con copia en su SQLite, que sube aquí cuando hay internet). Mismo modelo que las tareas del
@@ -1119,6 +1231,730 @@ do $$ begin
 exception when duplicate_object then null; when undefined_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.reminders;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
+-- Finanzas (Kyra, móvil): lo mismo para las categorías y los movimientos, así el móvil ve al instante lo anotado en Merida y al revés.
+do $$ begin
+  alter publication supabase_realtime add table public.finance_categories;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.finance_entries;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 17. Mejoras pendientes (Merida y Kyra): lo que se quiere agregar o mejorar en el proyecto. Una fila por idea: la sección,
+--     las funciones que se quieren (una por línea) y una descripción. Al terminar una, el botón «Hecho» la BORRA de verdad
+--     (a diferencia de las demás tablas, aquí no hay borrado suave: una mejora hecha ya no hace falta). Cada cuenta ve solo
+--     las suyas (RLS). Idempotente: se puede volver a ejecutar.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists public.feature_requests (
+  id          uuid        primary key default gen_random_uuid(),
+  owner_id    uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  section     text        not null check (char_length(btrim(section)) between 1 and 80),
+  functions   text        not null default '' check (char_length(functions) <= 4000),
+  description text        not null default '' check (char_length(description) <= 4000),
+  created_at  timestamptz not null default now()
+);
+create index if not exists feature_requests_owner_created_idx on public.feature_requests (owner_id, created_at desc);
+
+alter table public.feature_requests enable row level security;
+revoke all on public.feature_requests from anon;
+grant select, insert, update, delete on public.feature_requests to authenticated;
+
+drop policy if exists "feature_requests: owner select" on public.feature_requests;
+drop policy if exists "feature_requests: owner insert" on public.feature_requests;
+drop policy if exists "feature_requests: owner update" on public.feature_requests;
+drop policy if exists "feature_requests: owner delete" on public.feature_requests;
+create policy "feature_requests: owner select" on public.feature_requests for select to authenticated using (owner_id = (select auth.uid()));
+create policy "feature_requests: owner insert" on public.feature_requests for insert to authenticated with check (owner_id = (select auth.uid()));
+create policy "feature_requests: owner update" on public.feature_requests for update to authenticated
+  using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()));
+create policy "feature_requests: owner delete" on public.feature_requests for delete to authenticated using (owner_id = (select auth.uid()));
+
+-- Tiempo real: si se anota o se termina una mejora en un dispositivo, el otro la ve al instante (solo avisa; la RLS manda).
+alter table public.feature_requests replica identity full;
+do $$ begin
+  alter publication supabase_realtime add table public.feature_requests;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 18. Chat familiar (Merida): un chat en línea para la familia (mamá, papá...), aparte del chat «General» de una sola cuenta.
+--     Va en tablas propias (family_*) y en su propio bucket (family-files) a propósito: así Kyora y Kyra, que escuchan la tabla
+--     messages entera, no reciben nada de la familia y el chat General queda exactamente como estaba.
+--
+--     - Quién entra: el administrador (siempre) y las cuentas que él agrega con add_family_member('<usuario>').
+--     - Todo se borra a las 24 horas: la seguridad por fila (RLS) deja de mostrar un mensaje, sus archivos y las llamadas
+--       pasadas 24 h desde que llegaron al servidor, y la función cleanup-expired borra de verdad filas y archivos.
+--     - Llamadas (voz y video, WebRTC entre navegadores): family_calls dice quién llama y cómo va, y family_call_signals lleva
+--       la oferta, la respuesta y los candidatos ICE de uno al otro por Realtime. El audio y el video NO pasan por Supabase.
+--     Idempotente: se puede volver a ejecutar.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.family_members (
+  user_id   uuid        primary key references auth.users (id) on delete cascade,
+  added_by  uuid        default auth.uid() references auth.users (id) on delete set null,
+  added_at  timestamptz not null default now()
+);
+alter table public.family_members enable row level security;
+revoke all on public.family_members from anon;
+drop policy if exists "family_members: own select" on public.family_members;
+create policy "family_members: own select" on public.family_members for select to authenticated
+  using (user_id = (select auth.uid()) or (select public.is_admin()));
+-- Sin políticas de insert/update/delete: los miembros solo se cambian con add_family_member y remove_family_member.
+
+-- ¿Quien llama puede usar el chat familiar? El administrador siempre; los demás, si están en family_members.
+-- (security definer: las políticas lo consultan sin depender de la seguridad por fila)
+create or replace function public.is_family_member()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select public.is_admin()
+      or exists (select 1 from public.family_members f join public.profiles p on p.id = f.user_id
+                  where f.user_id = auth.uid() and p.verified);   -- sin canjear el código de 6 dígitos no entra
+$$;
+revoke all on function public.is_family_member() from public, anon;
+grant execute on function public.is_family_member() to authenticated;
+
+-- Los miembros (id y nombre de usuario): así cada quien ve de quién es cada mensaje sin poder leer los perfiles ajenos.
+create or replace function public.family_members()
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select case when public.is_family_member() then
+    coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'username', p.username) order by lower(p.username))
+                from public.profiles p
+               where p.role = 'admin' or exists (select 1 from public.family_members f where f.user_id = p.id)), '[]'::jsonb)
+  else '[]'::jsonb end;
+$$;
+revoke all on function public.family_members() from public, anon;
+grant execute on function public.family_members() to authenticated;
+
+-- Agrega a la familia a una cuenta que ya existe (por su nombre de usuario). Solo el administrador.
+create or replace function public.add_family_member(p_username text)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_profile public.profiles;
+begin
+  if not public.is_admin() then
+    raise exception 'admin_only' using errcode = '42501';
+  end if;
+  select * into v_profile from public.profiles where lower(username) = lower(btrim(coalesce(p_username, '')));
+  if v_profile.id is null then
+    raise exception 'user_not_found' using errcode = 'P0002';
+  end if;
+  insert into public.family_members (user_id) values (v_profile.id) on conflict (user_id) do nothing;
+  return jsonb_build_object('id', v_profile.id, 'username', v_profile.username);
+end;
+$$;
+revoke all on function public.add_family_member(text) from public, anon;
+grant execute on function public.add_family_member(text) to authenticated;
+
+-- Quita a alguien de la familia (deja de ver el chat). Solo el administrador.
+create or replace function public.remove_family_member(p_username text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'admin_only' using errcode = '42501';
+  end if;
+  delete from public.family_members
+   where user_id in (select id from public.profiles where lower(username) = lower(btrim(coalesce(p_username, ''))));
+end;
+$$;
+revoke all on function public.remove_family_member(text) from public, anon;
+grant execute on function public.remove_family_member(text) to authenticated;
+
+-- Mensajes y adjuntos. El id lo genera quien envía (reintentar no duplica), igual que en messages.
+create table if not exists public.family_messages (
+  id             uuid                primary key,
+  sender_id      uuid                not null default auth.uid() references auth.users (id) on delete cascade,
+  sender_device  text                not null default 'web',
+  kind           public.message_kind not null default 'text',
+  body           text,
+  sent_at        timestamptz         not null default now(),
+  created_at     timestamptz         not null default now(),
+  constraint family_messages_text_needs_body check (kind <> 'text' or coalesce(length(body), 0) > 0)
+);
+create index if not exists family_messages_created_idx on public.family_messages (created_at);
+
+create table if not exists public.family_attachments (
+  id            uuid        primary key default gen_random_uuid(),
+  message_id    uuid        not null references public.family_messages (id) on delete cascade,
+  sender_id     uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  storage_path  text        not null,                                   -- <sender_id>/family/<message_id>/<archivo>
+  file_name     text        not null,
+  mime_type     text        not null default 'application/octet-stream',
+  size_bytes    bigint      not null default 0 check (size_bytes >= 0),
+  width         integer,
+  height        integer,
+  duration_ms   integer,
+  thumb_path    text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists family_attachments_message_idx on public.family_attachments (message_id);
+
+alter table public.family_messages    enable row level security;
+alter table public.family_attachments enable row level security;
+revoke all on public.family_messages, public.family_attachments from anon;
+grant select, insert, delete on public.family_messages, public.family_attachments to authenticated;
+
+drop policy if exists "family_messages: member select" on public.family_messages;
+drop policy if exists "family_messages: member insert" on public.family_messages;
+drop policy if exists "family_messages: sender delete" on public.family_messages;
+create policy "family_messages: member select" on public.family_messages for select to authenticated
+  using ((select public.is_family_member()) and created_at > now() - interval '24 hours');
+create policy "family_messages: member insert" on public.family_messages for insert to authenticated
+  with check (sender_id = (select auth.uid()) and (select public.is_family_member()));
+create policy "family_messages: sender delete" on public.family_messages for delete to authenticated
+  using (sender_id = (select auth.uid()));
+
+drop policy if exists "family_attachments: member select" on public.family_attachments;
+drop policy if exists "family_attachments: member insert" on public.family_attachments;
+drop policy if exists "family_attachments: sender delete" on public.family_attachments;
+create policy "family_attachments: member select" on public.family_attachments for select to authenticated
+  using ((select public.is_family_member()) and created_at > now() - interval '24 hours');
+create policy "family_attachments: member insert" on public.family_attachments for insert to authenticated
+  with check (
+    sender_id = (select auth.uid())
+    and (select public.is_family_member())
+    and exists (select 1 from public.family_messages m where m.id = message_id and m.sender_id = (select auth.uid()))
+  );
+create policy "family_attachments: sender delete" on public.family_attachments for delete to authenticated
+  using (sender_id = (select auth.uid()));
+
+-- Storage: bucket privado «family-files» (50 MB por archivo). Los archivos van en <sender_id>/family/<message_id>/<archivo>:
+-- los sube quien envía (su carpeta), los ven los miembros mientras no pasen 24 h, y cada quien borra los suyos.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('family-files', 'family-files', false, 52428800)
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
+
+drop policy if exists "family-files: member select" on storage.objects;
+drop policy if exists "family-files: member insert" on storage.objects;
+drop policy if exists "family-files: member update" on storage.objects;
+drop policy if exists "family-files: sender delete" on storage.objects;
+create policy "family-files: member select" on storage.objects for select to authenticated
+  using (bucket_id = 'family-files' and (select public.is_family_member()) and created_at > now() - interval '24 hours');
+create policy "family-files: member insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'family-files' and (storage.foldername(name))[1] = (select auth.uid())::text
+              and (select public.is_family_member()));
+create policy "family-files: member update" on storage.objects for update to authenticated
+  using (bucket_id = 'family-files' and (storage.foldername(name))[1] = (select auth.uid())::text
+         and (select public.is_family_member()))
+  with check (bucket_id = 'family-files' and (storage.foldername(name))[1] = (select auth.uid())::text
+              and (select public.is_family_member()));
+create policy "family-files: sender delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'family-files' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- Un mensaje familiar (con sus adjuntos) como JSON: {…fila…, "attachments": [ … ]}
+create or replace function public.family_message_json(p_message_id uuid)
+returns jsonb
+language sql stable security invoker set search_path = public
+as $$
+  select to_jsonb(m) || jsonb_build_object(
+           'attachments',
+           coalesce((select jsonb_agg(to_jsonb(a) order by a.created_at, a.id)
+                       from public.family_attachments a where a.message_id = m.id), '[]'::jsonb))
+    from public.family_messages m
+   where m.id = p_message_id;
+$$;
+
+-- Envía un mensaje a la familia (texto y/o adjuntos ya subidos a family-files). Atómico y repetible con el mismo p_id.
+create or replace function public.family_send_message(
+  p_id           uuid,
+  p_body         text        default null,
+  p_sent_at      timestamptz default now(),
+  p_device       text        default 'web',
+  p_attachments  jsonb       default '[]'::jsonb
+)
+returns jsonb
+language plpgsql security invoker set search_path = public
+as $$
+declare
+  v_attachments jsonb := coalesce(p_attachments, '[]'::jsonb);
+  v_kind        public.message_kind := 'text';
+  v_mime        text;
+  v_rows        integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'not_authenticated' using errcode = '28000';
+  end if;
+  if not public.is_family_member() then
+    raise exception 'not_family_member' using errcode = '42501';
+  end if;
+  if jsonb_typeof(v_attachments) <> 'array' then
+    raise exception 'attachments_must_be_an_array' using errcode = '22023';
+  end if;
+  if coalesce(length(btrim(p_body)), 0) = 0 and jsonb_array_length(v_attachments) = 0 then
+    raise exception 'empty_message' using errcode = '22023';
+  end if;
+
+  if jsonb_array_length(v_attachments) > 0 then   -- la clase del mensaje la da su primer adjunto
+    v_mime := lower(coalesce(v_attachments -> 0 ->> 'mime_type', ''));
+    v_kind := case
+                when v_mime like 'image/%' then 'image'
+                when v_mime like 'audio/%' then 'audio'
+                when v_mime like 'video/%' then 'video'
+                when v_mime = ''           then 'other'
+                else 'file'
+              end::public.message_kind;
+  end if;
+
+  insert into public.family_messages (id, kind, body, sent_at, sender_device)
+  values (p_id, v_kind, nullif(btrim(p_body), ''), coalesce(p_sent_at, now()), coalesce(nullif(btrim(p_device), ''), 'web'))
+  on conflict (id) do nothing;
+  get diagnostics v_rows = row_count;
+
+  if v_rows > 0 then
+    insert into public.family_attachments (message_id, storage_path, file_name, mime_type, size_bytes,
+                                           width, height, duration_ms, thumb_path)
+    select p_id,
+           a ->> 'storage_path',
+           coalesce(nullif(a ->> 'file_name', ''), 'archivo'),
+           coalesce(nullif(a ->> 'mime_type', ''), 'application/octet-stream'),
+           coalesce((a ->> 'size_bytes')::bigint, 0),
+           (a ->> 'width')::integer,
+           (a ->> 'height')::integer,
+           (a ->> 'duration_ms')::integer,
+           a ->> 'thumb_path'
+      from jsonb_array_elements(v_attachments) a;
+  elsif not exists (select 1 from public.family_messages where id = p_id) then
+    raise exception 'message_id_taken' using errcode = '42501';
+  end if;
+
+  return public.family_message_json(p_id);
+end;
+$$;
+
+-- Los mensajes de las últimas 24 horas, del más antiguo al más nuevo, con sus adjuntos.
+--   p_before: solo lo enviado antes de esa hora;  p_after: solo lo que llegó al servidor después de esa hora (ponerse al día)
+create or replace function public.family_list_messages(
+  p_before  timestamptz default null,
+  p_after   timestamptz default null,
+  p_limit   integer     default 100
+)
+returns jsonb
+language sql stable security invoker set search_path = public
+as $$
+  select coalesce(jsonb_agg(public.family_message_json(t.id) order by t.sent_at, t.id), '[]'::jsonb)
+    from (
+      select m.id, m.sent_at
+        from public.family_messages m
+       where m.created_at > now() - interval '24 hours'
+         and (p_before is null or m.sent_at < p_before)
+         and (p_after  is null or m.created_at > p_after)
+       order by m.sent_at desc, m.id desc
+       limit least(greatest(coalesce(p_limit, 100), 1), 200)
+    ) t;
+$$;
+grant execute on function public.family_message_json(uuid) to authenticated;
+grant execute on function public.family_send_message(uuid, text, timestamptz, text, jsonb) to authenticated;
+grant execute on function public.family_list_messages(timestamptz, timestamptz, integer) to authenticated;
+revoke all on function public.family_message_json(uuid) from public, anon;
+revoke all on function public.family_send_message(uuid, text, timestamptz, text, jsonb) from public, anon;
+revoke all on function public.family_list_messages(timestamptz, timestamptz, integer) from public, anon;
+
+-- Llamadas: una fila por llamada (quién llama, si es de voz o de video y cómo va) y las señales de WebRTC que se pasan los dos.
+create table if not exists public.family_calls (
+  id          uuid        primary key,
+  caller_id   uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  kind        text        not null check (kind in ('audio', 'video')),
+  status      text        not null default 'ringing' check (status in ('ringing', 'active', 'ended', 'declined', 'missed')),
+  answered_by uuid        references auth.users (id) on delete set null,
+  created_at  timestamptz not null default now(),
+  ended_at    timestamptz
+);
+create index if not exists family_calls_created_idx on public.family_calls (created_at);
+
+create table if not exists public.family_call_signals (
+  id          uuid        primary key default gen_random_uuid(),
+  call_id     uuid        not null references public.family_calls (id) on delete cascade,
+  sender_id   uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  kind        text        not null check (kind in ('offer', 'answer', 'candidate')),
+  payload     jsonb       not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists family_call_signals_call_idx on public.family_call_signals (call_id, created_at);
+
+alter table public.family_calls        enable row level security;
+alter table public.family_call_signals enable row level security;
+revoke all on public.family_calls, public.family_call_signals from anon;
+grant select, insert, update on public.family_calls to authenticated;
+grant select, insert on public.family_call_signals to authenticated;
+
+drop policy if exists "family_calls: member select" on public.family_calls;
+drop policy if exists "family_calls: caller insert" on public.family_calls;
+drop policy if exists "family_calls: member update" on public.family_calls;
+create policy "family_calls: member select" on public.family_calls for select to authenticated
+  using ((select public.is_family_member()) and created_at > now() - interval '24 hours');
+create policy "family_calls: caller insert" on public.family_calls for insert to authenticated
+  with check (caller_id = (select auth.uid()) and (select public.is_family_member()));
+create policy "family_calls: member update" on public.family_calls for update to authenticated
+  using ((select public.is_family_member())) with check ((select public.is_family_member()));
+
+drop policy if exists "family_call_signals: member select" on public.family_call_signals;
+drop policy if exists "family_call_signals: member insert" on public.family_call_signals;
+create policy "family_call_signals: member select" on public.family_call_signals for select to authenticated
+  using ((select public.is_family_member()) and created_at > now() - interval '24 hours');
+create policy "family_call_signals: member insert" on public.family_call_signals for insert to authenticated
+  with check (sender_id = (select auth.uid()) and (select public.is_family_member()));
+
+-- Tiempo real: mensajes, llamadas y señales llegan al instante a los miembros (solo a quien la RLS deja verlos).
+alter table public.family_messages replica identity full;
+alter table public.family_attachments replica identity full;
+alter table public.family_calls replica identity full;
+do $$ begin
+  alter publication supabase_realtime add table public.family_messages;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.family_attachments;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.family_calls;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.family_call_signals;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- 19. Chat privado 1 a 1 (Kyra: KyraFamily y KyraAdmin): cualquier cuenta verificada puede escribirle a cualquier otra.
+--     - Cada conversación (dm_threads) es de un par de personas (user_a < user_b, una sola por par).
+--     - Los mensajes (dm_messages) son PERMANENTES: nadie los borra de la base de datos salvo el administrador.
+--     - «Borrar para mí»: cada quien oculta un mensaje (dm_hidden_messages) o vacía la conversación (dm_thread_state.cleared_before)
+--       solo para sí; el otro lo sigue viendo y la base de datos no cambia.
+--     - El administrador ve todas las conversaciones (supervisión) y es el único que borra de verdad.
+--     - Todo se escribe por las funciones de abajo (security definer, con sus comprobaciones): las tablas solo se pueden leer.
+--     Idempotente: se puede volver a ejecutar. No toca el chat familiar (§18), que sigue usando Merida.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create table if not exists public.dm_threads (
+  id               uuid        primary key default gen_random_uuid(),
+  user_a           uuid        not null references auth.users (id) on delete cascade,
+  user_b           uuid        not null references auth.users (id) on delete cascade,
+  created_at       timestamptz not null default now(),
+  last_message_at  timestamptz,
+  constraint dm_threads_ordered check (user_a < user_b),
+  constraint dm_threads_pair unique (user_a, user_b)
+);
+create index if not exists dm_threads_b_idx on public.dm_threads (user_b);
+
+create table if not exists public.dm_messages (
+  id             uuid        primary key,                                  -- lo crea quien envía: reintentar no duplica
+  thread_id      uuid        not null references public.dm_threads (id) on delete cascade,
+  sender_id      uuid        not null default auth.uid() references auth.users (id) on delete cascade,
+  sender_device  text        not null default 'movil',
+  body           text        not null check (char_length(btrim(body)) > 0 and char_length(body) <= 4000),
+  sent_at        timestamptz not null default now(),
+  created_at     timestamptz not null default now()
+);
+create index if not exists dm_messages_thread_idx on public.dm_messages (thread_id, sent_at);
+
+create table if not exists public.dm_hidden_messages (
+  user_id     uuid        not null references auth.users (id) on delete cascade,
+  message_id  uuid        not null references public.dm_messages (id) on delete cascade,
+  hidden_at   timestamptz not null default now(),
+  primary key (user_id, message_id)
+);
+
+create table if not exists public.dm_thread_state (
+  user_id         uuid        not null references auth.users (id) on delete cascade,
+  thread_id       uuid        not null references public.dm_threads (id) on delete cascade,
+  cleared_before  timestamptz,                                             -- «vaciar chat»: lo de antes ya no se le enseña
+  last_read_at    timestamptz,                                             -- para contar los no leídos
+  primary key (user_id, thread_id)
+);
+
+-- ¿Quien llama está en esa conversación?
+create or replace function public.dm_is_participant(p_thread uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.dm_threads t where t.id = p_thread and auth.uid() in (t.user_a, t.user_b));
+$$;
+revoke all on function public.dm_is_participant(uuid) from public, anon;
+grant execute on function public.dm_is_participant(uuid) to authenticated;
+
+-- ¿Quien llama puede usar el chat? (cuenta verificada: ya canjeó su código; el administrador siempre)
+create or replace function public.dm_can_chat()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and verified);
+$$;
+revoke all on function public.dm_can_chat() from public, anon;
+grant execute on function public.dm_can_chat() to authenticated;
+
+alter table public.dm_threads         enable row level security;
+alter table public.dm_messages        enable row level security;
+alter table public.dm_hidden_messages enable row level security;
+alter table public.dm_thread_state    enable row level security;
+revoke all on public.dm_threads, public.dm_messages, public.dm_hidden_messages, public.dm_thread_state from anon, authenticated;
+grant select on public.dm_threads, public.dm_messages, public.dm_hidden_messages, public.dm_thread_state to authenticated;
+
+drop policy if exists "dm_threads: participant select" on public.dm_threads;
+create policy "dm_threads: participant select" on public.dm_threads for select to authenticated
+  using ((select auth.uid()) in (user_a, user_b) or (select public.is_admin()));
+drop policy if exists "dm_messages: participant select" on public.dm_messages;
+create policy "dm_messages: participant select" on public.dm_messages for select to authenticated
+  using (public.dm_is_participant(thread_id) or (select public.is_admin()));
+drop policy if exists "dm_hidden_messages: own select" on public.dm_hidden_messages;
+create policy "dm_hidden_messages: own select" on public.dm_hidden_messages for select to authenticated
+  using (user_id = (select auth.uid()));
+drop policy if exists "dm_thread_state: own select" on public.dm_thread_state;
+create policy "dm_thread_state: own select" on public.dm_thread_state for select to authenticated
+  using (user_id = (select auth.uid()));
+
+-- Una persona como JSON: {id, username, role, online}
+create or replace function public.dm_person_json(p_user uuid)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object('id', p.id, 'username', p.username, 'role', p.role,
+                            'online', (p.last_seen is not null and p.last_seen > now() - interval '90 seconds'))
+    from public.profiles p where p.id = p_user;
+$$;
+revoke all on function public.dm_person_json(uuid) from public, anon, authenticated;
+
+-- A quién se le puede escribir: todas las cuentas verificadas menos uno mismo, por nombre.
+create or replace function public.dm_directory()
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select case when public.dm_can_chat() then
+    coalesce((select jsonb_agg(public.dm_person_json(p.id) order by lower(p.username))
+                from public.profiles p where p.verified and p.id <> auth.uid()), '[]'::jsonb)
+  else '[]'::jsonb end;
+$$;
+
+-- Lo que se le enseña a quien llama de una conversación: sus mensajes, sin los que ocultó ni los de antes de «vaciar chat».
+create or replace function public.dm_visible(p_thread uuid)
+returns setof public.dm_messages
+language sql stable security definer set search_path = public
+as $$
+  select m.* from public.dm_messages m
+    left join public.dm_thread_state st on st.thread_id = m.thread_id and st.user_id = auth.uid()
+   where m.thread_id = p_thread
+     and (st.cleared_before is null or m.created_at > st.cleared_before)
+     and not exists (select 1 from public.dm_hidden_messages h where h.message_id = m.id and h.user_id = auth.uid());
+$$;
+revoke all on function public.dm_visible(uuid) from public, anon, authenticated;
+
+-- Un resumen de conversación para quien llama: {id, other, last, unread, last_message_at}
+create or replace function public.dm_thread_json(p_thread uuid)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object(
+           'id', t.id,
+           'other', public.dm_person_json(case when t.user_a = auth.uid() then t.user_b else t.user_a end),
+           'last', (select to_jsonb(v) from public.dm_visible(t.id) v order by v.sent_at desc, v.id desc limit 1),
+           'unread', (select count(*) from public.dm_visible(t.id) v
+                        left join public.dm_thread_state st on st.thread_id = t.id and st.user_id = auth.uid()
+                       where v.sender_id <> auth.uid() and (st.last_read_at is null or v.created_at > st.last_read_at)),
+           'last_message_at', t.last_message_at)
+    from public.dm_threads t where t.id = p_thread;
+$$;
+revoke all on function public.dm_thread_json(uuid) from public, anon, authenticated;
+
+-- Abre (o crea) la conversación con otra persona y la devuelve.
+create or replace function public.dm_open_thread(p_user uuid)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_me uuid := auth.uid();
+  v_id uuid;
+begin
+  if v_me is null then raise exception 'not_authenticated' using errcode = '28000'; end if;
+  if not public.dm_can_chat() then raise exception 'not_verified' using errcode = '42501'; end if;
+  if p_user is null or p_user = v_me or not exists (select 1 from public.profiles where id = p_user and verified) then
+    raise exception 'user_not_found' using errcode = 'P0002';
+  end if;
+  insert into public.dm_threads (user_a, user_b) values (least(v_me, p_user), greatest(v_me, p_user))
+  on conflict (user_a, user_b) do nothing;
+  select id into v_id from public.dm_threads where user_a = least(v_me, p_user) and user_b = greatest(v_me, p_user);
+  return public.dm_thread_json(v_id);
+end;
+$$;
+
+-- Las conversaciones de quien llama que tienen algo que enseñar, de la más reciente a la más vieja.
+create or replace function public.dm_list_threads()
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(jsonb_agg(j order by (j -> 'last' ->> 'sent_at') desc), '[]'::jsonb)
+    from (select public.dm_thread_json(t.id) as j
+            from public.dm_threads t
+           where auth.uid() in (t.user_a, t.user_b) and public.dm_can_chat()) x
+   where j -> 'last' is not null and jsonb_typeof(j -> 'last') = 'object';
+$$;
+
+-- Los mensajes de una conversación (lo que quien llama puede ver), del más antiguo al más nuevo.
+--   p_before: solo lo enviado antes de esa hora;  p_after: solo lo que llegó al servidor después de esa hora.
+create or replace function public.dm_list_messages(
+  p_thread  uuid,
+  p_before  timestamptz default null,
+  p_after   timestamptz default null,
+  p_limit   integer     default 100
+)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.dm_is_participant(p_thread) then raise exception 'not_participant' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(to_jsonb(x) order by x.sent_at, x.id)
+                     from (select v.* from public.dm_visible(p_thread) v
+                            where (p_before is null or v.sent_at < p_before)
+                              and (p_after  is null or v.created_at > p_after)
+                            order by v.sent_at desc, v.id desc
+                            limit least(greatest(coalesce(p_limit, 100), 1), 200)) x), '[]'::jsonb);
+end;
+$$;
+
+-- Envía un mensaje de texto. Repetible con el mismo p_id sin duplicar.
+create or replace function public.dm_send(
+  p_id       uuid,
+  p_thread   uuid,
+  p_body     text,
+  p_sent_at  timestamptz default now(),
+  p_device   text        default 'movil'
+)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_rows integer := 0;
+begin
+  if auth.uid() is null then raise exception 'not_authenticated' using errcode = '28000'; end if;
+  if not public.dm_can_chat() then raise exception 'not_verified' using errcode = '42501'; end if;
+  if not public.dm_is_participant(p_thread) then raise exception 'not_participant' using errcode = '42501'; end if;
+  if coalesce(length(btrim(p_body)), 0) = 0 then raise exception 'empty_message' using errcode = '22023'; end if;
+  insert into public.dm_messages (id, thread_id, sender_id, sender_device, body, sent_at)
+  values (p_id, p_thread, auth.uid(), coalesce(nullif(btrim(p_device), ''), 'movil'), p_body, coalesce(p_sent_at, now()))
+  on conflict (id) do nothing;
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 and not exists (select 1 from public.dm_messages where id = p_id and sender_id = auth.uid()) then
+    raise exception 'message_id_taken' using errcode = '42501';
+  end if;
+  update public.dm_threads set last_message_at = now() where id = p_thread;
+  return (select to_jsonb(m) from public.dm_messages m where m.id = p_id);
+end;
+$$;
+
+-- «Borrar para mí» un mensaje: deja de enseñárselo a quien llama (el otro lo sigue viendo; la base de datos no cambia).
+create or replace function public.dm_hide_message(p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not exists (select 1 from public.dm_messages m where m.id = p_id and public.dm_is_participant(m.thread_id)) then
+    raise exception 'not_participant' using errcode = '42501';
+  end if;
+  insert into public.dm_hidden_messages (user_id, message_id) values (auth.uid(), p_id) on conflict do nothing;
+end;
+$$;
+
+-- «Vaciar chat» solo para quien llama: lo enviado hasta ahora deja de enseñársele.
+create or replace function public.dm_clear_thread(p_thread uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.dm_is_participant(p_thread) then raise exception 'not_participant' using errcode = '42501'; end if;
+  insert into public.dm_thread_state (user_id, thread_id, cleared_before, last_read_at) values (auth.uid(), p_thread, now(), now())
+  on conflict (user_id, thread_id) do update set cleared_before = now(), last_read_at = now();
+end;
+$$;
+
+-- Marca como leída la conversación (para el contador de no leídos).
+create or replace function public.dm_mark_read(p_thread uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.dm_is_participant(p_thread) then raise exception 'not_participant' using errcode = '42501'; end if;
+  insert into public.dm_thread_state (user_id, thread_id, last_read_at) values (auth.uid(), p_thread, now())
+  on conflict (user_id, thread_id) do update set last_read_at = now();
+end;
+$$;
+
+-- ---------- supervisión (solo el administrador) ----------
+
+-- Todas las conversaciones: {id, a, b, count, last_message_at}, de la más reciente a la más vieja.
+create or replace function public.dm_admin_threads()
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'admin_only' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+                     'id', t.id,
+                     'a', public.dm_person_json(t.user_a),
+                     'b', public.dm_person_json(t.user_b),
+                     'count', (select count(*) from public.dm_messages m where m.thread_id = t.id),
+                     'last_message_at', t.last_message_at) order by t.last_message_at desc nulls last)
+                     from public.dm_threads t
+                    where exists (select 1 from public.dm_messages m where m.thread_id = t.id)), '[]'::jsonb);
+end;
+$$;
+
+-- Todos los mensajes de una conversación (también los que alguien ocultó para sí), con el nombre de quien envía.
+create or replace function public.dm_admin_messages(p_thread uuid, p_before timestamptz default null, p_limit integer default 200)
+returns jsonb
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'admin_only' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(to_jsonb(x) || jsonb_build_object('sender_name', (select username from public.profiles where id = x.sender_id))
+                                    order by x.sent_at, x.id)
+                     from (select m.* from public.dm_messages m
+                            where m.thread_id = p_thread and (p_before is null or m.sent_at < p_before)
+                            order by m.sent_at desc, m.id desc
+                            limit least(greatest(coalesce(p_limit, 200), 1), 500)) x), '[]'::jsonb);
+end;
+$$;
+
+-- Borra DE VERDAD un mensaje (para los dos). Solo el administrador.
+create or replace function public.dm_admin_delete_message(p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'admin_only' using errcode = '42501'; end if;
+  delete from public.dm_messages where id = p_id;
+end;
+$$;
+
+-- Borra DE VERDAD una conversación entera con sus mensajes. Solo el administrador.
+create or replace function public.dm_admin_delete_thread(p_thread uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_admin() then raise exception 'admin_only' using errcode = '42501'; end if;
+  delete from public.dm_threads where id = p_thread;
+end;
+$$;
+
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'dm_directory()', 'dm_open_thread(uuid)', 'dm_list_threads()', 'dm_list_messages(uuid, timestamptz, timestamptz, integer)',
+    'dm_send(uuid, uuid, text, timestamptz, text)', 'dm_hide_message(uuid)', 'dm_clear_thread(uuid)', 'dm_mark_read(uuid)',
+    'dm_admin_threads()', 'dm_admin_messages(uuid, timestamptz, integer)', 'dm_admin_delete_message(uuid)', 'dm_admin_delete_thread(uuid)'
+  ] loop
+    execute format('revoke all on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
+-- Tiempo real: los mensajes nuevos llegan al instante a los dos (y al administrador); la seguridad por fila decide quién los recibe.
+alter table public.dm_messages replica identity full;
+do $$ begin
+  alter publication supabase_realtime add table public.dm_messages;
 exception when duplicate_object then null; when undefined_object then null; end $$;
 
 -- Fin. Ahora crea tu usuario en Authentication > Users (ver Server/supabase/README.md).

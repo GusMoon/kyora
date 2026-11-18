@@ -214,6 +214,44 @@ class FakeSaver implements TrackSaver {
     return DeleteResult(deleted: deleted, failures: failures);
   }
 
+  TrackSaveException? renameFails;
+  final List<({String uri, String name})> renames = [];
+  final List<String> folderDeletes = [];
+
+  @override
+  Future<String> renameEntry(String uri, String name) async {
+    if (renameFails != null) throw renameFails!;
+    renames.add((uri: uri, name: name));
+    final at = rootFolders.indexWhere((f) => f.uri == uri);
+    if (at >= 0) {
+      // una carpeta: cambia su dirección y la de todo lo que lleva dentro
+      final newUri = 'content://tree/musica/document/$name';
+      rootFolders[at] = LocalFolder(uri: newUri, name: name, count: rootFolders[at].count);
+      dirSongs[newUri] = [
+        for (final s in dirSongs.remove(uri) ?? const <LocalSong>[]) LocalSong(uri: '$newUri/${s.name}', name: s.name, sizeBytes: s.sizeBytes, modified: s.modified),
+      ];
+      return newUri;
+    }
+    final newUri = '${uri.substring(0, uri.lastIndexOf('/') + 1)}$name';
+    LocalSong moved(LocalSong s) => LocalSong(uri: newUri, name: name, sizeBytes: s.sizeBytes, modified: s.modified);
+    final inRoot = files.indexWhere((f) => f.uri == uri);
+    if (inRoot >= 0) files[inRoot] = moved(files[inRoot]);
+    for (final list in dirSongs.values) {
+      final i = list.indexWhere((f) => f.uri == uri);
+      if (i >= 0) list[i] = moved(list[i]);
+    }
+    return newUri;
+  }
+
+  @override
+  Future<void> deleteFolder(String uri) async {
+    if (deleteFails != null) throw deleteFails!;
+    folderDeletes.add(uri);
+    rootFolders.removeWhere((f) => f.uri == uri);
+    dirSongs.remove(uri);
+    dirFolders.remove(uri);
+  }
+
   /// Lo que "dura" cada archivo según Android (los que no estén aquí no se pueden leer) y los grupos en que se pidió.
   final Map<String, Duration> durations = {};
   final List<List<String>> durationReads = [];

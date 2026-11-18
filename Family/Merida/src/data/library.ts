@@ -105,7 +105,7 @@ export interface ActionResult {
   error?: { code: string; message: string };
 }
 
-export const SERVICE_DOWN = "El servicio de música no está abierto: arranca Merida con Scripts\\Merida\\iniciar_merida.bat.";
+export const SERVICE_DOWN = "El servicio de música no está abierto: abre Merida con su .bat (iniciar_merida.bat o Abrir Merida.bat).";
 
 /** El cliente HTTP del servicio. */
 export class Library {

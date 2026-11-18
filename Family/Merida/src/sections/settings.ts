@@ -11,6 +11,7 @@ import { applyKeyEdit } from "../hotkeys";
 import { normalize } from "../palette";
 import { permission, requestPermission, showNotification } from "../notify";
 import type { Message } from "../data/chat";
+import { usersPanel } from "./usersPanel";
 import type { Ctx, Section } from "./context";
 
 /** Las monedas que se ofrecen en Finanzas (el código ISO que guarda cada movimiento). */
@@ -334,6 +335,26 @@ export const settingsSection: Section = (ctx: Ctx) => {
     limitInput("Archivos (MB)", prefs.value.quotaFilesMb, "quotaFilesMb"),
   );
 
+  // ----- Usuarios (solo el administrador): quién está en línea y las cuentas. El panel se abre y empieza a leer solo cuando se sabe que la
+  //       cuenta es de administrador (el rol puede llegar un instante después de montar la sección).
+  const usersHost = h("div", { class: "usr-host" });
+  const usersBlock = block("Usuarios", usersHost);
+  const adminOnly = new Set<HTMLElement>([usersBlock]);
+  let isAdmin = status.data.role === "admin";
+  let usersHandle: { off: () => void } | null = null;
+  const syncUsers = () => {
+    if (isAdmin && !usersHandle) {
+      const panel = usersPanel(ctx);
+      usersHost.replaceChildren(panel.el);
+      usersHandle = panel;
+    } else if (!isAdmin && usersHandle) {
+      usersHandle.off();
+      usersHandle = null;
+      usersHost.replaceChildren();
+    }
+  };
+  cleanups.push(() => usersHandle?.off());
+
   // ----- Organización: cuatro grupos con un índice fijo a la izquierda (salto directo, marca la sección que estás viendo y un
   //       buscador que deja solo los ajustes que coinciden)
   const GROUPS: { name: string; blocks: HTMLElement[] }[] = [
@@ -341,6 +362,7 @@ export const settingsSection: Section = (ctx: Ctx) => {
     { name: "Apariencia", blocks: [effects, accent, wallpaper] },
     { name: "Uso", blocks: [start, keysBlock, notifyBlock] },
     { name: "Módulos", blocks: [financeBlock, serverBlock, commandsBlock, music] },
+    { name: "Administración", blocks: [usersBlock] },
   ];
   const titleOf = (el: HTMLElement) => el.querySelector(".cfg-title")?.textContent?.trim() ?? "";
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -396,7 +418,7 @@ export const settingsSection: Section = (ctx: Ctx) => {
     for (const { g, el } of sections) {
       let shown = 0;
       for (const block of g.blocks) {
-        const hit = !q || normalize(`${titleOf(block)} ${block.textContent ?? ""}`).includes(q);
+        const hit = (!q || normalize(`${titleOf(block)} ${block.textContent ?? ""}`).includes(q)) && (!adminOnly.has(block) || isAdmin);
         block.hidden = !hit;
         navButtons.get(block)!.closest("li")!.hidden = !hit;
         if (hit) shown++;
@@ -408,6 +430,7 @@ export const settingsSection: Section = (ctx: Ctx) => {
     noMatch.hidden = any;
   };
   search.addEventListener("input", filter);
+  filter(); // lo que es solo del administrador queda escondido hasta saber quién eres
   search.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && search.value) {
       e.stopPropagation(); // el primer Esc solo vacía la búsqueda
@@ -434,12 +457,19 @@ export const settingsSection: Section = (ctx: Ctx) => {
     cleanups.push(() => observer.disconnect());
   }
   setActive(account);
+  syncUsers();
 
   shell.body.append(layout);
 
   // ----- datos vivos
   cleanups.push(
     status.on((st) => {
+      const admin = st.role === "admin";
+      if (admin !== isAdmin) {
+        isAdmin = admin;
+        syncUsers();
+        filter();
+      }
       user.textContent = st.username || "—";
       email.textContent = st.email || "—";
       role.textContent = st.role || "—";

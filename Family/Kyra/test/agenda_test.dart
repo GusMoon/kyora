@@ -89,45 +89,54 @@ void main() {
     });
   });
 
-  group('layoutDay', () {
-    AgendaItem at(String id, int start, {int? end, AgendaKind kind = AgendaKind.event}) =>
-        AgendaItem(kind: kind, id: id, title: id, day: thursday, start: start, end: end, allDay: false, done: false, span: Span.single, time: '');
-
-    test('lo que no se solapa va cada uno en su carril único', () {
-      final placed = layoutDay([at('a', 540, end: 600), at('b', 660, end: 720)]);
-      expect(placed.map((p) => (p.lane, p.lanes)), [(0, 1), (0, 1)]);
+  group('lo que lleva cada tarjeta', () {
+    test('la hora se parte en 12 h: 10 AM, 12 PM, 12 AM, 6:05 PM', () {
+      expect(hourParts(10 * 60), ('10', 'AM'));
+      expect(hourParts(12 * 60), ('12', 'PM'));
+      expect(hourParts(0), ('12', 'AM'));
+      expect(hourParts(18 * 60 + 5), ('6', 'PM'));
+      expect(hourParts(23 * 60 + 59), ('11', 'PM'));
+      expect(hourLabel12(18 * 60 + 5), '6:05 PM');
+      expect(hourLabel12(0), '12:00 AM');
     });
 
-    test('lo que se solapa va en carriles uno junto a otro', () {
-      final placed = layoutDay([at('a', 540, end: 660), at('b', 600, end: 720), at('c', 610, end: 630)]);
-      expect(placed.every((p) => p.lanes == 3), isTrue);
-      expect(placed.map((p) => p.lane).toSet(), {0, 1, 2});
+    test('un evento lleva su descripción de subtítulo y su horario de pie; de todo el día o de varios días lo dice', () {
+      final withNote = CalendarEvent(id: 'e1', title: 'Reunión', description: '  Revisar el lanzamiento ', startsAt: DateTime(2026, 11, 5, 10).toUtc(), endsAt: DateTime(2026, 11, 5, 11, 30).toUtc(), createdAt: stamp, updatedAt: stamp);
+      final timed = agendaForDay(data(events: [withNote]), thursday).firstWhere((i) => i.id == 'e1');
+      expect(timed.subtitle, 'Revisar el lanzamiento');
+      expect(timed.footer, '10:00 AM – 11:30 AM');
+      final noEnd = agendaForDay(data(events: [event('e2', 'Café', DateTime(2026, 11, 5, 9))]), thursday).firstWhere((i) => i.id == 'e2');
+      expect(noEnd.footer, 'Evento');
+      expect(noEnd.subtitle, '');
+      final allDay = agendaForDay(data(events: [event('e3', 'Cumple', DateTime(2026, 11, 5), allDay: true)]), thursday).firstWhere((i) => i.id == 'e3');
+      expect(allDay.footer, 'Todo el día');
+      final span = agendaForDay(data(events: [event('e4', 'Viaje', DateTime(2026, 11, 4, 9), end: DateTime(2026, 11, 6, 12))]), thursday).firstWhere((i) => i.id == 'e4');
+      expect(span.footer, 'Varios días');
     });
 
-    test('lo de todo el día o sin hora no entra en la columna, y el alto mínimo es media hora', () {
-      final allDay = AgendaItem(kind: AgendaKind.event, id: 'z', title: 'z', day: thursday, start: null, end: null, allDay: true, done: false, span: Span.single, time: '');
-      final placed = layoutDay([allDay, at('r', 600, kind: AgendaKind.reminder), at('e', 700)]);
-      expect(placed.map((p) => p.item.id), ['r', 'e']);
-      expect(placed[0].len, 30); // un recordatorio sin fin
-      expect(placed[1].len, 60); // un evento sin fin
+    test('una tarea lleva su descripción y cuántas subtareas lleva hechas; sin subtareas, «Tarea»', () {
+      final t = TaskItem(id: 't1', name: 'Informe', description: 'Para el viernes', due: DateTime(2026, 11, 5, 18).toUtc(), createdAt: stamp, updatedAt: stamp);
+      AgendaData withProgress(({int done, int total}) Function(TaskItem) f) => AgendaData(tasks: [t], taskProgress: f);
+      final two = agendaForDay(withProgress((_) => (done: 2, total: 3)), thursday).single;
+      expect(two.subtitle, 'Para el viernes');
+      expect(two.footer, '2 de 3 subtareas');
+      expect(agendaForDay(withProgress((_) => (done: 0, total: 1)), thursday).single.footer, '0 de 1 subtarea');
+      expect(agendaForDay(withProgress((_) => (done: 0, total: 0)), thursday).single.footer, 'Tarea');
+      expect(agendaForDay(AgendaData(tasks: [t]), thursday).single.footer, 'Tarea');
     });
 
-    test('al final del día no se sale de las 24 h', () {
-      final placed = layoutDay([at('n', 23 * 60 + 50, end: 23 * 60 + 59)]);
-      expect(placed.single.top + placed.single.len, lessThanOrEqualTo(dayMinutes));
+    test('un recordatorio lleva sus notas, y un hábito sus días', () {
+      final r = Reminder(id: 'r1', notifId: 1, title: 'Llamar', notes: ' al banco ', at: DateTime(2026, 11, 5, 9).toUtc(), createdAt: stamp);
+      final item = agendaForDay(AgendaData(reminders: [r]), thursday).single;
+      expect((item.subtitle, item.footer), ('al banco', 'Recordatorio'));
+      final h = agendaForDay(data(), thursday).firstWhere((i) => i.id == 'h1');
+      expect(h.footer, 'J');
+      expect(agendaForDay(data(), thursday).firstWhere((i) => i.id == 'h2').footer, 'Todos los días');
     });
   });
 
   group('el rango que se ve', () {
-    test('minutesAtY da el cuarto de hora más cercano y no se sale del día', () {
-      expect(minutesAtY(0, 1440), 0);
-      expect(minutesAtY(720, 1440), 720);
-      expect(minutesAtY(728, 1440), 735); // 12:08 → 12:15
-      expect(minutesAtY(5000, 1440), 1425);
-      expect(minutesAtY(10, 0), isNull);
-    });
-
-    test('el mes son 42 días de lunes a domingo; la semana, 7; el día, 1', () {
+    test('el mes son 42 días de lunes a domingo y la semana, 7', () {
       final month = daysFor(CalendarMode.month, DateTime(2026, 11, 5));
       expect(month.length, 42);
       expect(month.first, DateTime(2026, 10, 26)); // el 1 de noviembre de 2026 es domingo: la rejilla empieza el lunes anterior
@@ -135,21 +144,19 @@ void main() {
       expect(month.last, DateTime(2026, 12, 6));
       final week = daysFor(CalendarMode.week, DateTime(2026, 11, 5));
       expect((week.first, week.last), (DateTime(2026, 11, 2), DateTime(2026, 11, 8)));
-      expect(daysFor(CalendarMode.day, DateTime(2026, 11, 5, 18)), [DateTime(2026, 11, 5)]);
+      expect(CalendarMode.values, [CalendarMode.week, CalendarMode.month]); // ya no hay vista Día
     });
 
     test('los títulos', () {
       expect(titleFor(CalendarMode.month, thursday), 'Noviembre 2026');
       expect(titleFor(CalendarMode.week, thursday), '2 – 8 nov 2026');
       expect(titleFor(CalendarMode.week, DateTime(2026, 11, 30)), '30 nov – 6 dic 2026');
-      expect(titleFor(CalendarMode.day, thursday), 'Jueves 5 nov 2026');
     });
 
-    test('ir adelante y atrás: un mes (sin pasarse de los días que tiene), una semana o un día', () {
+    test('ir adelante y atrás: un mes (sin pasarse de los días que tiene), una semana', () {
       expect(stepSelected(CalendarMode.month, DateTime(2026, 1, 31), 1), DateTime(2026, 2, 28));
       expect(stepSelected(CalendarMode.month, thursday, -1), DateTime(2026, 10, 5));
       expect(stepSelected(CalendarMode.week, thursday, 1), DateTime(2026, 11, 12));
-      expect(stepSelected(CalendarMode.day, DateTime(2026, 12, 31), 1), DateTime(2027, 1, 1));
     });
 
     test('la semana ISO', () {

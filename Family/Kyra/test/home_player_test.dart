@@ -129,6 +129,18 @@ void main() {
       expect(find.byIcon(Icons.repeat_one_rounded), findsOneWidget);
     });
 
+    testWidgets('«Detener» para la canción y el reproductor desaparece de Inicio', (tester) async {
+      await show(tester);
+      await play(tester);
+      expect(find.byKey(const Key('home-player')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('hp-stop')));
+      await tester.runAsync(pumpEventQueue);
+      await tester.pump();
+      expect(player.current, isNull);
+      expect(player.playing, isFalse);
+      expect(find.byKey(const Key('home-player')), findsNothing);
+    });
+
     testWidgets('el corazón marca y desmarca la favorita, y «abrir la música» avisa', (tester) async {
       await show(tester);
       await play(tester);

@@ -175,20 +175,26 @@ void main() {
 
     tearDown(() => controller.dispose());
 
+    var settings = 0;
+
     Future<void> show(WidgetTester tester, {Size size = const Size(400, 850)}) async {
+      settings = 0;
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: VaultPage(controller: controller)));
+      await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: VaultPage(controller: controller, onOpenSettings: () => settings++)));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('sin carpeta elegida invita a elegirla; al elegirla sale su contenido', (tester) async {
+    testWidgets('sin carpeta elegida no se elige aquí: manda a Configuración, y al elegirla allí sale su contenido', (tester) async {
       store.folder = null;
       controller = VaultController(source, store);
       await show(tester);
-      expect(find.byKey(const Key('vault-pick')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('vault-pick')));
+      expect(find.byKey(const Key('vault-pick')), findsNothing); // la sección ya no elige la carpeta
+      expect(find.byKey(const Key('vault-empty-text')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('vault-open-settings')));
+      expect(settings, 1);
+      await tester.runAsync(controller.pick); // lo que hace la ficha de Configuración
       await tester.pumpAndSettle();
       expect(source.picks, 1);
       expect(find.byKey(const Key('vault-name')), findsOneWidget);
@@ -284,15 +290,15 @@ void main() {
       expect(find.byKey(const Key('vault-grid')), findsOneWidget);
     });
 
-    testWidgets('con la carpeta perdida ofrece elegir otra', (tester) async {
+    testWidgets('con la carpeta perdida manda a Configuración a elegir otra (aquí no se elige)', (tester) async {
       source
         ..failing = true
         ..lost = true;
       await show(tester);
-      expect(find.byKey(const Key('vault-repick')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('vault-repick')));
-      await tester.pumpAndSettle();
-      expect(source.picks, 1);
+      expect(find.byKey(const Key('vault-repick')), findsNothing);
+      await tester.tap(find.byKey(const Key('vault-open-settings')));
+      expect(settings, 1);
+      expect(source.picks, 0);
     });
 
     testWidgets('una carpeta vacía lo dice', (tester) async {
@@ -301,11 +307,11 @@ void main() {
       expect(find.text('> carpeta vacía'), findsOneWidget);
     });
 
-    testWidgets('el botón de cambiar de carpeta abre el selector', (tester) async {
+    testWidgets('arriba ya no hay botón para cambiar de carpeta (eso vive en Configuración), sí el de exportar', (tester) async {
       await show(tester);
-      await tester.tap(find.byKey(const Key('vault-change')));
-      await tester.pumpAndSettle();
-      expect(source.picks, 1);
+      expect(find.byKey(const Key('vault-change')), findsNothing);
+      expect(find.byKey(const Key('vault-export')), findsOneWidget);
+      expect(source.picks, 0);
     });
 
     testWidgets('en una pantalla baja y estrecha no se desborda', (tester) async {

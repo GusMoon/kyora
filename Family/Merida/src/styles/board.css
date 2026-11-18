@@ -48,9 +48,12 @@
   grid-area: 3 / 1 / 4 / 2;
 }
 .board[data-mode="home"] .tile-chat {
-  grid-area: 3 / 2 / 4 / 5;
+  grid-area: 3 / 2 / 4 / 4;
 }
 .board[data-mode="home"] .tile-finanzas {
+  grid-area: 3 / 4 / 4 / 5;
+}
+.board[data-mode="home"] .tile-mejoras {
   grid-area: 3 / 5 / 4 / 6;
 }
 
@@ -88,6 +91,9 @@
 }
 .tile-finanzas {
   view-transition-name: tile-finanzas;
+}
+.tile-mejoras {
+  view-transition-name: tile-mejoras;
 }
 ::view-transition-group(*) {
   animation-duration: 480ms;
@@ -328,11 +334,13 @@
 }
 /* Contraseñas y Finanzas son las más estrechas: más sitio para el texto y un dibujo más pequeño */
 .tile-contrasenas .tile-foot,
-.tile-finanzas .tile-foot {
+.tile-finanzas .tile-foot,
+.tile-mejoras .tile-foot {
   max-inline-size: calc(64% - 1rem);
 }
 .tile-contrasenas .tile-art,
-.tile-finanzas .tile-art {
+.tile-finanzas .tile-art,
+.tile-mejoras .tile-art {
   inline-size: min(32%, 9rem);
 }
 /* el Chat es ancho: su texto (el último mensaje) ocupa más de la mitad y el dibujo queda pequeño a la derecha */
@@ -348,7 +356,8 @@
   max-block-size: calc(100% - 5rem);
 }
 .tile-contrasenas .tile-art,
-.tile-finanzas .tile-art {
+.tile-finanzas .tile-art,
+.tile-mejoras .tile-art {
   max-block-size: calc(100% - 5rem);
 }
 .tile-chat .tile-art {
@@ -684,6 +693,10 @@
     grid-area: 5 / 2;
     min-block-size: 22rem;
   }
+  .board[data-mode="home"] .tile-mejoras {
+    grid-area: 6 / 1 / 7 / 3;
+    min-block-size: 9rem;
+  }
 }
 
 @media (max-width: 760px) {
@@ -697,6 +710,7 @@
   .board[data-mode="home"] .tile-calendario,
   .board[data-mode="home"] .tile-contrasenas,
   .board[data-mode="home"] .tile-finanzas,
+  .board[data-mode="home"] .tile-mejoras,
   .board[data-mode="home"] .tile-chat {
     grid-area: auto;
   }

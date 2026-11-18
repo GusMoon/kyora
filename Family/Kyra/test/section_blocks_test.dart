@@ -21,7 +21,6 @@ import 'package:kyora_chat/ui/chat_page.dart';
 import 'package:kyora_chat/ui/home_page.dart';
 import 'package:kyora_chat/ui/music_page.dart';
 import 'package:kyora_chat/ui/agenda_view.dart';
-import 'package:kyora_chat/ui/tasks_page.dart';
 import 'package:kyora_chat/ui/widgets/composer.dart';
 import 'package:kyora_chat/ui/widgets/section_motion.dart';
 
@@ -147,25 +146,14 @@ void main() {
     expect(tester.getBottomLeft(find.byType(Composer)).dy, greaterThan(tester.getBottomLeft(find.byKey(const Key('chat-empty'))).dy));
   });
 
-  testWidgets('Tareas: la barra por arriba, los filtros por la izquierda, la lista por la derecha y el campo por abajo', (tester) async {
-    final tasks = TaskController(MemoryTaskStore(), FakeTaskBackend(), retry: const Duration(hours: 1));
-    addTearDown(tasks.dispose);
-    await tester.runAsync(tasks.start);
-    await show(tester, TasksPage(controller: tasks));
-    expect(edgeOf(tester, find.byType(AppBar)), MotionEdge.top);
-    expect(edgeOf(tester, find.byWidgetPredicate((w) => w.runtimeType.toString() == '_Filters')), MotionEdge.left);
-    expect(edgeOf(tester, find.byKey(const Key('tasks-empty'))), MotionEdge.right);
-    expect(edgeOf(tester, find.byKey(const Key('task-input'))), MotionEdge.bottom);
-  });
-
-  testWidgets('Calendario: el título y las vistas por arriba y lo del día por abajo', (tester) async {
+  testWidgets('Calendario: el título y los botones por arriba y lo del día por abajo', (tester) async {
     final reminders = ReminderController(MemoryReminderStore(), FakeScheduler());
     addTearDown(reminders.dispose);
     await tester.runAsync(reminders.start);
     await show(tester, AgendaView(reminders: Future.value(reminders), now: () => DateTime(2026, 11, 5, 9)));
     await tester.pump();
     expect(edgeOf(tester, find.byKey(const Key('cal-title'))), MotionEdge.top);
-    expect(edgeOf(tester, find.byKey(const Key('cal-mode-week'))), MotionEdge.top); // las tres vistas
+    expect(edgeOf(tester, find.byKey(const Key('cal-refresh'))), MotionEdge.top); // Actualizar y «+», en la misma fila
     expect(edgeOf(tester, find.byKey(const Key('cal-day-empty'))), MotionEdge.bottom);
   });
 }

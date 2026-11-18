@@ -17,7 +17,10 @@ import 'music_ui.dart';
 import 'sections.dart';
 
 /// La línea de abajo de la canción que se enseña en la vista de un álbum.
-String? ringLine(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('album-song-subtitle'))).data;
+Future<String?> ringLine(WidgetTester tester) async {
+  await armDisc(tester);
+  return tester.widget<Text>(find.byKey(const Key('album-song-subtitle'))).data;
+}
 
 LocalSong song(String name, {int size = 3 * 1024 * 1024, int at = 1000}) => LocalSong(
   uri: 'content://tree/musica/document/$name',
@@ -218,7 +221,7 @@ void main() {
         ..add('c', title: 'Tercera');
       await open(tester);
       await show(tester);
-      expect(songTitle(tester), 'Tercera c');
+      expect(await songTitle(tester), 'Tercera c');
       await openList(tester);
       expect(find.text('01'), findsNothing);
       // la lista llega de la más nueva a la más antigua: c, b, a (de arriba abajo)
@@ -231,15 +234,15 @@ void main() {
       await tester.runAsync(pumpEventQueue);
       await tester.pumpAndSettle();
       await openList(tester); // se cierra
-      expect(songTitle(tester), 'Solitude a'); // sin el artista: va en la línea de abajo
-      expect(ringLine(tester), startsWith('Brambles'));
+      expect(await songTitle(tester), 'Solitude a'); // sin el artista: va en la línea de abajo
+      expect(await ringLine(tester), startsWith('Brambles'));
     });
 
     testWidgets('la línea de abajo usa la lista de YouTube cuando el nombre no trae artista', (tester) async {
       backend.add('a', playlist: 'Rock');
       await open(tester);
       await show(tester);
-      expect(ringLine(tester), 'Rock');
+      expect(await ringLine(tester), startsWith('Rock'));
     });
 
     testWidgets('la que suena lleva el ecualizador sobre su portada en la lista, y la pausa cuando se para', (tester) async {
@@ -266,11 +269,10 @@ void main() {
       backend.add('a', title: 'Brambles - Solitude');
       await open(tester);
       await show(tester);
-      expect(ringLine(tester), 'Brambles'); // aún no se sabe lo que dura
       await tester.tap(find.byKey(const Key('album-disc-received'))); // el disco: suena
       await tester.runAsync(pumpEventQueue);
       await tester.pump();
-      expect(ringLine(tester), 'Brambles • 3:00'); // y al sonar el reproductor sabe cuánto dura
+      expect(await ringLine(tester), 'Brambles • 3:00'); // y al sonar el reproductor sabe cuánto dura
     });
 
     testWidgets('guardar está en el menú ⋯: ofrece guardar, enseña la marca al guardarse y luego la deja desactivada', (tester) async {
@@ -325,8 +327,6 @@ void main() {
         ..files = [song('Alfa - Uno.mp3'), song('Beta.mp3')]
         ..durations['content://tree/musica/document/Alfa - Uno.mp3'] = const Duration(minutes: 4, seconds: 21);
       await show(tester, card: 'card-root', index: 1);
-      expect(songTitle(tester), 'Uno');
-      expect(ringLine(tester), 'Alfa • 4:21');
       await openList(tester);
       final alfa = find.byKey(const Key('local-local:content://tree/musica/document/Alfa - Uno.mp3'));
       final beta = find.byKey(const Key('local-local:content://tree/musica/document/Beta.mp3'));
@@ -336,8 +336,8 @@ void main() {
       await tester.runAsync(pumpEventQueue);
       await tester.pumpAndSettle();
       await openList(tester); // se cierra
-      expect(songTitle(tester), 'Beta');
-      expect(ringLine(tester), startsWith('Mi música')); // y al sonar, su duración
+      expect(await songTitle(tester), 'Beta');
+      expect(await ringLine(tester), startsWith('Mi música')); // y al sonar, su duración
     });
   });
 

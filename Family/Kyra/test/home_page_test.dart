@@ -16,6 +16,7 @@ import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/home_page.dart';
 import 'package:kyora_chat/ui/section_host.dart';
+import 'package:kyora_chat/ui/widgets/app_icon_lines.dart';
 import 'package:kyora_chat/ui/widgets/app_section.dart';
 import 'package:kyora_chat/ui/widgets/cyber_panel.dart';
 import 'package:kyora_chat/ui/widgets/radial_menu.dart';
@@ -223,7 +224,10 @@ void main() {
       await open(tester, seed: () => weather.setCity('Lima'));
       await tester.tap(find.byKey(const Key('home-weather')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('focus-panel')), findsOneWidget);
+      // a pantalla completa y sin marco: el tablero se fue y el detalle no va en un panel flotante ni dentro de un `CyberPanel`
+      expect(find.byKey(const Key('focus-panel')), findsNothing);
+      expect(find.byKey(const Key('home-grid')), findsNothing);
+      expect(find.ancestor(of: find.byKey(const Key('weather-detail-temp')), matching: find.byType(CyberPanel)), findsNothing);
       expect(text(tester, 'weather-detail-temp'), '21°');
       expect(text(tester, 'weather-detail-label'), 'Lluvia');
       expect(text(tester, 'weather-detail-range'), '24° / 17°');
@@ -340,6 +344,12 @@ void main() {
       expect(find.byKey(const Key('radial-app-com.app9')), findsNothing);
       expect(find.byKey(const Key('radial-chat')), findsNothing);
       expect(find.byKey(const Key('radial-all-hint')), findsOneWidget);
+      // los iconos de las apps llevan sus colores de siempre (sin teñir) y las líneas de barrido
+      for (var i = 1; i <= 8; i++) {
+        expect(find.descendant(of: find.byKey(Key('radial-app-com.app$i')), matching: find.byKey(const Key('icon-lines'))), findsOneWidget, reason: 'líneas de la app $i');
+        final filter = tester.widget<ColorFiltered>(find.descendant(of: find.byKey(Key('radial-app-com.app$i')), matching: find.byType(ColorFiltered))).colorFilter;
+        expect(filter, ScanlineAppIcon.sameColors, reason: 'app $i sin teñir');
+      }
     });
 
     testWidgets('alrededor del reactor el contenido se corta y baja de opacidad (sin oscurecer ni desenfocar); el centro queda libre', (tester) async {

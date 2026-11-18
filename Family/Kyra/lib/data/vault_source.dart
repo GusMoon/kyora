@@ -19,6 +19,12 @@ class VaultEntry {
   final int modified;
 
   static const _imageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif'};
+  static const _videoExtensions = {'mp4', 'mkv', 'mov', 'avi', 'webm', '3gp', 'm4v'};
+  static const _audioExtensions = {'mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac', 'opus', 'wma'};
+  static const _textExtensions = {'txt', 'md', 'json', 'csv', 'log', 'xml', 'yaml', 'yml', 'ini', 'conf', 'html', 'htm', 'css', 'js', 'dart', 'py', 'kt', 'java', 'sql', 'srt', 'tsv'};
+
+  /// Lo más que se lee de un texto para enseñarlo aquí (más grande, se abre con otra app).
+  static const maxTextBytes = 2 * 1024 * 1024;
 
   String get extension {
     final dot = name.lastIndexOf('.');
@@ -27,6 +33,18 @@ class VaultEntry {
 
   /// ¿Es una imagen que se puede enseñar?
   bool get isImage => !isDir && (mime.startsWith('image/') || _imageExtensions.contains(extension));
+
+  /// ¿Es un vídeo?
+  bool get isVideo => !isDir && (mime.startsWith('video/') || _videoExtensions.contains(extension));
+
+  /// ¿Es un audio?
+  bool get isAudio => !isDir && (mime.startsWith('audio/') || _audioExtensions.contains(extension));
+
+  /// ¿Es un texto plano (notas, registros, datos…) que se puede leer aquí?
+  bool get isText => !isDir && size <= maxTextBytes && (mime.startsWith('text/') || mime == 'application/json' || mime == 'application/xml' || _textExtensions.contains(extension));
+
+  /// ¿Se ve dentro de la app? Imágenes, vídeos, audios y textos. Lo demás (PDF, Word…) lo necesita otra app.
+  bool get viewable => canShow || isVideo || isAudio || isText;
 
   /// Imágenes que Flutter no sabe pintar (HEIC): se abren con la app del teléfono.
   bool get canShow => isImage && extension != 'heic' && extension != 'heif' && !mime.contains('heic') && !mime.contains('heif');
@@ -39,6 +57,19 @@ class VaultEntry {
     size: (map['size'] as num?)?.toInt() ?? 0,
     modified: (map['modified'] as num?)?.toInt() ?? 0,
   );
+}
+
+/// Lo que pasó al exportar archivos al Vault: cuántos se copiaron, cuántos de ellos también se borraron de su sitio (movidos) y los que
+/// fallaron con su motivo.
+class VaultImport {
+  const VaultImport({this.copied = 0, this.moved = 0, this.failed = const {}});
+
+  final int copied;
+  final int moved;
+  final Map<String, String> failed;
+
+  /// Copiados pero que no se pudieron borrar del origen (ese almacenamiento no deja).
+  int get kept => copied - moved;
 }
 
 /// La carpeta elegida para el Vault: su dirección (de Android) y su nombre.
@@ -65,6 +96,16 @@ abstract class VaultSource {
 
   /// Abre el archivo con otra app del teléfono. `false` si no hay ninguna que sepa.
   Future<bool> open(String uri, String mime);
+
+  /// «Exportar»: abre el selector de archivos del sistema (almacenamiento interno, tarjeta, otros dispositivos), copia lo elegido en `dirUri`
+  /// (la raíz si es `null`) y, con `move`, borra los originales. `null` si se cierra el selector sin elegir.
+  Future<VaultImport?> importFiles(String treeUri, {String? dirUri, bool move = true});
+
+  /// Le cambia el nombre a un archivo o carpeta. Devuelve su dirección nueva.
+  Future<String> rename(String uri, String name);
+
+  /// Lo manda con el menú de compartir del sistema (mensajes, correo…). `false` si no se pudo abrir.
+  Future<bool> share(String uri, String mime, String name);
 }
 
 /// Algo falló al leer del Vault (lo dicho por Android, en cristiano).
@@ -131,6 +172,38 @@ class AndroidVaultSource implements VaultSource {
       return false;
     }
   }
+
+  @override
+  Future<VaultImport?> importFiles(String treeUri, {String? dirUri, bool move = true}) async {
+    try {
+      final map = await _channel.invokeMapMethod<String, Object?>('import', {'treeUri': treeUri, 'dirUri': dirUri ?? '', 'move': move});
+      if (map == null) return null;
+      final failed = map['failed'];
+      return VaultImport(
+        copied: (map['copied'] as num?)?.toInt() ?? 0,
+        moved: (map['moved'] as num?)?.toInt() ?? 0,
+        failed: failed is Map ? {for (final e in failed.entries) '${e.key}': '${e.value}'} : const {},
+      );
+    } on PlatformException catch (e) {
+      throw VaultException(e.message ?? 'No se pudo exportar.', lost: e.code == 'folder_lost');
+    } on MissingPluginException {
+      throw const VaultException('Este teléfono no tiene selector de archivos.');
+    }
+  }
+
+  @override
+  Future<String> rename(String uri, String name) => _call(() => _channel.invokeMethod<String>('rename', {'uri': uri, 'name': name}), 'No se pudo cambiar el nombre.');
+
+  @override
+  Future<bool> share(String uri, String mime, String name) async {
+    try {
+      return (await _channel.invokeMethod<bool>('share', {'uri': uri, 'mime': mime, 'name': name})) ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
 }
 
 /// Un Vault de mentira, para las pruebas: carpetas (por su dirección) con lo que tienen dentro y los bytes de cada archivo.
@@ -149,6 +222,13 @@ class FakeVaultSource implements VaultSource {
   bool lost = false;
 
   final List<String> opened = [];
+  final List<String> shared = [];
+  final List<({String uri, String name})> renames = [];
+  final List<({String? dir, bool move})> imports = [];
+
+  /// Lo que devolverá «exportar» (`null` = se cierra el selector sin elegir) y si falla.
+  VaultImport? importResult = const VaultImport(copied: 1, moved: 1);
+  bool importFails = false;
   final List<String> listed = [];
   final List<String> thumbs = [];
   int picks = 0;
@@ -182,6 +262,34 @@ class FakeVaultSource implements VaultSource {
   @override
   Future<bool> open(String uri, String mime) async {
     opened.add(uri);
+    return true;
+  }
+
+  @override
+  Future<VaultImport?> importFiles(String treeUri, {String? dirUri, bool move = true}) async {
+    imports.add((dir: dirUri, move: move));
+    if (importFails) throw const VaultException('Android no dejó escribir en la carpeta del Vault.');
+    return importResult;
+  }
+
+  @override
+  Future<String> rename(String uri, String name) async {
+    renames.add((uri: uri, name: name));
+    final out = <String, List<VaultEntry>>{};
+    for (final e in folders.entries) {
+      out[e.key] = [
+        for (final entry in e.value) entry.uri == uri ? VaultEntry(uri: '$uri#$name', name: name, isDir: entry.isDir, mime: entry.mime, size: entry.size, modified: entry.modified) : entry,
+      ];
+    }
+    folders
+      ..clear()
+      ..addAll(out);
+    return '$uri#$name';
+  }
+
+  @override
+  Future<bool> share(String uri, String mime, String name) async {
+    shared.add(uri);
     return true;
   }
 }

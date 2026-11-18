@@ -234,6 +234,75 @@ class LocalMusicController extends ChangeNotifier implements ArtSource {
     }
   }
 
+  // ---------- cambiar el nombre y borrar álbumes y canciones ----------
+
+  static String _validName(String name, String what) {
+    final clean = name.trim();
+    if (clean.isEmpty) throw TrackSaveException('Escribe un nombre para $what.');
+    if (clean.contains('/') || clean.contains('\\')) throw const TrackSaveException('El nombre no puede llevar «/» ni «\\».');
+    return clean;
+  }
+
+  /// Olvida todo lo leído (las direcciones cambiaron) y vuelve a la raíz; la siguiente lectura lo reconstruye.
+  void _forgetEverything() {
+    path.clear();
+    _selected.clear();
+    _listings.clear();
+    _albumByUri.clear();
+    _albumArt.clear();
+    _shown = null;
+    rootFolders = const [];
+    rootSongCount = 0;
+    _prefetchRound++;
+  }
+
+  /// Le cambia el nombre a un álbum (su carpeta). Las direcciones de la carpeta y de sus canciones cambian: la portada que se le puso pasa a la
+  /// dirección nueva y todo se vuelve a leer desde la raíz. Lanza `TrackSaveException` con el motivo; entonces el álbum se queda como estaba.
+  Future<LocalFolder> renameAlbum(LocalFolder folder, String name) async {
+    final tree = _music.settings.treeUri;
+    if (tree == null || tree.isEmpty) throw const TrackSaveException('Primero elige una carpeta.');
+    final clean = _validName(name, 'el álbum');
+    if (clean == folder.name) return folder;
+    final uri = await _saver.renameEntry(folder.uri, clean);
+    final cover = _covers.remove(_albumKey(folder.uri));
+    if (cover != null) {
+      _covers[_albumKey(uri)] = cover;
+      await _rememberCovers();
+    }
+    _forgetEverything();
+    await refresh();
+    return LocalFolder(uri: uri, name: clean, count: folder.count);
+  }
+
+  /// Borra un álbum: su carpeta con todas sus canciones (las que se quieran conservar se mueven antes). Quita también la portada que se le puso.
+  Future<void> deleteAlbum(LocalFolder folder) async {
+    final tree = _music.settings.treeUri;
+    if (tree == null || tree.isEmpty) throw const TrackSaveException('Primero elige una carpeta.');
+    await _saver.deleteFolder(folder.uri);
+    await clearAlbumCover(folder.uri);
+    _forgetEverything();
+    await refresh();
+  }
+
+  /// Cambia el nombre de una canción (se queda con su «.mp3»). Devuelve su dirección nueva. Lanza `TrackSaveException` con el motivo.
+  Future<String> renameTrack(Track track, String name) async {
+    final old = track.localUri;
+    if (old == null) throw const TrackSaveException('Esa canción no se puede renombrar.');
+    final clean = _validName(name, 'la canción');
+    final file = clean.toLowerCase().endsWith('.mp3') ? clean : '$clean.mp3';
+    final uri = await _saver.renameEntry(old, file);
+    final art = _art.remove(old);
+    if (art != null) _art[uri] = art;
+    final album = _albumByUri.remove(old);
+    _selected.remove(old);
+    _listings.remove(album == null || album == 'root' ? '' : album);
+    _listings.remove(currentUri ?? '');
+    _albumArt.clear();
+    _prefetchRound++;
+    await refresh();
+    return uri;
+  }
+
   /// Vuelve a leer la carpeta. Sin carpeta elegida no hay nada que leer.
   Future<void> refresh() async {
     final tree = _music.settings.treeUri;

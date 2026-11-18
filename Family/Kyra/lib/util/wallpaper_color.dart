@@ -22,6 +22,72 @@ Future<Color?> wallpaperAccent(String path) async {
   }
 }
 
+/// Cómo se sacan los colores secundarios de un fondo (en las pruebas, uno falso). Recibe la ruta y el acento ya calculado.
+typedef ExtrasLookup = Future<List<Color>> Function(String path, Color accent);
+
+/// Los colores **secundarios** de una imagen del teléfono: otros tonos del fondo que no son el predominante (ver [secondaryColorsOf]). Vacío si
+/// la imagen no se puede leer.
+Future<List<Color>> wallpaperExtras(String path, Color accent) async {
+  try {
+    final image = await _load(ResizeImage(FileImage(File(path)), width: 64));
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) return const [];
+    return secondaryColorsOf(data.buffer.asUint8List(), accent);
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Hasta [count] colores de unos píxeles RGBA que **no** son el tono principal: se agrupa por tono (24 grupos), se descartan los grupos
+/// cercanos al del acento (menos de 45°) y de cada color ya elegido, y se toman los que más pesan (saturación × brillo), llevados a viveza y
+/// brillo de neón. Aunque pesen poco (un detalle del fondo) valen mientras tengan algo de color. Si el fondo no da [count] tonos distintos, se
+/// completa girando el tono del acento (distintos entre sí y del acento), así siempre salen [count] colores.
+List<Color> secondaryColorsOf(Uint8List rgba, Color accent, {int count = 3}) {
+  const buckets = 24;
+  final weight = List<double>.filled(buckets, 0);
+  final sinSum = List<double>.filled(buckets, 0);
+  final cosSum = List<double>.filled(buckets, 0);
+  for (var i = 0; i + 3 < rgba.length; i += 4) {
+    if (rgba[i + 3] < 128) continue;
+    final hsv = HSVColor.fromColor(Color.fromARGB(255, rgba[i], rgba[i + 1], rgba[i + 2]));
+    if (hsv.saturation < 0.2 || hsv.value < 0.15) continue;
+    final w = hsv.saturation * hsv.value;
+    final bucket = (hsv.hue / 360 * buckets).floor() % buckets;
+    final radians = hsv.hue * math.pi / 180;
+    weight[bucket] += w;
+    sinSum[bucket] += w * math.sin(radians);
+    cosSum[bucket] += w * math.cos(radians);
+  }
+  final accentHue = HSVColor.fromColor(accent).hue;
+  double gap(double a, double b) {
+    final d = (a - b).abs() % 360;
+    return d > 180 ? 360 - d : d;
+  }
+
+  final hues = <double>[accentHue];
+  final out = <Color>[];
+  final order = List<int>.generate(buckets, (b) => b)..sort((a, b) => weight[b].compareTo(weight[a]));
+  for (final b in order) {
+    if (out.length >= count) break;
+    if (weight[b] <= 0) break;
+    var hue = math.atan2(sinSum[b], cosSum[b]) * 180 / math.pi;
+    if (hue < 0) hue += 360;
+    if (hues.any((h) => gap(h, hue) < 45)) continue;
+    hues.add(hue);
+    out.add(HSVColor.fromAHSV(1, hue, 0.72, 0.96).toColor());
+  }
+  // lo que falte: tonos girados desde el acento, lo más lejos posible de los ya elegidos
+  const spread = [150.0, 210.0, 90.0, 270.0, 30.0, 330.0];
+  for (final turn in spread) {
+    if (out.length >= count) break;
+    final hue = (accentHue + turn) % 360;
+    if (hues.any((h) => gap(h, hue) < 45)) continue;
+    hues.add(hue);
+    out.add(HSVColor.fromAHSV(1, hue, 0.72, 0.96).toColor());
+  }
+  return out;
+}
+
 /// El acento de unos píxeles RGBA: agrupa por tono (24 grupos), elige el grupo que más pesa (saturación × brillo de cada píxel) y devuelve
 /// su tono medio con saturación y brillo de neón. `null` si apenas hay color (una foto gris, negra o blanca).
 Color? accentOf(Uint8List rgba) {

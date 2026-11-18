@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothManager
 import android.os.BatteryManager
 import android.os.StatFs
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -28,6 +29,8 @@ import android.os.PowerManager
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -41,12 +44,19 @@ class MainActivity : AudioServiceActivity() {
     // La respuesta pendiente del selector de carpeta (solo puede haber uno abierto a la vez).
     private var pendingFolder: MethodChannel.Result? = null
 
+    // La respuesta pendiente del selector de archivos del Vault («Exportar») y a qué carpeta van a ir.
+    private var pendingImport: MethodChannel.Result? = null
+    private var importTree: String = ""
+    private var importDir: String = ""
+    private var importMove: Boolean = true
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         configureAudioLevels(flutterEngine)
         configureBackground(flutterEngine)
         configureApps(flutterEngine)
         configureSystem(flutterEngine)
+        configureVoice(flutterEngine)
         configureContacts(flutterEngine)
         configureVault(flutterEngine)
         // Guarda una canción (MP3): en la carpeta que la persona eligió con el selector de Android, o si no hay, en Música o
@@ -85,6 +95,7 @@ class MainActivity : AudioServiceActivity() {
                     result,
                 )
                 "deleteSongs" -> deleteSongs(call.argument<List<String>>("uris") ?: emptyList(), result)
+                "renameEntry" -> renameEntry(call.argument<String>("uri") ?: "", call.argument<String>("name") ?: "", result)
                 "readDurations" -> readDurations(call.argument<List<String>>("uris") ?: emptyList(), result)
                 "readArt" -> readArt(call.argument<List<String>>("uris") ?: emptyList(), result)
                 "prepareCover" -> inThread(result, "cover_failed", "No se pudo abrir esa imagen.") {
@@ -99,6 +110,54 @@ class MainActivity : AudioServiceActivity() {
                 "writeFile" -> inThread(result, "write_failed", "No se pudo escribir en la canción.") {
                     writeSong(call.argument<String>("uri") ?: "", call.argument<ByteArray>("bytes") ?: ByteArray(0))
                     null
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    // ---------- la voz de KyraAdmin (lee notificaciones con la pantalla apagada; ver KyraNotificationListener) ----------
+
+    private var testVoice: TextToSpeech? = null
+
+    private fun configureVoice(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kyora/voice").setMethodCallHandler { call, result ->
+            val prefs = getSharedPreferences(KyraNotificationListener.PREFS, Context.MODE_PRIVATE)
+            when (call.method) {
+                // ¿La persona ya le dio a Kyra el «acceso a notificaciones»?
+                "isAccessGranted" -> {
+                    val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
+                    val me = ComponentName(this, KyraNotificationListener::class.java).flattenToString()
+                    result.success(enabled.split(":").any { it == me })
+                }
+                "openAccessSettings" -> result.success(openPanel(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                "getConfig" -> result.success(
+                    mapOf(
+                        "enabled" to prefs.getBoolean(KyraNotificationListener.KEY_ENABLED, false),
+                        "packages" to (prefs.getStringSet(KyraNotificationListener.KEY_PACKAGES, emptySet()) ?: emptySet()).toList(),
+                    ),
+                )
+                "setConfig" -> {
+                    prefs.edit()
+                        .putBoolean(KyraNotificationListener.KEY_ENABLED, call.argument<Boolean>("enabled") ?: false)
+                        .putStringSet(KyraNotificationListener.KEY_PACKAGES, (call.argument<List<String>>("packages") ?: emptyList()).toSet())
+                        .apply()
+                    result.success(true)
+                }
+                // «Probar voz»: dice una frase de ejemplo ya mismo (sin esperar a que se apague la pantalla).
+                "testSpeak" -> {
+                    val phrase = call.argument<String>("text") ?: "Mensaje de WhatsApp. Ana dice: ya llegué."
+                    testVoice?.shutdown()
+                    var engine: TextToSpeech? = null
+                    engine = TextToSpeech(this) { status ->
+                        val tts = engine ?: return@TextToSpeech
+                        if (status == TextToSpeech.SUCCESS) {
+                            tts.setLanguage(Locale("es", "MX"))
+                            tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "kyra-test")
+                        }
+                    }
+                    testVoice = engine
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
@@ -183,6 +242,8 @@ class MainActivity : AudioServiceActivity() {
                 "isDefaultLauncher" -> result.success(isDefaultHome())
                 // Pide a Android que Kyra sea la pantalla de inicio: el aviso directo (Android 10 o más) o, si no, la lista de apps de inicio.
                 "chooseLauncher" -> result.success(chooseLauncher())
+                // Enciende o apaga que Kyra se ofrezca como pantalla de inicio (solo el administrador la ofrece).
+                "setLauncherEnabled" -> result.success(setLauncherEnabled(call.argument<Boolean>("enabled") ?: false))
                 "launch" -> try {
                     val pkg = call.argument<String>("package") ?: ""
                     val intent = packageManager.getLaunchIntentForPackage(pkg)
@@ -211,6 +272,19 @@ class MainActivity : AudioServiceActivity() {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         val info = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
         return info?.activityInfo?.packageName == packageName
+    }
+
+    // El filtro «pantalla de inicio» está en el alias HomeAlias del manifiesto (apagado de fábrica): aquí se enciende o se apaga sin
+    // reiniciar la app. Apagado, Android no ofrece a Kyra como launcher (y si lo era, vuelve a su launcher anterior).
+    private fun setLauncherEnabled(enabled: Boolean): Boolean = try {
+        packageManager.setComponentEnabledSetting(
+            ComponentName(this, "com.kyora.kyora_chat.HomeAlias"),
+            if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        true
+    } catch (e: Exception) {
+        false
     }
 
     private fun chooseLauncher(): Boolean {
@@ -398,6 +472,8 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onDestroy() {
         stopVisualizer()
+        testVoice?.shutdown()
+        testVoice = null
         super.onDestroy()
     }
 
@@ -485,6 +561,10 @@ class MainActivity : AudioServiceActivity() {
     @Deprecated("Lo usa el selector de carpeta (FlutterActivity todavía no ofrece otra forma).")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == IMPORT_FILES) {
+            finishImport(resultCode, data)
+            return
+        }
         if (requestCode != PICK_FOLDER) return
         val result = pendingFolder ?: return
         pendingFolder = null
@@ -683,6 +763,21 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    /// Le cambia el nombre a una carpeta o a un archivo. Devuelve la dirección nueva (Android puede cambiarla al renombrar).
+    private fun renameEntry(uri: String, name: String, result: MethodChannel.Result) {
+        inThread(result, "rename_failed", "No se pudo cambiar el nombre.") {
+            if (uri.isEmpty() || name.isBlank()) throw IOException("Falta el nombre.")
+            val renamed = try {
+                DocumentsContract.renameDocument(contentResolver, Uri.parse(uri), name)
+            } catch (e: SecurityException) {
+                throw FolderLostException("Android ya no deja escribir en esa carpeta: elígela otra vez.")
+            } catch (e: java.io.FileNotFoundException) {
+                throw FolderLostException("Eso ya no existe: vuelve a leer la carpeta.")
+            }
+            (renamed ?: throw IOException("Android no dejó cambiar el nombre a «$name».")).toString()
+        }
+    }
+
     private fun moveOne(source: Uri, from: Uri, to: Uri) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
@@ -695,8 +790,15 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun copyThenDelete(source: Uri, to: Uri) {
-        var name = "canción.mp3"
-        var mime = "audio/mpeg"
+        copyDocument(source, to, "canción.mp3", "audio/mpeg")
+        // la copia está completa: recién ahora se borra el original
+        if (!DocumentsContract.deleteDocument(contentResolver, source)) throw IOException("Se copió, pero no se pudo borrar el original.")
+    }
+
+    /// Copia un documento dentro de la carpeta `to` (con su mismo nombre y tipo) y devuelve la copia. Si la copia queda a medias, la borra.
+    private fun copyDocument(source: Uri, to: Uri, fallbackName: String, fallbackMime: String): Uri {
+        var name = fallbackName
+        var mime = fallbackMime
         var size = -1L
         contentResolver.query(
             source,
@@ -726,8 +828,7 @@ class MainActivity : AudioServiceActivity() {
             }
             throw e
         }
-        // la copia está completa: recién ahora se borra el original
-        if (!DocumentsContract.deleteDocument(contentResolver, source)) throw IOException("Se copió, pero no se pudo borrar el original.")
+        return target
     }
 
     /// Lo que dura cada archivo: `{uri: milisegundos}`. Lee los metadatos del .mp3 en un hilo aparte; los archivos que no se
@@ -1024,6 +1125,14 @@ class MainActivity : AudioServiceActivity() {
                     vaultThumb(call.argument<String>("uri") ?: "", call.argument<Int>("side") ?: 480, call.argument<String>("mime") ?: "")
                 }
                 "open" -> result.success(vaultOpen(call.argument<String>("uri") ?: "", call.argument<String>("mime") ?: ""))
+                "import" -> vaultImport(
+                    call.argument<String>("treeUri") ?: "",
+                    call.argument<String>("dirUri") ?: "",
+                    call.argument<Boolean>("move") ?: true,
+                    result,
+                )
+                "rename" -> renameEntry(call.argument<String>("uri") ?: "", call.argument<String>("name") ?: "", result)
+                "share" -> result.success(vaultShare(call.argument<String>("uri") ?: "", call.argument<String>("mime") ?: "", call.argument<String>("name") ?: ""))
                 else -> result.notImplemented()
             }
         }
@@ -1103,6 +1212,88 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    /// «Exportar»: abre el selector de archivos del sistema (el almacenamiento interno, la tarjeta, un USB u otras apps de archivos) para elegir
+    /// varios, los copia en la carpeta `dirUri` del Vault (la raíz si viene vacía) y, con `move`, borra los originales cuando la copia quedó
+    /// completa. Devuelve `{copied: n, moved: n, failed: {nombre: motivo}}`, o `null` si se cerró el selector sin elegir.
+    private fun vaultImport(treeUri: String, dirUri: String, move: Boolean, result: MethodChannel.Result) {
+        if (treeUri.isEmpty()) {
+            result.error("no_vault", "Elige primero la carpeta del Vault en Configuración.", null)
+            return
+        }
+        if (pendingImport != null) {
+            result.error("busy", "Ya hay un selector de archivos abierto.", null)
+            return
+        }
+        pendingImport = result
+        importTree = treeUri
+        importDir = dirUri
+        importMove = move
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, IMPORT_FILES)
+        } catch (e: Exception) {
+            pendingImport = null
+            result.error("no_picker", "Este teléfono no tiene selector de archivos.", null)
+        }
+    }
+
+    private fun finishImport(resultCode: Int, data: Intent?) {
+        val result = pendingImport ?: return
+        pendingImport = null
+        val picked = ArrayList<Uri>()
+        data?.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { picked.add(it) } }
+        data?.data?.let { if (picked.isEmpty()) picked.add(it) }
+        if (resultCode != Activity.RESULT_OK || picked.isEmpty()) {
+            result.success(null) // la persona cerró el selector sin elegir
+            return
+        }
+        val tree = Uri.parse(importTree)
+        val into = docUri(tree, importDir)
+        val move = importMove
+        Thread {
+            var copied = 0
+            var moved = 0
+            val failed = HashMap<String, String>()
+            for (uri in picked) {
+                val shown = displayName(uri) ?: uri.lastPathSegment ?: "archivo"
+                try {
+                    copyDocument(uri, into, shown, "application/octet-stream")
+                    copied++
+                    if (move) {
+                        try {
+                            if (DocumentsContract.deleteDocument(contentResolver, uri)) moved++
+                        } catch (_: Exception) {
+                            // el almacenamiento de origen no deja borrar: queda copiado, no movido
+                        }
+                    }
+                } catch (e: SecurityException) {
+                    failed[shown] = "Android no dejó escribir en la carpeta del Vault."
+                } catch (e: Exception) {
+                    failed[shown] = e.message ?: "No se pudo copiar."
+                }
+            }
+            runOnUiThread { result.success(mapOf("copied" to copied, "moved" to moved, "failed" to failed)) }
+        }.start()
+    }
+
+    /// Manda el archivo a otra app (mensajes, correo, WhatsApp…) con el menú de compartir del sistema.
+    private fun vaultShare(text: String, mime: String, name: String): Boolean {
+        if (text.isEmpty()) return false
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = if (mime.isEmpty()) "*/*" else mime
+            putExtra(Intent.EXTRA_STREAM, Uri.parse(text))
+            if (name.isNotEmpty()) putExtra(Intent.EXTRA_TITLE, name)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return startIntent(Intent.createChooser(send, name.ifEmpty { "Compartir" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    }
+
     /// Abre el archivo con la app del teléfono que sepa verlo.
     private fun vaultOpen(text: String, mime: String): Boolean {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -1114,6 +1305,7 @@ class MainActivity : AudioServiceActivity() {
 
     private companion object {
         const val PICK_FOLDER = 4711
+        const val IMPORT_FILES = 4715
         const val REQUEST_HOME_ROLE = 4713
         const val ASK_AUDIO = 4712
         const val ASK_CONTACTS = 4714

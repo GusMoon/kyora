@@ -8,6 +8,7 @@ import type { Backdrop } from "../backdrop";
 import type { Area } from "../store";
 import type { Library } from "../data/library";
 import type { VaultSession } from "../vault/session";
+import type { CallController } from "../data/call-controller";
 
 export interface Ctx {
   client: SupabaseClient;
@@ -20,6 +21,7 @@ export interface Ctx {
   library: Library; // el servicio local de música (tus listas de YouTube)
   vault: VaultSession; // la bóveda de contraseñas: la clave vive solo en memoria
   userId: string; // el id de la cuenta (la primera carpeta de lo que se sube a Storage)
+  calls?: CallController; // las llamadas de la familia (las gestiona main.ts: suenan en cualquier sección)
   signOut: () => void;
   /** Vuelve a pedir al servidor lo de un área (tareas, etiquetas, canciones, mensajes, archivos, eventos o finanzas). */
   reload: (area: Area) => Promise<void>;

@@ -53,13 +53,35 @@ Devuelve un arreglo de mensajes (como arriba, con `received_at`) **del más anti
 | Función | Quién | Cuerpo → respuesta |
 |---|---|---|
 | `username_available` | cualquiera, **sin sesión** (solo `apikey`) | `{"p_username"}` → `true`/`false` |
-| `my_profile` | con sesión | `{}` → `{"id", "username", "email", "role": "admin" \| "intern", "created_at"}` (o `null`) |
+| `my_profile` | con sesión | `{}` → `{"id", "username", "email", "role": "admin" \| "intern", "created_at", "verified"}` (o `null`) |
+| `claim_account` | con sesión | `{"p_code": "123456"}` → `true`. Canjea el código de 6 dígitos (errores: `code_invalid`, `code_expired`, `code_locked`) |
+| `touch_presence` | con sesión | `{}` → nada. «Sigo aquí» (cada ~30 s) |
+| `list_presence` | solo administrador | `{}` → `[{"id", "username", "role", "verified", "last_seen", "online", "code_pending", "me"}]` |
 | `list_recipients` | solo admin | `{}` → `[{"id", "username", "role", "me"}]`, primero el propio (`me: true`, la PC lo muestra como «Yo») |
 | `add_music_track` | solo admin | `{"p_id", "p_title", "p_file_name", "p_storage_path", "p_mime_type", "p_size_bytes", "p_playlist", "p_recipient_id", "p_cover_url"}` → la fila de `music_tracks`. `p_recipient_id` vacío = quien llama. Repetir el mismo `p_id` no duplica. Error `file_missing` si el MP3 ya no está en Storage (la limpieza lo borró tras recibirse): hay que volver a subirlo. |
 | `list_music_tracks` | con sesión | `{"p_limit": 100}` → las canciones que **recibe** quien llama, de la más nueva a la más antigua; cada fila trae `received_at` (`null` hasta que se confirme) |
 | `confirm_track_received` | con sesión (el destinatario) | `{"p_id": "<uuid de la canción>"}` → la fila con `received_at` puesto. Es el botón «Recibido» de la app móvil: solo se llama cuando la canción ya está guardada en el teléfono. Solo el destinatario puede, sobre sus canciones; repetirlo no cambia la hora. Error `unknown_track` si no existe o no es suya. Nada se borra de Supabase mientras `received_at` sea `null`. |
 
-Registro de un pasante: `POST /auth/v1/signup` con `{"email", "password", "data": {"username"}}` (hace falta tener desactivado *Confirm email* en Supabase para que devuelva sesión). Un trigger crea su fila en `profiles` como `intern`.
+**Ya no hay registro público** (`/auth/v1/signup` debe estar apagado en Supabase). Las cuentas las crea el administrador con la función `POST /functions/v1/admin-users` (cabecera `Authorization: Bearer <sesión del administrador>`) y `{"action": "create", "username", "password", "role": "intern" | "admin"}` → `{"id", "username", "role", "code"}` (el código de 6 dígitos sale una sola vez). Otras acciones: `set_role` (`user_id`, `role`), `regenerate_code` (`user_id`) → `{"code"}` y `remove` (`user_id`). Errores: `invalid_username`, `invalid_password`, `username_taken`, `not_admin` (403), `unauthorized` (401), `cannot_change_self`, `user_not_found`. Se entra con `POST /auth/v1/token?grant_type=password` y el correo `<nombre>@kyra.local`.
+
+### Chat privado 1 a 1 (Kyra, `schema.sql` §19)
+
+Los mensajes son **permanentes**: «borrar para mí» solo oculta para quien lo pide; borrar de la base de datos solo lo hace el administrador.
+Hace falta una cuenta verificada (si no: `not_verified`). Tiempo real: la tabla `dm_messages` (la seguridad por fila decide quién recibe cada fila).
+
+| Función | Quién | Cuerpo → respuesta |
+|---|---|---|
+| `dm_directory` | con sesión | `{}` → `[{"id", "username", "role", "online"}]`: todas las cuentas verificadas menos la propia |
+| `dm_open_thread` | con sesión | `{"p_user"}` → la conversación con esa persona (se crea si no existe): `{"id", "other", "last", "unread", "last_message_at"}` |
+| `dm_list_threads` | con sesión | `{}` → las conversaciones propias con algo que enseñar, la más reciente primero (mismo formato) |
+| `dm_list_messages` | participante | `{"p_thread", "p_before", "p_after", "p_limit"}` → `[{"id", "thread_id", "sender_id", "sender_device", "body", "sent_at", "created_at"}]`, sin lo oculto ni lo vaciado |
+| `dm_send` | participante | `{"p_id", "p_thread", "p_body", "p_sent_at", "p_device"}` → el mensaje. Repetir el mismo `p_id` no duplica |
+| `dm_hide_message` | participante | `{"p_id"}` → nada. «Borrar para mí» |
+| `dm_clear_thread` | participante | `{"p_thread"}` → nada. «Vaciar chat» solo para quien llama |
+| `dm_mark_read` | participante | `{"p_thread"}` → nada. Pone a cero los no leídos |
+| `dm_admin_threads` | solo admin | `{}` → `[{"id", "a", "b", "count", "last_message_at"}]` |
+| `dm_admin_messages` | solo admin | `{"p_thread", "p_before", "p_limit"}` → todos los mensajes (también los ocultos), con `sender_name` |
+| `dm_admin_delete_message` / `dm_admin_delete_thread` | solo admin | `{"p_id"}` / `{"p_thread"}` → nada. Borran de verdad |
 
 ## 3. Tablas (PostgREST), si hace falta algo suelto
 

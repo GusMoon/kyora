@@ -5,7 +5,7 @@ import type { LiveState } from "./data/chat";
 export interface StatusData {
   account: string; // «usuario, rol» tal como se enseña
   username: string;
-  role: string; // admin o pasante
+  role: string; // admin o visitante
   email: string;
   latency: number | null | undefined; // undefined = aún sin medir, null = sin respuesta
   live: LiveState;

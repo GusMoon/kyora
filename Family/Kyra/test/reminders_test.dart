@@ -232,7 +232,9 @@ void main() {
       final r = (await c.add('Llamar', DateTime(2026, 11, 5, 15).toUtc()))!;
       await open(tester);
       expect(find.byKey(Key('cal-reminder-${r.id}')), findsOneWidget);
-      expect(find.text('15:00'), findsOneWidget);
+      // la hora va en el bloque de color de la tarjeta, en 12 h: 3 PM
+      expect(find.descendant(of: find.byKey(Key('card-time-reminder-${r.id}')), matching: find.text('3')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(Key('card-time-reminder-${r.id}')), matching: find.text('PM')), findsOneWidget);
       await tester.tap(find.byKey(Key('cal-reminder-check-${r.id}')));
       await tester.pumpAndSettle();
       expect(c.items.single.done, isTrue);
@@ -253,10 +255,8 @@ void main() {
 
     testWidgets('el «+» empieza el recordatorio en el día elegido', (tester) async {
       await open(tester);
-      // el día se elige en el mini calendario
-      await tester.tap(find.byKey(const Key('cal-open-month')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('dial-day-2026-11-07')));
+      // el día se elige tocando su banda de la semana
+      await tester.tap(find.byKey(const Key('cal-week-day-2026-11-07')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('cal-add')));
       await tester.pumpAndSettle();

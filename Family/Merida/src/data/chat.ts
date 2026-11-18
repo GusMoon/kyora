@@ -35,7 +35,7 @@ export function deviceLabel(device: string): string {
 
 /** Junta lo nuevo con lo que ya había: un mensaje por id (gana el del servidor), sin borrados, del más antiguo al
  * más nuevo. Así repetir una carga o recibir el mismo mensaje por el tiempo real no lo duplica. */
-export function mergeMessages(current: Message[], incoming: Message[]): Message[] {
+export function mergeMessages<T extends Message>(current: T[], incoming: T[]): T[] {
   const byId = new Map(current.map((m) => [m.id, m]));
   for (const m of incoming) byId.set(m.id, { ...m, attachments: m.attachments ?? byId.get(m.id)?.attachments ?? [] });
   return [...byId.values()]

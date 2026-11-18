@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- El color del papel del logo: el fondo del icono adaptable. -->
+    <color name="ic_launcher_background">#E9EAE5</color>
+</resources>

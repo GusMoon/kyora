@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../data/installed_apps.dart';
 import '../../theme.dart';
 import '../../util/format.dart';
+import 'app_icon_lines.dart';
 import 'section_motion.dart';
 import 'wave_sweep.dart';
 
@@ -495,11 +496,9 @@ class _AppsArchState extends State<AppsArch> with TickerProviderStateMixin {
               behavior: HitTestBehavior.opaque,
               onTap: () => widget.onOpen(app),
               child: Center(
-                child: Image.memory(
-                  app.icon,
-                  width: half * 2,
-                  height: half * 2,
-                  gaplessPlayback: true,
+                child: ScanlineAppIcon(
+                  bytes: app.icon,
+                  size: half * 2,
                   errorBuilder: (_, _, _) =>
                       Icon(Icons.apps_rounded, size: half * 2, color: c.dim),
                 ),

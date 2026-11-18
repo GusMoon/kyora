@@ -93,6 +93,62 @@ void main() {
       expect(() => local.delete([Track.local(song('a.mp3'))]), throwsA(isA<TrackSaveException>()));
     });
 
+    test('cambiar el nombre de un álbum renombra la carpeta, le pasa la portada a la dirección nueva y vuelve a leer todo', () async {
+      store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
+      const rock = LocalFolder(uri: 'content://tree/musica/document/Rock', name: 'Rock');
+      saver.rootFolders = [rock];
+      saver.dirSongs[rock.uri] = [LocalSong(uri: '${rock.uri}/a.mp3', name: 'a.mp3', sizeBytes: 10, modified: DateTime.utc(2026))];
+      await music.start();
+      await local.refresh();
+      await local.setAlbumCover(rock.uri, '/foto.jpg');
+      final renamed = await local.renameAlbum(rock, '  Metal  ');
+      expect(saver.renames.single, (uri: rock.uri, name: 'Metal'));
+      expect(renamed.name, 'Metal');
+      expect(local.rootFolders.map((f) => f.name), ['Metal']);
+      expect(local.albumCoverOf(rock.uri), isNull);
+      expect(local.albumCoverOf(renamed.uri), isNotNull); // la portada se fue con la carpeta
+      expect(local.tracksIn(renamed.uri), isNull); // todo se vuelve a leer desde la raíz
+    });
+
+    test('un nombre vacío o con «/» no se manda a Android y un fallo deja el álbum como estaba', () async {
+      store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
+      const rock = LocalFolder(uri: 'content://tree/musica/document/Rock', name: 'Rock');
+      saver.rootFolders = [rock];
+      await music.start();
+      await local.refresh();
+      await expectLater(local.renameAlbum(rock, '   '), throwsA(isA<TrackSaveException>()));
+      await expectLater(local.renameAlbum(rock, 'a/b'), throwsA(isA<TrackSaveException>()));
+      saver.renameFails = const TrackSaveException('Android no dejó.');
+      await expectLater(local.renameAlbum(rock, 'Metal'), throwsA(isA<TrackSaveException>()));
+      expect(saver.renames, isEmpty);
+      expect(local.rootFolders.map((f) => f.name), ['Rock']);
+    });
+
+    test('borrar un álbum borra su carpeta con todo y le quita la portada', () async {
+      store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
+      const rock = LocalFolder(uri: 'content://tree/musica/document/Rock', name: 'Rock');
+      saver.rootFolders = [rock];
+      await music.start();
+      await local.refresh();
+      await local.setAlbumCover(rock.uri, '/foto.jpg');
+      await local.deleteAlbum(rock);
+      expect(saver.folderDeletes, [rock.uri]);
+      expect(local.rootFolders, isEmpty);
+      expect(local.albumCoverOf(rock.uri), isNull);
+    });
+
+    test('cambiar el nombre de una canción conserva su «.mp3» y la lista enseña el nombre nuevo', () async {
+      store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
+      saver.files = [song('a.mp3'), song('b.mp3')];
+      await music.start();
+      await local.refresh();
+      final uri = await local.renameTrack(local.songs.first, 'Zeta');
+      expect(saver.renames.single.name, 'Zeta.mp3');
+      expect(uri, 'content://tree/musica/document/Zeta.mp3');
+      expect(local.songs.map((t) => t.title), ['b', 'Zeta']);
+      await expectLater(local.renameTrack(local.songs.first, ''), throwsA(isA<TrackSaveException>()));
+    });
+
     test('con carpeta elegida lista sus .mp3 por orden alfabético', () async {
       store.settings = const MusicSettings(auto: false).withTree('content://tree/musica', 'Mi música');
       saver.files = [song('zeta.mp3'), song('Alfa.mp3'), song('beta.mp3')];
@@ -195,7 +251,7 @@ void main() {
       expect(find.byKey(const Key('track-r')), findsNothing); // aún no: primero los álbumes
       await tester.tap(card('card-received'));
       await tester.pumpAndSettle();
-      expect(songTitle(tester), 'Recibida r'); // la primera, en el disco
+      expect(await songTitle(tester), 'Recibida r'); // la primera, en el disco
       await openList(tester);
       expect(find.byKey(const Key('track-r')), findsOneWidget); // y en la lista
     });
@@ -213,10 +269,10 @@ void main() {
       saver.files = [song('Bohemian.mp3', size: 5 * 1024 * 1024), song('Alfa.mp3', size: 1024 * 1024)];
       await open(tester);
       await openPhoneTab(tester);
-      expect(songTitle(tester), 'Alfa'); // la que se enseña es la primera
+      expect(await songTitle(tester), 'Alfa'); // la que se enseña es la primera
       expect(
         tester.widget<Text>(find.byKey(const Key('album-song-subtitle'))).data,
-        'Mi música',
+        startsWith('Mi música'),
       ); // sin « - » en el nombre: la línea de abajo es la carpeta
       expect(tester.widget<Text>(find.byKey(const Key('album-title'))).data, 'Mi música'); // y el nombre del álbum, arriba
       await openList(tester);
@@ -240,7 +296,7 @@ void main() {
       expect(engine.queue[1].url, 'content://tree/musica/document/Beta.mp3'); // directo del archivo, sin internet
       expect(backend.signed, isEmpty); // no pide nada a Supabase
       await openList(tester); // se cierra: debajo del disco, la que suena
-      expect(songTitle(tester), 'Beta');
+      expect(await songTitle(tester), 'Beta');
     });
 
     testWidgets('una carpeta sin .mp3 lo dice', (tester) async {
@@ -278,7 +334,7 @@ void main() {
       await tester.runAsync(settle);
       await tester.pump();
       await openPhoneTab(tester);
-      expect(songTitle(tester), 'Vieja v');
+      expect(await songTitle(tester), 'Vieja v');
     });
   });
 }

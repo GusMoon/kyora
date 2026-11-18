@@ -244,9 +244,10 @@ void main() {
       tester.view.physicalSize = const Size(400, 850);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
+      reduceMotion(tester);
       engines = [];
       background = FakeBackground();
-      account = FakeAccount(uid: uid, profile: Profile(id: uid, username: 'ana', role: Role.intern));
+      account = FakeAccount(uid: uid, profile: Profile(id: uid, username: 'ana', role: Role.admin));
       await tester.pumpWidget(MaterialApp(
         theme: buildTheme(),
         home: AuthGate(
@@ -313,8 +314,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(account.signedIn, isFalse);
       expect(find.byKey(const Key('login-button')), findsNothing); // la app sigue abierta, ya sin sesión
-      expect(find.byKey(const Key('home-time')), findsOneWidget);
-      expect(engines.first.disposed, isTrue); // lo que sonaba se paró (Inicio abre un reproductor nuevo, vacío)
+      expect(find.byKey(const Key('home-time')), findsNothing); // sin sesión vuelve al modo visitante (Música y Chat)
+      expect(find.byKey(const Key('nav-music')), findsOneWidget);
+      expect(engines.first.disposed, isTrue); // lo que sonaba se paró (el modo visitante abre un reproductor nuevo, vacío)
     });
 
     testWidgets('tras cerrar sesión y entrar de nuevo la música empieza de cero', (tester) async {

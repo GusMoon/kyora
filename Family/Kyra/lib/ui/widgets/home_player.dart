@@ -15,7 +15,8 @@ import 'section_motion.dart';
 
 /// El reproductor de **Inicio**, a todo lo ancho, cuando hay una canción cargada: arriba la portada, el nombre y el artista y, a la derecha, el
 /// ecualizador que late con el sonido; debajo la barra de avance con el tiempo que lleva y lo que dura (se toca o se arrastra para adelantar);
-/// y abajo los controles —repetir, aleatorio, anterior, **pausa/reproducir** en grande, siguiente, abrir la música y el corazón— entre dos
+/// y abajo los controles —repetir, aleatorio, anterior, **pausa/reproducir** en grande, siguiente, **detener** (el reproductor desaparece), abrir
+/// el álbum de la canción y el corazón— entre dos
 /// rejillas de puntos como altavoces. Todo en el estilo de Kyra: panel oscuro cuadrado, filos del acento y letra de terminal.
 class HomePlayer extends StatelessWidget {
   const HomePlayer({super.key, required this.player, this.favorites, this.onOpenMusic});
@@ -25,7 +26,7 @@ class HomePlayer extends StatelessWidget {
   /// Las favoritas (el corazón). Sin esto no hay corazón.
   final FavoritesController? favorites;
 
-  /// Lleva a la sección de música (el «+» de la referencia). Sin esto no hay botón.
+  /// Lleva a la sección de música, al álbum de la canción que suena. Sin esto no hay botón.
   final VoidCallback? onOpenMusic;
 
   @override
@@ -200,7 +201,9 @@ class _Controls extends StatelessWidget {
           _Square(key: const Key('hp-toggle'), icon: player.playing ? Icons.pause_rounded : Icons.play_arrow_rounded, label: player.playing ? 'Pausa' : 'Reproducir', onTap: () => unawaited(player.toggle()), big: true),
           const SizedBox(width: 6),
           button(const Key('hp-next'), Icons.skip_next_rounded, 'Siguiente', () => unawaited(player.next())),
-          if (onOpenMusic != null) ...[const SizedBox(width: 6), button(const Key('hp-open'), Icons.library_music_outlined, 'Abrir la música', onOpenMusic)],
+          const SizedBox(width: 6),
+          button(const Key('hp-stop'), Icons.stop_rounded, 'Detener', () => unawaited(player.stop())),
+          if (onOpenMusic != null) ...[const SizedBox(width: 6), button(const Key('hp-open'), Icons.album_outlined, 'Abrir el álbum de la canción', onOpenMusic)],
           if (hasHeart) ...[const SizedBox(width: 6), button(const Key('hp-heart'), favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded, favorite ? 'Quitar de favoritas' : 'Añadir a favoritas', onHeart, lit: favorite)],
           const SizedBox(width: 8),
           _Dots(color: c.edge),

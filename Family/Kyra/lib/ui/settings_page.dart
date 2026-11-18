@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -5,17 +6,24 @@ import 'package:flutter/material.dart';
 
 import '../data/account_backend.dart';
 import '../data/background_playback.dart';
+import '../data/calendar_view_store.dart';
+import '../util/agenda.dart' show calendarModeLabel;
 import '../models/profile.dart';
+import '../state/voice_controller.dart';
 import '../state/dock_controller.dart';
 import '../data/server_stats.dart' show QuotaId, percent;
 import '../state/music_controller.dart';
 import '../state/server_controller.dart';
+import '../state/users_controller.dart';
+import '../state/vault_controller.dart';
 import '../state/wallpaper_controller.dart';
 import '../state/weather_controller.dart';
 import '../theme.dart';
 import 'folder_settings.dart';
 import 'settings_mosaic.dart';
+import 'voice_settings.dart';
 import 'settings_rows.dart';
+import 'users_panel.dart';
 import 'widgets/pixel_glyph.dart';
 import 'widgets/cut_border.dart';
 
@@ -55,6 +63,10 @@ class SettingsPage extends StatefulWidget {
     this.dock,
     this.wallpaper,
     this.server,
+    this.users,
+    this.calendarView,
+    this.vault,
+    this.voice,
     this.initialTile,
   });
 
@@ -90,6 +102,18 @@ class SettingsPage extends StatefulWidget {
   /// El servidor de Supabase (para cambiar los límites del plan con los que avisa la Nube). Sin esto no sale la ficha «Servidor».
   final ServerController? server;
 
+  /// El panel de cuentas del administrador (quién está en línea, crear cuentas). Sin esto no sale la ficha «Usuarios».
+  final UsersController? users;
+
+  /// La vista con la que se abre el calendario. Sin esto no sale la ficha «Calendario».
+  final CalendarViewStore? calendarView;
+
+  /// El Vault (la carpeta de la Nube que se ve en la sección Nube → Local). Sin esto no sale la ficha «Vault».
+  final VaultController? vault;
+
+  /// La voz que lee los mensajes con la pantalla apagada (solo KyraAdmin). Sin esto no sale la ficha «Voz».
+  final VoiceController? voice;
+
   /// Una ficha que se abre ya expandida (por ejemplo, la del clima desde Inicio).
   final String? initialTile;
 
@@ -99,6 +123,18 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late String? _open = widget.initialTile;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.users?.start(); // se mantiene al día mientras Configuración esté abierta
+  }
+
+  @override
+  void dispose() {
+    widget.users?.stop();
+    super.dispose();
+  }
 
   void _expand(String? id) => setState(() => _open = id);
 
@@ -111,6 +147,10 @@ class _SettingsPageState extends State<SettingsPage> {
       if (widget.dock != null) _dock(widget.dock!),
       _musicEntry(music),
       if (widget.server != null) _serverEntry(widget.server!),
+      if (widget.calendarView != null) _calendar(widget.calendarView!),
+      if (widget.vault != null) _vaultEntry(widget.vault!),
+      if (widget.voice != null) _voiceEntry(widget.voice!),
+      if (widget.users != null && widget.role == Role.admin) _usersEntry(widget.users!),
       _account(),
     ];
   }
@@ -307,7 +347,7 @@ class _SettingsPageState extends State<SettingsPage> {
     rowSpan: 2,
     summary: (context, height) => _live((signedIn, expired) {
       final c = context.colors;
-      final text = !signedIn ? (expired ? 'SESIÓN CADUCADA' : 'SIN SESIÓN') : (widget.role == Role.admin ? 'ADMIN' : 'PASANTE');
+      final text = !signedIn ? (expired ? 'SESIÓN CADUCADA' : 'SIN SESIÓN') : (widget.role == Role.admin ? 'ADMIN' : 'VISITANTE');
       return Align(
         alignment: Alignment.bottomLeft,
         child: Text(text, style: TextStyle(fontFamily: monoFont, fontSize: 15, letterSpacing: 0.5, color: signedIn ? c.accent : c.warn)),
@@ -327,7 +367,7 @@ class _SettingsPageState extends State<SettingsPage> {
           key: const Key('settings-account'),
           icon: Icons.person_outline,
           title: widget.username ?? 'Tu cuenta',
-          subtitle: widget.role == Role.admin ? 'Administrador' : 'Pasante',
+          subtitle: roleLabel(widget.role),
         ),
         Divider(height: 1, thickness: 1, color: context.colors.edge),
         SettingsRow(
@@ -346,11 +386,103 @@ class _SettingsPageState extends State<SettingsPage> {
           key: const Key('settings-sign-in'),
           icon: Icons.login,
           title: 'Iniciar sesión',
-          subtitle: 'O crear una cuenta',
+          subtitle: 'Con tu cuenta de administrador',
           trailing: LcdIcon(Icons.chevron_right, color: context.colors.dim),
           onTap: widget.onSignIn,
         ),
     ])),
+  );
+
+  MosaicEntry _usersEntry(UsersController users) => MosaicEntry(
+    id: 'users',
+    title: 'Usuarios',
+    code: 'CFG·10',
+    icon: Icons.groups_outlined,
+    colSpan: 2,
+    rowSpan: 1,
+    summary: (context, height) => ListenableBuilder(
+      listenable: users,
+      builder: (context, _) => _status(context, users.entries.isEmpty ? 'SIN DATOS' : '${users.onlineCount} EN LÍNEA', on: users.onlineCount > 0),
+    ),
+    detail: (context) => UsersPanel(controller: users),
+  );
+
+  MosaicEntry _calendar(CalendarViewStore store) => MosaicEntry(
+    id: 'calendar',
+    title: 'Calendario',
+    code: 'CFG·08',
+    icon: Icons.calendar_month_outlined,
+    colSpan: 2,
+    rowSpan: 1,
+    summary: (context, height) => ListenableBuilder(
+      listenable: store,
+      builder: (context, _) => _status(context, calendarModeLabel[store.mode]!.toUpperCase(), on: true),
+    ),
+    detail: (context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+      _hint(context, 'La vista con la que se abre el calendario.'),
+      CalendarViewRow(store: store),
+    ]),
+  );
+
+  MosaicEntry _vaultEntry(VaultController vault) => MosaicEntry(
+    id: 'vault',
+    title: 'Vault',
+    code: 'CFG·09',
+    icon: Icons.inventory_2_outlined,
+    colSpan: 2,
+    rowSpan: 1,
+    summary: (context, height) => ListenableBuilder(
+      listenable: vault,
+      builder: (context, _) => _status(context, (vault.root?.name ?? 'SIN CARPETA').toUpperCase(), on: vault.root != null),
+    ),
+    detail: (context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+      _hint(context, 'La carpeta de tu almacenamiento donde la Nube guarda lo que exportas. Aquí se elige o se cambia; en la sección solo se ve.'),
+      ListenableBuilder(
+        listenable: vault,
+        builder: (context, _) => Column(
+          children: [
+            SettingsRow(
+              key: const Key('settings-vault-folder'),
+              icon: Icons.folder_open_outlined,
+              title: vault.root == null ? 'Elegir la carpeta' : 'Cambiar la carpeta',
+              subtitle: vault.root?.name ?? 'Todavía no hay ninguna',
+              trailing: LcdIcon(Icons.chevron_right, color: context.colors.dim),
+              onTap: () => unawaited(vault.pick()),
+            ),
+            if (vault.error != null)
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text(vault.error!, key: const Key('settings-vault-error'), style: lcdStatus(size: 15, color: context.colors.warn))),
+            if (vault.root != null) ...[
+              Divider(height: 1, thickness: 1, color: context.colors.edge),
+              SettingsRow(
+                key: const Key('settings-vault-forget'),
+                icon: Icons.link_off_rounded,
+                title: 'Olvidar la carpeta',
+                subtitle: 'No borra nada del almacenamiento',
+                danger: true,
+                onTap: () => unawaited(vault.forget()),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ]),
+  );
+
+  MosaicEntry _voiceEntry(VoiceController voice) => MosaicEntry(
+    id: 'voice',
+    title: 'Voz',
+    code: 'CFG·VZ',
+    icon: Icons.record_voice_over_outlined,
+    colSpan: 2,
+    rowSpan: 1,
+    summary: (context, height) => ListenableBuilder(
+      listenable: voice,
+      builder: (context, _) => _status(context, voice.enabled ? 'ACTIVA · ${voice.packages.length} APPS' : 'APAGADA', on: voice.enabled),
+    ),
+    detail: (context) => ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+      _hint(context, 'Con la pantalla apagada, Kyra lee en voz alta los mensajes de las apps que elijas.'),
+      VoiceRows(voice: voice, dock: widget.dock),
+    ]),
   );
 
   // ---- piezas ----

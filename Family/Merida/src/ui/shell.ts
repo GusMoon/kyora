@@ -7,6 +7,7 @@ import { blocksFor, lastMessage, lineWidths, statusCounts } from "../data/home";
 import { cloudStatement } from "../data/cloud";
 import { eventsStatement } from "../data/events";
 import { financeStatement } from "../data/finance";
+import { improvementsStatement } from "../data/improvements";
 import { tasksStatement } from "../sections/tasks";
 import { musicStatement } from "../sections/music";
 import { chatStatement } from "../sections/chat";
@@ -120,6 +121,20 @@ function vaultArt() {
   );
 }
 
+/** Una lista de pendientes: las líneas en alambre y una casilla marcada en el acento. */
+function improvementsArt() {
+  return s(
+    "svg",
+    { viewBox: "0 0 150 112", class: "tile-art", "aria-hidden": "true", focusable: "false" },
+    s("rect", { x: 8, y: 10, width: 16, height: 16, class: "art-on" }),
+    s("path", { d: "M38 18 H140", class: "art-line" }),
+    s("rect", { x: 8, y: 48, width: 16, height: 16, class: "art-off" }),
+    s("path", { d: "M38 56 H120", class: "art-line" }),
+    s("rect", { x: 8, y: 86, width: 16, height: 16, class: "art-off" }),
+    s("path", { d: "M38 94 H130", class: "art-line" }),
+  );
+}
+
 /** Barras de un balance: la última, en el acento. */
 function financeArt() {
   const heights = [34, 58, 44, 76, 52, 90];
@@ -230,6 +245,10 @@ export class Shell {
     const financeNote = h("p", { class: "tile-note" });
     const finanzas = sectionTile("finanzas", "Finanzas", keyOf("finanzas"), "wallet", goHome, h("div", { class: "tile-foot" }, financeNote), financeArt());
 
+    // ----- Mejoras
+    const improvementsNote = h("p", { class: "tile-note" });
+    const mejoras = sectionTile("mejoras", "Mejoras", keyOf("mejoras"), "list", goHome, h("div", { class: "tile-foot" }, improvementsNote), improvementsArt());
+
     // ----- Configuración (en el centro): un cuadrado con su icono, nada más; todo lo demás está dentro de la sección
     const configuracion = sectionTile("configuracion", "Configuración", keyOf("configuracion"), "settings", goHome, h("span", { class: "tile-glyph", "aria-hidden": "true" }, icon("settings", "icon")));
 
@@ -237,8 +256,8 @@ export class Shell {
     const cloudNote = h("p", { class: "tile-note" });
     const nube = sectionTile("nube", "Nube", keyOf("nube"), "cloud", goHome, h("div", { class: "tile-foot" }, cloudNote), cloudArt());
 
-    this.sections = { tareas, calendario, musica, nube, chat, contrasenas, finanzas, configuracion };
-    this.order = [tareas.el, musica.el, nube.el, configuracion.el, calendario.el, contrasenas.el, chat.el, finanzas.el];
+    this.sections = { tareas, calendario, musica, nube, chat, contrasenas, finanzas, mejoras, configuracion };
+    this.order = [tareas.el, musica.el, nube.el, configuracion.el, calendario.el, contrasenas.el, chat.el, finanzas.el, mejoras.el];
     // el sensor del borde izquierdo: al pasar el cursor por ahí aparece el dock
     const edge = h("div", { class: "edge", "aria-hidden": "true" });
     this.root = h("div", { class: "board", "data-mode": "home", "data-active": "inicio" }, ...this.order, edge);
@@ -260,6 +279,7 @@ export class Shell {
       cloudNote.textContent = cloudStatement(files, loaded.files, errors.files);
       vaultNote.textContent = vault ? vaultStatement(vault) : "Tus claves, cifradas en este navegador.";
       financeNote.textContent = financeStatement(store.financeEntries, loaded.finance, errors.finance, new Date(), prefs?.value.currency);
+      improvementsNote.textContent = improvementsStatement(store.improvements, loaded.improvements, errors.improvements);
     };
     renderStore();
     this.cleanups.push(store.on(renderStore));

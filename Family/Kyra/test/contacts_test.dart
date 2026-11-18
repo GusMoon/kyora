@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kyora_chat/ui/widgets/flat_form.dart';
+import 'package:kyora_chat/ui/widgets/cyber_panel.dart';
 import 'package:kyora_chat/data/contacts_source.dart';
 import 'package:kyora_chat/state/contacts_controller.dart';
 import 'package:kyora_chat/theme.dart';
@@ -126,6 +128,16 @@ void main() {
       await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: ContactsPage(controller: controller)));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('la pantalla es plana: cabecera con línea fina y sin paneles', (tester) async {
+      await show(tester);
+      // el estilo plano de la ficha de una tarea y del clima: cabecera «> TÍTULO» con una línea fina, sin paneles ni cajas
+      expect(find.byType(FlatHeader), findsOneWidget);
+      expect(find.byKey(const Key('flat-backdrop')), findsOneWidget); // el fondo va un poco oscurecido
+      expect(find.byType(CyberPanel), findsNothing);
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byType(SegmentedButton<Object>), findsNothing);
+    });
 
     testWidgets('enseña los contactos por letras, con su primer número', (tester) async {
       await show(tester);

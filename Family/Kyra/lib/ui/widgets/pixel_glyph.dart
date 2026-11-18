@@ -18,6 +18,7 @@ class PixelGlyph {
 abstract final class PixelGlyphs {
   static const generic = PixelGlyph(Icons.circle_outlined);
   static const add = PixelGlyph(Icons.add_rounded);
+  static const alarm = PixelGlyph(Icons.alarm_rounded);
   static const all = PixelGlyph(Icons.select_all_rounded);
   static const arrow = PixelGlyph(Icons.arrow_forward_rounded);
   static const arrowUp = PixelGlyph(Icons.arrow_upward_rounded);
@@ -36,6 +37,9 @@ abstract final class PixelGlyphs {
   static const city = PixelGlyph(Icons.location_city_rounded);
   static const clock = PixelGlyph(Icons.schedule_rounded);
   static const contacts = PixelGlyph(Icons.contacts_rounded);
+  static const lock = PixelGlyph(Icons.lock_rounded);
+  static const wallet = PixelGlyph(Icons.account_balance_wallet_rounded);
+  static const checklist = PixelGlyph(Icons.checklist_rounded);
   static const close = PixelGlyph(Icons.close_rounded);
   static const cloud = PixelGlyph(Icons.cloud_rounded);
   static const cloudDone = PixelGlyph(Icons.cloud_done_rounded);

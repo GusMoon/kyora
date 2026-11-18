@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kyora_chat/data/chat_backend.dart';
 import 'package:kyora_chat/data/task_store.dart';
 import 'package:kyora_chat/models/profile.dart';
 import 'package:kyora_chat/models/task.dart';
@@ -8,7 +7,7 @@ import 'package:kyora_chat/state/task_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
 import 'package:kyora_chat/ui/task_detail_page.dart';
-import 'package:kyora_chat/ui/tasks_page.dart';
+import 'package:kyora_chat/ui/widgets/cyber_panel.dart';
 
 import 'auth_gate_test.dart' show FakeAccount, MemoryRoleCache;
 import 'fake_backend.dart';
@@ -30,103 +29,81 @@ void main() {
 
   tearDown(() => c.dispose());
 
+  /// La tarea cuyo detalle abre el botón del anfitrión.
+  var openId = '';
+
   Future<void> open(WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 850);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.runAsync(c.start);
-    await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: TasksPage(controller: c)));
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(), home: Scaffold(body: Builder(builder: (context) => Center(child: TextButton(key: const Key('open-detail'), onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TaskDetailPage(controller: c, taskId: openId))), child: const Text('abrir')))))));
     await tester.pumpAndSettle();
   }
+
+  /// ¿Está elegida la pestaña de estado o la etiqueta con esa clave? (lo dice su semántica)
+  bool chosen(WidgetTester tester, Key key) => tester.widget<Semantics>(find.descendant(of: find.byKey(key), matching: find.byType(Semantics)).first).properties.selected ?? false;
 
   Future<void> settle(WidgetTester tester) async {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
     await tester.pumpAndSettle();
   }
 
-  group('lista', () {
-    testWidgets('sin tareas lo dice y deja anotar la primera', (tester) async {
-      await open(tester);
-      expect(find.byKey(const Key('tasks-empty')), findsOneWidget);
-      await tester.enterText(find.byKey(const Key('task-input')), 'Comprar pan');
-      await tester.tap(find.byKey(const Key('task-add')));
-      await settle(tester);
-      expect(find.text('Comprar pan'), findsOneWidget);
-      expect(find.byKey(const Key('tasks-empty')), findsNothing);
-      expect(tester.widget<TextField>(find.byKey(const Key('task-input'))).controller!.text, isEmpty);
-      expect(backend.tasks.values.single.name, 'Comprar pan'); // y subió a Supabase
-    });
-
-    testWidgets('«Intro» en el teclado también añade, y un texto vacío no crea nada', (tester) async {
-      await open(tester);
-      await tester.tap(find.byKey(const Key('task-add')));
-      await tester.pump();
-      expect(c.roots(), isEmpty);
-      await tester.enterText(find.byKey(const Key('task-input')), 'Llamar');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await settle(tester);
-      expect(c.roots().map((t) => t.name), ['Llamar']);
-    });
-
-    testWidgets('la casilla finaliza: sale de «Activas» y aparece en «Finalizada»; los filtros cuentan', (tester) async {
-      await c.add('Uno');
-      final two = (await c.add('Dos'))!;
-      await c.setStatus(two, TaskStatus.doing);
-      await open(tester);
-      expect(find.text('Activas · 2'), findsOneWidget);
-      expect(find.text('Pendiente · 1'), findsOneWidget);
-      expect(find.text('En proceso · 1'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('task-check-id-1')));
-      await settle(tester);
-      expect(find.text('Uno'), findsNothing);
-      expect(find.text('Activas · 1'), findsOneWidget);
-      await tester.ensureVisible(find.byKey(const Key('filter-done'))); // los filtros se desplazan de lado
-      await tester.tap(find.byKey(const Key('filter-done')));
-      await tester.pumpAndSettle();
-      expect(find.text('Uno'), findsOneWidget);
-      expect(find.text('Dos'), findsNothing);
-      await tester.tap(find.byKey(const Key('task-check-id-1'))); // otra vez: vuelve a pendiente
-      await settle(tester);
-      expect(find.text('No hay tareas «Finalizada».'), findsOneWidget);
-    });
-
-    testWidgets('cada tarea enseña su estado, su entrega, sus subtareas y sus etiquetas', (tester) async {
-      final t = (await c.add('Informe', due: DateTime.now().add(const Duration(days: 1)).toUtc()))!;
-      await c.setStatus(t, TaskStatus.review);
-      await c.add('Datos', parentId: t.id);
-      final tag = (await c.createTag('Trabajo'))!;
-      await c.toggleTag(t.id, tag);
-      await open(tester);
-      expect(find.text('En revisión'), findsWidgets);
-      expect(find.textContaining('Mañana'), findsOneWidget);
-      expect(find.text('0/1 subtareas'), findsOneWidget);
-      expect(find.text('Trabajo'), findsOneWidget);
-    });
-
-    testWidgets('la insignia dice cómo va la sincronización y sin red cuántas faltan por subir', (tester) async {
-      backend.error = const ChatException('Sin conexión con Supabase', retryable: true);
-      await c.add('Uno');
-      await open(tester);
-      await settle(tester);
-      expect(find.byKey(const Key('sync-offline')), findsOneWidget);
-      expect(tester.widget<IconButton>(find.byKey(const Key('sync-offline'))).tooltip, 'Sin conexión: 1 por subir');
-      backend.error = null;
-      await tester.tap(find.byKey(const Key('sync-offline')));
-      await settle(tester);
-      expect(find.byKey(const Key('sync-idle')), findsOneWidget);
-      expect(backend.tasks.length, 1);
-    });
-  });
-
   group('detalle', () {
     Future<TaskItem> openDetail(WidgetTester tester, {String name = 'Informe'}) async {
       final t = (await c.add(name))!;
+      openId = t.id;
       await open(tester);
-      await tester.tap(find.byKey(Key('task-${t.id}')));
+      await tester.tap(find.byKey(const Key('open-detail')));
       await tester.pumpAndSettle();
       expect(find.byType(TaskDetailPage), findsOneWidget);
       return t;
     }
+
+    testWidgets('la ficha es plana, como el detalle del clima: un rótulo apagado y debajo el dato, sin paneles', (tester) async {
+      await openDetail(tester);
+      for (final title in ['ESTADO', 'ENTREGA', 'TIEMPO ESPERADO', 'DESCRIPCIÓN', 'ETIQUETAS']) {
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
+      expect(find.byType(CyberPanel), findsNothing); // nada de bloques con caja
+      expect(find.byKey(const Key('flat-backdrop')), findsOneWidget); // y el fondo va un poco oscurecido
+      expect(find.text('Tarea'), findsNothing); // el título de arriba es un rótulo de consola
+      expect(find.text('TAREA'), findsOneWidget);
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byType(FilterChip), findsNothing);
+      for (final s in TaskStatus.values) {
+        expect(find.byKey(Key('status-${s.wire}')), findsOneWidget, reason: s.wire);
+      }
+      expect(find.byWidgetPredicate((w) => w is DecoratedBox && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).borderRadius != null), findsNothing);
+    });
+
+    testWidgets('los campos de la ficha se ven como texto: sin caja, sin relleno y sin línea', (tester) async {
+      await openDetail(tester);
+      for (final key in ['task-name', 'task-expected', 'task-description']) {
+        final field = tester.widget<TextField>(find.byKey(Key(key)));
+        expect(field.decoration!.filled, isFalse, reason: key);
+        expect(field.decoration!.border, InputBorder.none, reason: key);
+        expect(field.decoration!.enabledBorder, InputBorder.none, reason: key);
+        expect(field.decoration!.focusedBorder, InputBorder.none, reason: key);
+      }
+      // y los campos de otras pantallas, por tema, tampoco van en negro
+      final c = tester.element(find.byKey(const Key('task-name'))).colors;
+      final theme = Theme.of(tester.element(find.byKey(const Key('task-name'))));
+      expect(theme.inputDecorationTheme.fillColor, isNot(c.field));
+    });
+
+    testWidgets('las subtareas llevan su cuenta (hechas/total) en el rótulo', (tester) async {
+      final t = await openDetail(tester);
+      expect(find.text('00/00'), findsNothing); // sin subtareas no hay cuenta
+      await tester.runAsync(() => c.add('Uno', parentId: t.id));
+      await tester.runAsync(() => c.add('Dos', parentId: t.id));
+      await tester.pumpAndSettle();
+      expect(find.text('00/02'), findsOneWidget);
+      final sub = c.subtasksOf(t.id).first;
+      await tester.tap(find.byKey(Key('sub-check-${sub.id}')));
+      await settle(tester);
+      expect(find.text('01/02'), findsOneWidget);
+    });
 
     testWidgets('editar el nombre, la descripción y el tiempo esperado se guarda al salir', (tester) async {
       final t = await openDetail(tester);
@@ -139,7 +116,6 @@ void main() {
       expect(saved.name, 'Informe final');
       expect(saved.description, 'Con cifras de octubre');
       expect(saved.expectedMin, 90);
-      expect(find.text('Informe final'), findsOneWidget);
       expect(backend.tasks[t.id]!.name, 'Informe final');
     });
 
@@ -161,7 +137,7 @@ void main() {
       await tester.tap(find.byKey(const Key('status-done')));
       await settle(tester);
       expect(c.byId(t.id)!.finished, isNotNull);
-      expect(tester.widget<ChoiceChip>(find.byKey(const Key('status-done'))).selected, isTrue);
+      expect(chosen(tester, const Key('status-done')), isTrue);
     });
 
     testWidgets('las subtareas se añaden, se finalizan y se borran', (tester) async {
@@ -183,7 +159,8 @@ void main() {
 
     testWidgets('una etiqueta nueva se crea y se pone; tocarla otra vez la quita', (tester) async {
       final t = await openDetail(tester);
-      await tester.ensureVisible(find.byKey(const Key('tag-new')));
+      await tester.drag(find.byType(ListView), const Offset(0, -600)); // la lista se desliza hasta las etiquetas
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('tag-new')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('ask-field')), 'Urgente');
@@ -191,13 +168,13 @@ void main() {
       await settle(tester);
       expect(c.tagsOf(t.id).map((x) => x.name), ['Urgente']);
       final tag = c.tags.single;
-      expect(tester.widget<FilterChip>(find.byKey(Key('tag-${tag.id}'))).selected, isTrue);
+      expect(chosen(tester, Key('tag-${tag.id}')), isTrue);
       await tester.tap(find.byKey(Key('tag-${tag.id}')));
       await settle(tester);
       expect(c.tagsOf(t.id), isEmpty);
     });
 
-    testWidgets('borrar pide confirmación, borra la tarea y vuelve a la lista', (tester) async {
+    testWidgets('borrar pide confirmación, borra la tarea y cierra el detalle', (tester) async {
       final t = await openDetail(tester);
       await tester.tap(find.byKey(const Key('task-delete')));
       await tester.pumpAndSettle();
@@ -205,7 +182,6 @@ void main() {
       await settle(tester);
       expect(find.byType(TaskDetailPage), findsNothing);
       expect(c.byId(t.id), isNull);
-      expect(find.byKey(const Key('tasks-empty')), findsOneWidget);
       expect(backend.tasks[t.id]!.deletedAt, isNotNull);
     });
 
@@ -248,29 +224,27 @@ void main() {
       await settle(tester);
     }
 
-    testWidgets('el administrador llega a las tareas en la hora de Inicio y lo anotado sube a Supabase', (tester) async {
+    /// El campo «Añadir una tarea…» del día abierto de la semana.
+    Finder weekField() => find.descendant(of: find.byKey(const Key('cal-week')), matching: find.byType(TextField));
+
+    testWidgets('el administrador anota tareas desde la hora de Inicio y lo anotado sube a Supabase', (tester) async {
       await gate(tester, FakeAccount(uid: 'u1', profile: const Profile(id: 'u1', username: 'gustavo', role: Role.admin)));
       final options = await menuOptions(tester);
       expect(options, isNot(contains('calendar'))); // ya no es una sección
       expect(options, isNot(contains('tasks')));
       await openAgenda(tester);
-      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-week')), matching: find.byType(Scrollable)));
-      await tester.tap(find.byKey(const Key('cal-all-tasks')));
-      await settle(tester);
-      expect(find.byType(TasksView), findsOneWidget);
-      await tester.enterText(find.byKey(const Key('task-input')), 'Desde el móvil');
-      await tester.tap(find.byKey(const Key('task-add')));
+      expect(find.byKey(const Key('cal-all-tasks')), findsNothing); // ya no hay una página aparte de tareas
+      await tester.ensureVisible(weekField());
+      await tester.enterText(weekField(), 'Desde el móvil');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await settle(tester);
       expect(backend.tasks.values.single.name, 'Desde el móvil');
     });
 
-    testWidgets('el pasante también las alcanza en la hora de Inicio', (tester) async {
+    testWidgets('un visitante no tiene Inicio, así que tampoco las tareas ni el calendario', (tester) async {
       await gate(tester, FakeAccount(uid: 'u2', profile: const Profile(id: 'u2', username: 'ana', role: Role.intern)));
-      await openAgenda(tester);
-      await tester.scrollUntilVisible(find.byKey(const Key('cal-all-tasks')), 100, scrollable: find.descendant(of: find.byKey(const Key('cal-week')), matching: find.byType(Scrollable)));
-      await tester.tap(find.byKey(const Key('cal-all-tasks')));
-      await settle(tester);
-      expect(find.byType(TasksView), findsOneWidget);
+      expect(find.byKey(const Key('home-time-tile')), findsNothing);
+      expect(find.byKey(const Key('nav-music')), findsOneWidget); // solo Música, Chat y Ajustes
     });
 
     testWidgets('sin tareas, recordatorios ni hábitos la hora no se expande', (tester) async {

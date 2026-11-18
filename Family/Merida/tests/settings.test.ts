@@ -17,19 +17,19 @@ function player(): Player {
   return { state, on: (fn: (s: PlayerState) => void) => (fn(state), () => {}), toggle() {}, play() {}, next() {}, previous() {}, seek() {}, stop() {} } as unknown as Player;
 }
 
-function mount(fetchImpl: typeof fetch) {
+function mount(fetchImpl: typeof fetch, opts: { role?: string; client?: unknown } = {}) {
   const store = new Store();
   const status = new Status();
-  status.set({ account: "kyora1947, admin", username: "kyora1947", role: "admin", email: "yo@correo.com", latency: 120, live: "live" });
+  status.set({ account: "kyora1947, admin", username: "kyora1947", role: opts.role ?? "admin", email: "yo@correo.com", latency: 120, live: "live" });
   const prefs = new PrefsStore({ ...DEFAULT_PREFS, keys: { ...DEFAULT_PREFS.keys } });
   const shell = new Shell({ store, prefs });
   document.body.append(shell.root);
   shell.setSection("configuracion", "");
   const signOut = vi.fn();
   const backdrop = new Backdrop({ storage: null, prepare: async () => ({ url: "data:image/jpeg;base64,AAAA", accent: "#ff5a1f" }) });
-  const ctx: Ctx = { client: {} as SupabaseClient, shell, store, player: player(), status, prefs, backdrop, library: new Library(fetchImpl), vault: {} as never, userId: "u", signOut, reload: async () => {} };
+  const ctx: Ctx = { client: (opts.client ?? {}) as SupabaseClient, shell, store, player: player(), status, prefs, backdrop, library: new Library(fetchImpl), vault: {} as never, userId: "u", signOut, reload: async () => {} };
   const unmount = settingsSection(ctx);
-  return { shell, signOut, prefs, backdrop, unmount };
+  return { shell, signOut, prefs, backdrop, unmount, status };
 }
 
 const offline = (async () => new Response("{}", { status: 503 })) as unknown as typeof fetch;
@@ -73,8 +73,8 @@ describe("Configuración", () => {
     const { shell } = mount(offline);
     await flush();
     const titles = [...shell.body.querySelectorAll(".cfg-title")].map((t) => t.textContent);
-    // por grupos: Cuenta, Apariencia, Uso y Módulos
-    expect(titles).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música"]);
+    // por grupos: Cuenta, Apariencia, Uso, Módulos y (solo el administrador) Administración
+    expect(titles).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música", "Usuarios"]);
     expect(shell.body.textContent).toContain("kyora1947");
     expect(shell.body.textContent).toContain("yo@correo.com");
     expect(shell.body.textContent).toContain("120 ms");
@@ -132,13 +132,13 @@ describe("Configuración", () => {
     }
   });
 
-  it("hay un índice con los cuatro grupos y un salto a cada bloque, que deja el foco en él", async () => {
+  it("hay un índice con los grupos y un salto a cada bloque, que deja el foco en él", async () => {
     const { shell } = mount(offline);
     await flush();
     const groups = [...shell.body.querySelectorAll(".cfg-nav-title")].map((e) => e.textContent);
-    expect(groups).toEqual(["Cuenta", "Apariencia", "Uso", "Módulos"]);
+    expect(groups).toEqual(["Cuenta", "Apariencia", "Uso", "Módulos", "Administración"]);
     const links = [...shell.body.querySelectorAll<HTMLButtonElement>(".cfg-nav-link")];
-    expect(links.map((b) => b.textContent)).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música"]);
+    expect(links.map((b) => b.textContent)).toEqual(["Cuenta", "Métricas", "Efectos", "Color de acento", "Fondo de pantalla", "Al abrir Merida", "Atajos de teclado", "Avisos de mensajes", "Finanzas", "Servidor", "Comandos del chat", "Música", "Usuarios"]);
     const target = shell.body.querySelector<HTMLElement>("#cfg-atajos-de-teclado")!;
     const scroll = vi.fn();
     target.scrollIntoView = scroll;
@@ -168,7 +168,48 @@ describe("Configuración", () => {
     const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
     search.dispatchEvent(esc);
     expect(search.value).toBe("");
-    expect(visible()).toHaveLength(12);
+    expect(visible()).toHaveLength(13);
+  });
+
+  describe("Usuarios: solo el administrador", () => {
+    const visibleTitles = (shell: { body: HTMLElement }) =>
+      [...shell.body.querySelectorAll<HTMLElement>(".cfg-block")].filter((b) => !b.hidden).map((b) => b.querySelector(".cfg-title")!.textContent);
+    const client = () => ({ rpc: vi.fn(async () => ({ data: [], error: null })) });
+
+    it("un visitante no ve el bloque ni su grupo, y no se pide la lista de cuentas", async () => {
+      const c = client();
+      const { shell, unmount } = mount(offline, { role: "visitante", client: c });
+      await flush();
+      expect(visibleTitles(shell)).not.toContain("Usuarios");
+      const groups = [...shell.body.querySelectorAll<HTMLElement>(".cfg-group")].filter((g) => !g.hidden).map((g) => g.getAttribute("aria-label"));
+      expect(groups).not.toContain("Administración");
+      expect([...shell.body.querySelectorAll<HTMLElement>(".cfg-nav-link")].filter((b) => !b.closest("li")!.hidden).map((b) => b.textContent)).not.toContain("Usuarios");
+      expect(c.rpc).not.toHaveBeenCalledWith("list_presence");
+      unmount();
+    });
+
+    it("el administrador lo ve y se leen las cuentas", async () => {
+      const c = client();
+      const { shell, unmount } = mount(offline, { role: "admin", client: c });
+      await flush();
+      expect(visibleTitles(shell)).toContain("Usuarios");
+      expect(c.rpc).toHaveBeenCalledWith("list_presence");
+      unmount();
+    });
+
+    it("si el rol llega después de montar la sección, aparece entonces (y se esconde si deja de serlo)", async () => {
+      const c = client();
+      const { shell, status, unmount } = mount(offline, { role: "", client: c });
+      await flush();
+      expect(visibleTitles(shell)).not.toContain("Usuarios");
+      status.set({ role: "admin" });
+      await flush();
+      expect(visibleTitles(shell)).toContain("Usuarios");
+      expect(c.rpc).toHaveBeenCalledWith("list_presence");
+      status.set({ role: "visitante" });
+      expect(visibleTitles(shell)).not.toContain("Usuarios");
+      unmount();
+    });
   });
 
   it("Cerrar sesión cierra la sesión", () => {

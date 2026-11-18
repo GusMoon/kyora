@@ -3,6 +3,7 @@ import { h } from "./dom";
 import { explainError } from "../supabase";
 import { DEVICE } from "../config";
 import { hackText } from "./fx";
+import { claimAccount, loginEmail } from "../data/users";
 
 type LineKind = "dim" | "err" | "ok" | "";
 
@@ -59,15 +60,16 @@ class Console {
     this.hint.textContent = text;
   }
 
-  /** Pide un dato en un renglón (`correo>`). Resuelve con lo escrito al pulsar Enter, o con null si se pulsa Esc
+  /** Pide un dato en un renglón (`usuario>`). Resuelve con lo escrito al pulsar Enter, o con null si se pulsa Esc
    * (solo si `escape` es true). Un renglón vacío no se acepta: avisa y sigue esperando. */
-  ask(label: string, type: "email" | "password", opts: { initial?: string; escape?: boolean } = {}): Promise<string | null> {
+  ask(label: string, type: "text" | "password", opts: { initial?: string; escape?: boolean; empty?: string; hint?: string } = {}): Promise<string | null> {
     return new Promise((resolve) => {
       const id = `console-${type}`;
       const input = h("input", {
         id,
         type,
-        autocomplete: type === "email" ? "username" : "current-password",
+        autocomplete: type === "text" ? "username" : "current-password",
+        inputmode: type === "text" && label === "código" ? "numeric" : null,
         spellcheck: "false",
         autocapitalize: "off",
         autocorrect: "off",
@@ -76,7 +78,7 @@ class Console {
       input.value = opts.initial ?? "";
       const row = h("form", { class: "prompt-row", novalidate: true }, h("label", { for: id }, `${label}>`), input);
       this.hint.id = "console-hint";
-      this.setHint(opts.escape ? "enter envía, esc vuelve al correo" : "enter envía");
+      this.setHint(opts.hint ?? (opts.escape ? "enter envía, esc vuelve al usuario" : "enter envía"));
 
       const finish = (value: string | null, echo: string) => {
         this.slot.replaceChildren();
@@ -85,9 +87,9 @@ class Console {
       };
       row.addEventListener("submit", (event) => {
         event.preventDefault();
-        const value = type === "email" ? input.value.trim() : input.value;
+        const value = type === "text" ? input.value.trim() : input.value;
         if (!value) {
-          this.line(type === "email" ? "escribe el correo de tu cuenta" : "escribe la contraseña", "err");
+          this.line(opts.empty ?? (type === "text" ? "escribe tu usuario (o el correo del administrador)" : "escribe la contraseña"), "err");
           return;
         }
         finish(value, type === "password" ? "********" : value);
@@ -103,9 +105,9 @@ class Console {
   }
 }
 
-/** La pantalla de acceso: una consola en el centro que pide el correo y luego la contraseña, la misma cuenta de Supabase
- * que en la PC y el móvil. La contraseña no se guarda en ningún archivo. Si entra, main.ts se entera por
- * onAuthStateChange y monta la app. */
+/** La pantalla de acceso: una consola en el centro que pide el usuario y luego la contraseña (el administrador, su correo): la misma
+ * cuenta de Supabase que en la PC y el móvil. Las cuentas las crea el administrador, no se crean aquí. La contraseña no se guarda en
+ * ningún archivo. Si entra, main.ts se entera por onAuthStateChange y monta la app (o pide el código de 6 dígitos, si falta). */
 export function loginScreen(client: SupabaseClient): HTMLElement {
   const term = new Console("sesión sin abrir", "acceso");
 
@@ -115,16 +117,16 @@ export function loginScreen(client: SupabaseClient): HTMLElement {
     term.line(`dispositivo ..... ${DEVICE}`, "dim");
     term.line("sesión .......... sin abrir", "dim");
     term.line("");
-    term.line("Usa la misma cuenta que en la PC y en el móvil.", "", true);
+    term.line("Entra con tu usuario y contraseña (el administrador, con su correo).", "", true);
 
     let email = "";
     for (;;) {
-      email = (await term.ask("correo", "email", { initial: email })) ?? email;
+      email = (await term.ask("usuario", "text", { initial: email })) ?? email;
       const password = await term.ask("contraseña", "password", { escape: true });
       if (password === null) continue; // Esc: otra vez el correo
       term.line("verificando…", "dim");
       try {
-        const { error } = await client.auth.signInWithPassword({ email, password });
+        const { error } = await client.auth.signInWithPassword({ email: loginEmail(email), password });
         if (!error) {
           term.line("acceso concedido", "ok");
           term.granted();
@@ -135,6 +137,41 @@ export function loginScreen(client: SupabaseClient): HTMLElement {
         term.line(explainError(err), "err");
       }
       term.line("");
+    }
+  }
+  void run();
+  return term.root;
+}
+
+/** El código de 6 dígitos: una cuenta recién creada por el administrador lo canjea una sola vez; después entra solo con su contraseña.
+ * `done` se llama cuando el servidor lo aceptó; `cancel`, si la persona prefiere salir. */
+export function verifyScreen(client: SupabaseClient, done: () => void, cancel: () => void): HTMLElement {
+  const term = new Console("cuenta sin verificar", "verificar");
+  async function run() {
+    term.line("tu cuenta es nueva: falta confirmar que eres tú.", "dim");
+    term.line("escribe el código de 6 dígitos que te dio el administrador.", "", true);
+    term.line("");
+    for (;;) {
+      const code = await term.ask("código", "text", { escape: true, empty: "escribe el código de 6 dígitos", hint: "enter envía, esc sale" });
+      if (code === null) {
+        cancel();
+        return;
+      }
+      if (!/^\d{6}$/.test(code)) {
+        term.line("el código tiene 6 dígitos", "err");
+        continue;
+      }
+      term.line("verificando…", "dim");
+      try {
+        await claimAccount(client, code);
+        term.line("cuenta verificada", "ok");
+        term.granted();
+        done();
+        return;
+      } catch (err) {
+        term.line(err instanceof Error ? err.message : "no se pudo comprobar el código", "err");
+        term.line("");
+      }
     }
   }
   void run();

@@ -8,6 +8,7 @@ import { listCommands, parseCommand, suggestCommands, type ChatCommand } from ".
 import { attachmentUrl, clearConversation, deleteMessages, deviceLabel, draftMessage, listMessages, mergeMessages, sendMessage, sendPayload, type Message } from "../data/chat";
 import { checkFiles, uploadAttachments } from "../data/attachments";
 import type { Ctx, Section } from "./context";
+import { familyChatView } from "./family-chat";
 
 const IMAGE_PREVIEW_MAX = 10 * 1024 * 1024; // las fotos de más de 10 MB no se descargan solas para la vista previa
 
@@ -70,6 +71,7 @@ export const chatSection: Section = (ctx: Ctx) => {
   const progress = new Map<string, string>(); // «subiendo 2/3» por mensaje
   const previews = new Map<string, string>(); // la URL firmada de las fotos ya pedidas (por ruta)
   const previewing = new Set<string>(); // las que se están pidiendo ahora
+  let mode: "general" | "familia" = "general"; // la pestaña abierta (la de la familia es otra vista, con su propio compositor)
 
   const liveText = h("span", { class: "chat-live-text" });
   const liveBox = h("p", { class: "chat-live", role: "status" }, h("span", { class: "chat-live-dot", "aria-hidden": "true" }), liveText);
@@ -409,7 +411,7 @@ export const chatSection: Section = (ctx: Ctx) => {
   });
   const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
   const onDragOver = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (mode !== "general" || !hasFiles(e)) return;
     e.preventDefault(); // sin esto el navegador abre el archivo en lugar de soltarlo
     shell.body.classList.add("is-dropping");
   };
@@ -417,7 +419,7 @@ export const chatSection: Section = (ctx: Ctx) => {
     if (e.relatedTarget === null || !(e.relatedTarget instanceof Node) || !shell.body.contains(e.relatedTarget)) shell.body.classList.remove("is-dropping");
   };
   const onDrop = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (mode !== "general" || !hasFiles(e)) return;
     e.preventDefault();
     shell.body.classList.remove("is-dropping");
     stage([...(e.dataTransfer?.files ?? [])]);
@@ -575,11 +577,48 @@ export const chatSection: Section = (ctx: Ctx) => {
     }
   });
 
-  shell.body.append(h("div", { class: "chat" }, bar, scroller, composer));
+  // ----- las pestañas: «General» (esta conversación, de una sola cuenta) y «Familia» (el chat de mamá, papá y quien se agregue)
+  const general = h("div", { class: "chat" }, bar, scroller, composer);
+  const familyHost = h("div", { class: "fam-host", hidden: true });
+  let family: { el: HTMLElement; destroy: () => void } | null = null;
+  let picked = false; // si la persona eligió pestaña, ya no se cambia sola
+  const tabGeneral = h("button", { class: "tab", type: "button", role: "tab", "data-tab": "general", "aria-selected": "true", onClick: () => select("general", true) }, "General");
+  const tabFamily = h("button", { class: "tab", type: "button", role: "tab", "data-tab": "familia", "aria-selected": "false", onClick: () => select("familia", true) }, "Familia");
+  const tabs = h("div", { class: "tabs chat-tabs", role: "tablist", "aria-label": "Conversación" }, tabGeneral, tabFamily);
+  function select(next: "general" | "familia", byUser: boolean) {
+    if (byUser) picked = true;
+    if (next === mode) return;
+    mode = next;
+    general.hidden = next !== "general";
+    familyHost.hidden = next !== "familia";
+    tabGeneral.setAttribute("aria-selected", String(next === "general"));
+    tabFamily.setAttribute("aria-selected", String(next === "familia"));
+    if (next === "familia") {
+      family = familyChatView(ctx);
+      familyHost.replaceChildren(family.el);
+    } else {
+      family?.destroy();
+      family = null;
+      familyHost.replaceChildren();
+      render();
+    }
+  }
+  cleanups.push(() => family?.destroy());
+  // quien no puede usar la conversación General (una cuenta de la familia que no es la del administrador) entra directo a «Familia»
+  const generalUnavailable = () => !picked && mode === "general" && !!store.errors.messages;
+
+  shell.body.append(h("div", { class: "chat-wrap" }, tabs, general, familyHost));
   grow();
   render();
   scroller.scrollTop = scroller.scrollHeight;
-  cleanups.push(store.on((area) => area === "messages" && render()));
+  if (generalUnavailable()) select("familia", false);
+  cleanups.push(
+    store.on((area) => {
+      if (area !== "messages") return;
+      if (generalUnavailable()) select("familia", false);
+      else if (mode === "general") render();
+    }),
+  );
   cleanups.push(
     status.on((st) => {
       liveBox.dataset.state = st.live;

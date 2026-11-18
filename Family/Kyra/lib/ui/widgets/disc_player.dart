@@ -31,6 +31,8 @@ class DiscPlayer extends StatefulWidget {
     this.onLongPress,
     this.player,
     this.touchKey,
+    this.centerOnly = true,
+    this.playHint = false,
   });
 
   /// El álbum.
@@ -52,6 +54,13 @@ class DiscPlayer extends StatefulWidget {
 
   /// La clave de la zona que se toca.
   final Key? touchKey;
+
+  /// Un toque solo reproduce o pausa si cae en el **centro** del disco (en la etiqueta); en el resto no hace nada. Girarlo y mantenerlo
+  /// presionado valen en todo el disco.
+  final bool centerOnly;
+
+  /// Enseña un «play» en el centro (el disco espera a que se toque el centro para empezar).
+  final bool playHint;
 
   /// Lo que hay entre el borde del conjunto y el del disco: ahí va la línea del avance.
   static const inset = 10.0;
@@ -238,6 +247,7 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
                     alignment: Alignment.center,
                     children: [
                       SoundCircle(player: _p, active: widget.active, size: vinyl * VinylDisc.label * 0.92, color: tint),
+                      if (widget.playHint) Icon(Icons.play_arrow_rounded, key: const Key('disc-play-hint'), size: vinyl * VinylDisc.label * 0.5, color: tint ?? context.colors.ink),
                       Positioned.fill(
                         child: RepaintBoundary(child: CustomPaint(key: const Key('disc-progress'), painter: ProgressRingPainter(fraction: _fraction, ink: tint ?? context.colors.accent))),
                       ),
@@ -251,12 +261,14 @@ class _DiscPlayerState extends State<DiscPlayer> with SingleTickerProviderStateM
           Padding(
             padding: const EdgeInsets.all(DiscPlayer.inset),
             child: ClipOval(
-              child: Builder(
-                builder: (context) => GestureDetector(
+              child: LayoutBuilder(
+                builder: (context, box) => GestureDetector(
                   key: widget.touchKey,
                   behavior: HitTestBehavior.opaque,
                   dragStartBehavior: DragStartBehavior.down,
-                  onTap: widget.onTap,
+                  onTapUp: (d) {
+                    if (!widget.centerOnly || (d.localPosition - box.biggest.center(Offset.zero)).distance <= box.maxWidth * VinylDisc.label / 2) widget.onTap();
+                  },
                   onLongPress: widget.onLongPress,
                   onPanStart: (d) => _grab(d.localPosition, _centerOf(context)),
                   onPanUpdate: (d) => _turn(d.localPosition, _centerOf(context)),

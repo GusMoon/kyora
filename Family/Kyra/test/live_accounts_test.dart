@@ -1,10 +1,9 @@
 // Prueba en vivo de las CUENTAS contra TU Supabase, con el mismo `ChatRepository` que usa la app.
 //   $env:KYORA_LIVE='1'; flutter test test/live_accounts_test.dart
 // Parte 1 (siempre con KYORA_LIVE=1, solo lectura): tu cuenta es administradora y ve a quién se le puede mandar música.
-// Parte 2 (además KYORA_LIVE_SIGNUP=1): CREA una cuenta de pasante de prueba (no se puede borrar desde aquí: bórrala en
-// Authentication > Users) y comprueba que solo ve música: no puede leer el chat, ni crear mensajes, ni subir archivos.
+// Parte 2 (además KYORA_LIVE_SIGNUP=1): el administrador CREA un visitante de prueba con la función admin-users (y al acabar lo BORRA), y
+// comprueba el código de 6 dígitos, la presencia en línea y que sin verificar no entra al chat familiar.
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kyora_chat/data/chat_backend.dart';
@@ -56,40 +55,49 @@ void main() {
     expect(await client.rpc('username_available', params: {'p_username': 'libre-${DateTime.now().microsecondsSinceEpoch}'}), isTrue);
   }, skip: live ? false : 'define KYORA_LIVE=1');
 
-  test('un pasante se registra, entra, solo ve música y no puede usar el chat', () async {
+  test('el administrador crea un visitante, que verifica su código, entra, aparece en línea y solo ve el chat familiar', () async {
     final env = readEnv();
     final stamp = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
     final username = 'prueba-$stamp';
-    final email = 'prueba.$stamp@example.com';
-    final client = SupabaseClient(env['SUPABASE_URL']!, env['SUPABASE_ANON_KEY']!);
-    addTearDown(() async => client.dispose());
-    final repo = ChatRepository(client);
+    const password = 'prueba-123456';
+    final adminClient = SupabaseClient(env['SUPABASE_URL']!, env['SUPABASE_ANON_KEY']!);
+    final guestClient = SupabaseClient(env['SUPABASE_URL']!, env['SUPABASE_ANON_KEY']!);
+    addTearDown(() async {
+      await adminClient.dispose();
+      await guestClient.dispose();
+    });
+    final admin = ChatRepository(adminClient);
+    final guest = ChatRepository(guestClient);
+    await admin.signIn(env['CHAT_EMAIL']!, env['CHAT_PASSWORD']!);
 
-    expect(await repo.signUp(username: username, email: email, password: 'prueba-123456'), isTrue,
-        reason: '¿está desactivado "Confirm email" en Authentication > Providers > Email?');
-    final me = await repo.myProfile();
+    // El administrador crea la cuenta (nombre + contraseña, sin correo) y recibe el código de 6 dígitos.
+    final issued = await admin.createAccount(username: username, password: password, role: Role.intern);
+    expect(issued.code, matches(RegExp(r'^\d{6}$')));
+    final created = (await admin.listPresence()).firstWhere((e) => e.username == username);
+    addTearDown(() => admin.removeAccount(created.id));
+    expect(created.verified, isFalse);
+    expect(created.codePending, isTrue);
+
+    // El visitante entra solo con su nombre y contraseña, pero sin verificar no puede abrir el chat privado.
+    await guest.signIn(username, password);
+    final me = await guest.myProfile();
     expect(me!.role, Role.intern);
-    expect(me.username, username);
+    expect(me.verified, isFalse);
+    await expectLater(guest.openThread(admin.userId!), throwsA(isA<ChatException>()));
 
-    // Ya entró, y el nombre de usuario ya no está libre (comprobado con la sesión del pasante).
-    expect(await client.rpc('username_available', params: {'p_username': username.toUpperCase()}), isFalse);
+    // Un código malo no sirve; el bueno, sí.
+    await expectLater(guest.claimAccount(issued.code == '000000' ? '000001' : '000000'), throwsA(isA<ChatException>()));
+    await guest.claimAccount(issued.code);
+    expect((await guest.myProfile())!.verified, isTrue);
+    expect((await guest.directory()).map((p) => p.id), contains(admin.userId));
 
-    // No ve el chat ni puede escribir en él ni subir archivos.
-    await expectLater(repo.ensureConversation(), throwsA(isA<ChatException>()));
-    await expectLater(repo.upload('${me.id}/music/x/x.mp3', Uint8List.fromList([1]), 'audio/mpeg'), throwsA(isA<ChatException>()));
-    await expectLater(client.rpc('list_recipients'), throwsA(anything));
-    await expectLater(
-      client.rpc('add_music_track', params: {
-        'p_id': '00000000-0000-4000-8000-000000000001',
-        'p_title': 'x',
-        'p_file_name': 'x.mp3',
-        'p_storage_path': '${me.id}/music/x/x.mp3',
-      }),
-      throwsA(anything),
-    );
+    // No puede crear cuentas ni ver a los demás.
+    await expectLater(guestClient.rpc('list_presence'), throwsA(anything));
+    await expectLater(guest.createAccount(username: 'x$stamp', password: password, role: Role.intern), throwsA(isA<ChatException>()));
 
-    // Música: su lista existe y está vacía (nadie le ha mandado nada).
-    expect(await repo.listTracks(), isEmpty);
-    await repo.signOut();
-  }, skip: live && signup ? false : 'define KYORA_LIVE=1 y KYORA_LIVE_SIGNUP=1 (crea una cuenta de prueba)');
+    // Está en línea para el administrador.
+    await guest.touchPresence();
+    expect((await admin.listPresence()).firstWhere((e) => e.username == username).online, isTrue);
+    await guest.signOut();
+  }, skip: live && signup ? false : 'define KYORA_LIVE=1 y KYORA_LIVE_SIGNUP=1 (crea y borra una cuenta de prueba; antes despliega admin-users y ejecuta schema.sql)');
 }

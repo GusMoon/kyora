@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 
 import '../data/audio_engine.dart';
 import '../data/favorites_store.dart';
-import '../data/music_store.dart';
 import '../models/track.dart';
 import '../state/local_music_controller.dart';
 import '../state/music_controller.dart';
@@ -14,10 +13,12 @@ import '../state/player_controller.dart';
 import '../theme.dart';
 import '../util/format.dart';
 import '../util/picker.dart';
+import '../util/track_search.dart';
+import 'admin_music_dialogs.dart';
 import 'album_options.dart';
+import 'cover_picker.dart';
 import 'folder_settings.dart';
-import 'move_sheet.dart';
-import 'widgets/album_art.dart';
+import 'music_actions.dart';
 import 'widgets/cut_border.dart';
 import 'widgets/app_backdrop.dart';
 import 'widgets/cover_backdrop.dart';
@@ -25,11 +26,12 @@ import 'widgets/disc_player.dart';
 import 'widgets/mini_player.dart';
 import 'widgets/music_rows.dart';
 import 'widgets/song_arc_list.dart';
-import 'widgets/vinyl_disc.dart';
 import 'widgets/pixel_glyph.dart';
 import 'widgets/lcd_box.dart';
+import 'widgets/options_reactor.dart';
 import 'widgets/hack_text.dart';
 import 'widgets/focus_space.dart';
+import 'widgets/section_motion.dart';
 
 /// Un álbum que se puede abrir: las canciones enviadas (`received`), la carpeta elegida del teléfono (`root`) o una de sus carpetas.
 class AlbumEntry {
@@ -47,15 +49,18 @@ class AlbumEntry {
   String? get dirUri => folder?.uri;
 }
 
-/// La ruta del álbum: no pinta ninguna transición por su cuenta. La pantalla recibe la `animation` (0 → 1 al abrir, de vuelta al
-/// cerrar) y con ella hace salir el disco de la tarjeta, deslizar la tarjeta y aparecer el fondo. Mientras se anima se sigue viendo la música
-/// debajo.
-PageRoute<T> albumOpenRoute<T>({required Widget Function(BuildContext context, Animation<double> animation) builder}) => PageRouteBuilder<T>(
+/// La ruta del álbum: se abre y se cierra con el **efecto de holograma** de la app (la pantalla se materializa con saltos, parpadeo y franjas
+/// de interferencia; al volver, se deshace igual), sin más animación: ya no sale un disco de la tarjeta. Mientras se anima se sigue viendo la
+/// música debajo.
+///
+/// Con [hologram] en `false` la entrada es inmediata (se usa cuando ya hay un holograma en marcha, como el del cambio de sección al venir de
+/// Inicio: dos seguidos serían lentos); al volver siempre se deshace con el holograma.
+PageRoute<T> albumOpenRoute<T>({required WidgetBuilder builder, bool hologram = true}) => PageRouteBuilder<T>(
   opaque: true, // mientras dura la animación se ve la música debajo; al terminar ya no hace falta
-  transitionDuration: const Duration(milliseconds: 440),
-  reverseTransitionDuration: const Duration(milliseconds: 340),
-  pageBuilder: (context, animation, secondaryAnimation) => builder(context, animation),
-  transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+  transitionDuration: hologram ? const Duration(milliseconds: 360) : Duration.zero,
+  reverseTransitionDuration: const Duration(milliseconds: 280),
+  pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+  transitionsBuilder: (context, animation, secondaryAnimation, child) => HologramReveal(animation: animation, child: child),
 );
 
 /// La vista de un álbum. De fondo, **la portada** nítida, con líneas de barrido y oscurecida; en el centro, algo más arriba que el medio,
@@ -69,15 +74,12 @@ PageRoute<T> albumOpenRoute<T>({required Widget Function(BuildContext context, A
 ///
 /// Un álbum solo enseña sus canciones: lo que tenga en subcarpetas no se muestra.
 ///
-/// Al abrirse, el disco sale de la tarjeta del álbum, como de su funda, y se coloca en el centro mientras la tarjeta se va hacia la izquierda;
-/// al cerrarse hace el camino de vuelta.
+/// Se abre y se cierra con el efecto de holograma de `albumOpenRoute`.
 class AlbumView extends StatefulWidget {
   const AlbumView({
     super.key,
     required this.albums,
     required this.initial,
-    required this.animation,
-    required this.originOf,
     required this.music,
     this.local,
     this.player,
@@ -91,12 +93,6 @@ class AlbumView extends StatefulWidget {
 
   /// El álbum con el que se abre.
   final int initial;
-
-  /// La animación de la ruta (0 → 1).
-  final Animation<double> animation;
-
-  /// Dónde está en la pantalla la tarjeta del álbum `id` (de donde sale el disco y adonde vuelve).
-  final Rect Function(String id) originOf;
 
   final MusicController music;
   final LocalMusicController? local;
@@ -138,20 +134,25 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
   late int _shown = widget.initial;
   bool _listOpen = false;
 
+  /// Los Ã¡lbumes cuyo disco ya se tocÃ³ por el centro: hasta entonces solo se ven el disco y el fondo.
+  final Set<String> _started = {};
+
+  /// Dónde está el disco en pantalla: de ahí nace el reactor de opciones.
+  final GlobalKey _discKey = GlobalKey();
+
+  /// La bÃºsqueda de canciones del Ã¡lbum: abierta o no, y lo escrito.
+  bool _searching = false;
+  final TextEditingController _query = TextEditingController();
+
   /// La canción que se enseña de cada álbum cuando no suena ninguna de él (la que quedó en el centro de la lista).
   final Map<String, int> _picked = {};
 
   /// La canción que sonaba la última vez que se miró: si pasa a sonar una de otro álbum (el aleatorio entre todo), se pasa solo a ese álbum.
   String? _lastCurrent;
 
-  late final CurvedAnimation _backgroundIn = CurvedAnimation(
-    parent: widget.animation,
-    curve: const Interval(0.15, 0.9, curve: Curves.easeOutCubic),
-  );
-  late final CurvedAnimation _barIn = CurvedAnimation(
-    parent: widget.animation,
-    curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
-  );
+  /// Ya no hay animación propia de entrada (la ruta pinta el holograma): el fondo y la barra están siempre del todo a la vista.
+  final Animation<double> _backgroundIn = kAlwaysCompleteAnimation;
+  final Animation<double> _barIn = kAlwaysCompleteAnimation;
 
   AlbumEntry get _entry => widget.albums[_shown];
 
@@ -177,10 +178,9 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
   @override
   void dispose() {
     widget.player?.removeListener(_onPlayer);
-    _backgroundIn.dispose();
-    _barIn.dispose();
     _listFade.dispose();
     _list.dispose();
+    _query.dispose();
     super.dispose();
   }
 
@@ -189,15 +189,57 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     if (status == AnimationStatus.dismissed && mounted) setState(() {});
   }
 
+  /// «Seleccionar»: empieza a marcar canciones por la que está en el centro de la lista (después, un toque marca o desmarca cada una).
+  void _startSelecting() {
+    final e = _entry;
+    final songs = _songs(e);
+    final local = widget.local;
+    if (songs == null || songs.isEmpty || local == null || !_canEdit(e)) return;
+    final shown = searchTracks(_query.text, songs);
+    final base = shown.isEmpty ? songs : shown;
+    local.toggleSelect(base[_focus(e, base)]);
+  }
+
+  /// Las acciones de música (las mismas que en KyraFamily), con los paneles de KyraAdmin.
+  MusicActions? _actions() {
+    final local = widget.local;
+    return local == null ? null : MusicActions(local: local, player: widget.player, dialogs: AdminMusicDialogs(this));
+  }
+
+  /// Borra las canciones marcadas (con confirmación).
+  Future<void> _deleteSelected() async => _actions()?.deleteSelected(albumTitle: _entry.title);
+
+  /// Abre la búsqueda: enseña la lista de canciones y, arriba, el campo para escribir.
+  void _startSearch() {
+    final songs = _songs(_entry);
+    if (songs == null || songs.isEmpty) return;
+    setState(() {
+      _searching = true;
+    });
+    if (!_listOpen) _openList();
+  }
+
+  /// Cierra la búsqueda: se borra lo escrito y la lista vuelve a enseñar todas las canciones.
+  void _stopSearch() {
+    _query.clear();
+    setState(() => _searching = false);
+  }
+
   void _openList() {
     final songs = _songs(_entry);
     if (songs == null || songs.isEmpty) return;
-    setState(() => _listOpen = true);
+    setState(() {
+      _listOpen = true;
+    });
     unawaited(_list.forward());
   }
 
   void _closeList() {
-    setState(() => _listOpen = false);
+    _query.clear();
+    setState(() {
+      _listOpen = false;
+      _searching = false;
+    });
     unawaited(_list.reverse());
   }
 
@@ -269,84 +311,91 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
   /// Muestra el álbum `i` (sin tocar lo que suena).
   void _show(int i) {
     if (i == _shown) return;
-    setState(() => _shown = i);
+    setState(() {
+      _shown = i;
+    });
     widget.onShown?.call(widget.albums[i]);
   }
 
-  /// Mantener presionado el disco: abre las opciones del álbum.
-  Future<void> _openOptions() async {
+  /// ¿Ya se tocó el disco por el centro (o ya suena una canción de este álbum)? Hasta entonces solo se ven el disco y el fondo.
+  bool _armed(AlbumEntry e) => _started.contains(e.id) || _isActive(e);
+
+  /// ¿Se pueden mover, borrar y renombrar las canciones de este álbum? Solo en los del teléfono que el controlador tiene abiertos.
+  bool _canEdit(AlbumEntry e) => !e.received && widget.local != null && _isOpenIn(e);
+
+  /// Mantener presionado el disco: abre el reactor de opciones de la canción que se enseña (la que suena), sobre un velo oscuro.
+  void _openOptions() {
     final e = _entry;
-    if (_listOpen || _marking(e)) return;
-    final songs = _songs(e) ?? const <Track>[];
-    final player = widget.player;
-    final local = widget.local;
-    // mover y borrar solo en los álbumes del teléfono (y los que el controlador tiene abiertos, que son los que se pueden cambiar)
-    final canEdit = !e.received && local != null && _isOpenIn(e) && songs.isNotEmpty;
-    final canShuffle = player != null && songs.isNotEmpty;
+    if (_listOpen || _marking(e) || !_armed(e)) return;
+    final songs = _songs(e);
+    if (songs == null || songs.isEmpty) return;
     unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
-    final action = await showAlbumOptions(context, title: e.title, canShuffle: canShuffle, canEdit: canEdit, player: player);
-    if (action == null || !mounted) return;
-    switch (action) {
-      case AlbumAction.shuffle:
-        if (player != null) unawaited(player.playAlbumShuffled(songs));
-      case AlbumAction.move:
-        await _moveAlbum(e, songs);
-      case AlbumAction.delete:
-        await _deleteAlbum(e, songs);
-    }
+    final box = _discKey.currentContext?.findRenderObject() as RenderBox?;
+    final center = box == null || !box.hasSize ? MediaQuery.sizeOf(context).center(Offset.zero) : box.localToGlobal(box.size.center(Offset.zero));
+    unawaited(showOptionsReactor(context, center: center, options: _discOptions(e, songs[_focus(e, songs)]), listenable: widget.player));
   }
 
-  /// Lo que suena sale de este álbum: antes de mover o borrar sus archivos se para (las direcciones de la cola dejarían de valer).
-  Future<void> _stopIfPlaying(AlbumEntry e) async {
+  /// Las opciones de la canción `track`: mover, borrar, velocidad y tono, y cambiar el nombre. Mover, borrar y renombrar solo en los álbumes
+  /// del teléfono; en las enviadas queda la velocidad y el tono.
+  List<DiscOption> _discOptions(AlbumEntry e, Track track) {
     final player = widget.player;
-    if (player != null && _isActive(e)) await player.stop();
+    final edit = _canEdit(e);
+    void run(Future<void> Function() action) => unawaited(action());
+
+    return [
+      if (edit) DiscOption(id: 'move', icon: Icons.drive_file_move_outlined, label: 'Mover a otro álbum', onTap: () => run(() => _moveTrack(track))),
+      if (edit) DiscOption(id: 'delete', icon: Icons.delete_outline_rounded, label: 'Borrar canción', warn: true, onTap: () => run(() => _deleteTrack(track))),
+      if (player != null)
+        DiscOption(
+          id: 'speed',
+          icon: Icons.speed_rounded,
+          label: 'Velocidad y tono',
+          // el propio reactor pasa a ser un dial: se gira el dedo por el aro para ajustar
+          dials: [
+            ReactorDial(id: 'rate', icon: Icons.speed_rounded, label: 'Velocidad', min: PlayerController.minRate, max: PlayerController.maxRate, step: RateMeter.step, value: () => player.rate, onChanged: (v) => unawaited(player.setRate(v)), format: RateMeter.label, neutral: 1),
+            ReactorDial(id: 'pitch', icon: Icons.graphic_eq_rounded, label: 'Tono', min: PlayerController.minPitch, max: PlayerController.maxPitch, step: RateMeter.step, value: () => player.pitch, onChanged: (v) => unawaited(player.setPitch(v)), format: RateMeter.label, neutral: 1),
+          ],
+        ),
+      if (edit) DiscOption(id: 'rename', icon: Icons.edit_outlined, label: 'Cambiar nombre', onTap: () => run(() => _renameTrack(track))),
+    ];
   }
 
-  Future<void> _moveAlbum(AlbumEntry e, List<Track> songs) async {
-    final local = widget.local;
-    if (local == null) return;
-    final target = await showMoveSheet(context, local, count: songs.length);
-    if (target == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _stopIfPlaying(e);
-      final result = await local.move(songs, toUri: target.uri);
-      final bad = result.failures.length;
-      final done = result.moved == 1 ? 'Se movió 1 canción' : 'Se movieron ${result.moved} canciones';
-      messenger.showSnackBar(SnackBar(
-        content: Text([
-          if (result.moved > 0) '$done a «${target.name}».',
-          if (bad > 0) 'No se ${bad == 1 ? 'pudo mover 1' : 'pudieron mover $bad'}: ${result.failures.values.first}',
-          if (result.moved == 0 && bad == 0) 'No había nada que mover.',
-        ].join(' ')),
-      ));
-    } on TrackSaveException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    }
+  /// El menú de una canción de la lista (mantenerla presionada): mover o borrar.
+  Future<void> _songMenu(Track track) async {
+    unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
+    final choice = await showFocusPanel<String>(
+      context,
+      title: splitArtistTitle(track.title).title,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('song-opt-move'),
+              leading: const LcdIcon(Icons.drive_file_move_outlined),
+              title: const Text('Mover'),
+              onTap: () => Navigator.pop(context, 'move'),
+            ),
+            ListTile(
+              key: const Key('song-opt-delete'),
+              leading: LcdIcon(Icons.delete_outline_rounded, color: context.colors.warn),
+              title: Text('Borrar', style: TextStyle(color: context.colors.warn)),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'move') await _moveTrack(track);
+    if (choice == 'delete') await _deleteTrack(track);
   }
 
-  Future<void> _deleteAlbum(AlbumEntry e, List<Track> songs) async {
-    final local = widget.local;
-    if (local == null) return;
-    final sure = await confirmDeleteAlbum(context, title: e.title, count: songs.length);
-    if (!sure || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _stopIfPlaying(e);
-      final result = await local.delete(songs);
-      final bad = result.failures.length;
-      final done = result.deleted == 1 ? 'Se borró 1 canción' : 'Se borraron ${result.deleted} canciones';
-      messenger.showSnackBar(SnackBar(
-        content: Text([
-          if (result.deleted > 0) '$done de «${e.title}».',
-          if (bad > 0) 'No se ${bad == 1 ? 'pudo borrar 1' : 'pudieron borrar $bad'}: ${result.failures.values.first}',
-          if (result.deleted == 0 && bad == 0) 'No había nada que borrar.',
-        ].join(' ')),
-      ));
-    } on TrackSaveException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    }
-  }
+  Future<void> _moveTrack(Track track) async => _actions()?.moveTrack(track);
+
+  Future<void> _deleteTrack(Track track) async => _actions()?.deleteTrack(track, title: splitArtistTitle(track.title).title);
+
+  Future<void> _renameTrack(Track track) async => _actions()?.renameTrack(track);
 
   /// ¿La canción que suena es de este álbum?
   bool _isActive(AlbumEntry e) {
@@ -355,10 +404,11 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     return _songs(e)?.any((t) => t.id == current.id) ?? false;
   }
 
-  /// Tocar el disco: reproduce (o pausa) la canción que se enseña.
+  /// Tocar el centro del disco: reproduce (o pausa) la canción que se enseña. La primera vez se destapan el nombre y los controles.
   void _toggle(AlbumEntry e) {
     final songs = _songs(e);
     if (songs == null || songs.isEmpty) return;
+    if (_started.add(e.id)) setState(() {});
     _playOrPause(e, songs[_focus(e, songs)], songs);
   }
 
@@ -379,50 +429,7 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
   Future<void> _changeCover(AlbumEntry e) async {
     final local = widget.local;
     if (local == null) return;
-    final has = local.albumCoverOf(e.id) != null;
-    final choice = await showFocusPanel<String>(context, builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(
-                e.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-            ),
-            ListTile(
-              key: const Key('album-cover-pick'),
-              leading: const LcdIcon(Icons.image_outlined),
-              title: Text(has ? 'Cambiar portada' : 'Poner portada'),
-              onTap: () => Navigator.pop(context, 'pick'),
-            ),
-            if (has)
-              ListTile(
-                key: const Key('album-cover-clear'),
-                leading: const LcdIcon(Icons.hide_image_outlined),
-                title: const Text('Quitar portada'),
-                onTap: () => Navigator.pop(context, 'clear'),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (choice == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      if (choice == 'clear') {
-        await local.clearAlbumCover(e.id);
-        return;
-      }
-      final path = await widget.pickCover();
-      if (path == null || !mounted) return;
-      await local.setAlbumCover(e.id, path);
-    } on TrackSaveException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    }
+    await changeAlbumCover(context, local: local, albumId: e.id, title: e.title, pickCover: widget.pickCover);
   }
 
   // ---------- pantalla ----------
@@ -438,12 +445,14 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     return ListenableBuilder(
       listenable: Listenable.merge([widget.music, ?local, ?widget.player, ?widget.favorites]),
       builder: (context, _) => PopScope(
-        // con canciones marcadas, «atrás» primero quita la marca; con la lista abierta, la cierra
-        canPop: !_marking(_entry) && !_listOpen,
+        // «atrás» primero quita la marca de las canciones o la búsqueda y, con la lista abierta, la cierra
+        canPop: !_marking(_entry) && !_searching && !_listOpen,
         onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
           if (_marking(_entry)) {
             local?.clearSelection();
+          } else if (_searching) {
+            _stopSearch();
           } else if (_listOpen) {
             _closeList();
           }
@@ -482,19 +491,17 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
                   ? const SizedBox.expand()
                   : _list.value < 0.6
                   ? const LcdDither(density: 0.25)
-                  : ColoredBox(key: const Key('album-list-dim'), color: hasCover ? Colors.black.withValues(alpha: AlbumView.listDim) : context.colors.background),
+                  : ColoredBox(
+                      key: const Key('album-list-dim'),
+                      color: hasCover ? Colors.black.withValues(alpha: AlbumView.listDim) : context.colors.background,
+                    ),
             );
           },
         ),
         // el doble toque: va debajo del disco, no por encima. Así el disco tiene sus gestos para él y un toque en él no espera a ver si llega un segundo
-        GestureDetector(
-          key: const Key('album-background'),
-          behavior: HitTestBehavior.opaque,
-          onDoubleTap: _openList,
-          child: const SizedBox.expand(),
-        ),
+        GestureDetector(key: const Key('album-background'), behavior: HitTestBehavior.opaque, onDoubleTap: _openList, child: const SizedBox.expand()),
         // el disco del álbum que se ve
-        AnimatedBuilder(animation: Listenable.merge([widget.animation, _list]), builder: (context, _) => _discs(size, disc)),
+        AnimatedBuilder(animation: _list, builder: (context, _) => _discs(size, disc)),
         _caption(context, disc),
         // la tarjeta de lo que suena, si es de otro álbum
         if (widget.player != null && widget.player!.current != null && !_isActive(_entry) && !_listOpen && _list.isDismissed)
@@ -519,7 +526,33 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
             child: SafeArea(
               bottom: false,
               child: marking
-                  ? SelectionBar(local: local!, onMove: widget.onMove ?? () {})
+                  ? SelectionBar(local: local!, onMove: widget.onMove ?? () {}, onDelete: () => unawaited(_deleteSelected()))
+                  : _searching
+                  ? Row(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: BackButton(key: Key('album-back')),
+                        ),
+                        Expanded(
+                          child: TextField(
+                            key: const Key('album-search-field'),
+                            controller: _query,
+                            autofocus: true,
+                            textInputAction: TextInputAction.search,
+                            decoration: const InputDecoration(hintText: 'Buscar una canción', border: InputBorder.none),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('album-search-close'),
+                          tooltip: 'Cerrar la búsqueda',
+                          icon: const LcdIcon(Icons.close_rounded),
+                          onPressed: _stopSearch,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    )
                   : Row(
                       children: [
                         const Padding(
@@ -537,6 +570,20 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
                             ),
                           ),
                         ),
+                        if (_songs(_entry)?.isNotEmpty ?? false)
+                          IconButton(
+                            key: const Key('album-search'),
+                            tooltip: 'Buscar una canción',
+                            icon: const LcdIcon(Icons.search_rounded),
+                            onPressed: _startSearch,
+                          ),
+                        if (_listOpen && _canEdit(_entry))
+                          IconButton(
+                            key: const Key('album-select'),
+                            tooltip: 'Seleccionar canciones',
+                            icon: const LcdIcon(Icons.checklist_rounded),
+                            onPressed: _startSelecting,
+                          ),
                         if (local != null)
                           IconButton(
                             key: const Key('album-cover'),
@@ -550,11 +597,6 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
             ),
           ),
         ),
-        // la transición: el disco sale de la tarjeta y la tarjeta se va a la izquierda
-        AnimatedBuilder(
-          animation: widget.animation,
-          builder: (context, _) => widget.animation.isCompleted ? const SizedBox.shrink() : _openingLayers(context, size, disc),
-        ),
       ],
     );
   }
@@ -566,50 +608,61 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     final scale = 1 + (SongArcList.thumb / vinyl - 1) * t;
     final move = (Offset(SongArcList.edge + SongArcList.thumb / 2, size.height / 2) - disc.center) * t;
     final fade = 1 - ((t - 0.75) / 0.25).clamp(0.0, 1.0);
-    // mientras el disco viaja de la tarjeta al centro (o al revés) lo pinta la transición
-    final hidden = !widget.animation.isCompleted || fade == 0;
+    final hidden = fade == 0;
     // oculto, no gira ni lee el sonido (su reloj y el del círculo se apagan): con la lista abierta solo gastaría batería y cuadros
     return TickerMode(
       enabled: !hidden,
       child: Offstage(
-      offstage: hidden,
-      child: IgnorePointer(
-        ignoring: t > 0,
-        child: Stack(
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            Positioned(
-              key: ValueKey('disc-${_entry.id}'),
-              left: disc.left,
-              top: disc.top,
-              width: disc.width,
-              height: disc.height,
-              child: Transform.translate(
-                offset: move,
-                child: Transform.scale(scale: scale, child: Opacity(opacity: fade, child: _disc(_entry, disc))),
+        offstage: hidden,
+        child: IgnorePointer(
+          ignoring: t > 0,
+          child: Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                key: ValueKey('disc-${_entry.id}'),
+                left: disc.left,
+                top: disc.top,
+                width: disc.width,
+                height: disc.height,
+                child: Transform.translate(
+                  offset: move,
+                  child: Transform.scale(
+                    scale: scale,
+                    child: Opacity(opacity: fade, child: _disc(_entry, disc)),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
 
   Widget _disc(AlbumEntry e, Rect disc) {
     final art = _coverOf(e);
-    return DiscPlayer(
-      id: e.id,
-      file: art.file,
-      url: art.url,
-      icon: e.icon,
-      size: disc.width,
-      active: _isActive(e),
-      player: widget.player,
-      touchKey: Key('album-disc-${e.id}'),
-      onTap: () => _toggle(e),
-      onLongPress: () => unawaited(_openOptions()),
+    final songs = _songs(e);
+    final hasSongs = songs != null && songs.isNotEmpty;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        DiscPlayer(
+          key: e.id == _entry.id ? _discKey : null,
+          id: e.id,
+          file: art.file,
+          url: art.url,
+          icon: e.icon,
+          size: disc.width,
+          active: _isActive(e),
+          player: widget.player,
+          touchKey: Key('album-disc-${e.id}'),
+          playHint: hasSongs && !_armed(e),
+          onTap: () => _toggle(e),
+          onLongPress: _openOptions,
+        ),
+      ],
     );
   }
 
@@ -625,6 +678,9 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     final Widget body;
     if (notice != null) {
       body = SingleChildScrollView(child: notice);
+    } else if (!_armed(e)) {
+      // al entrar solo se ven el disco y el fondo: el nombre y los controles aparecen al tocar el centro del disco
+      return const SizedBox.shrink();
     } else {
       body = Column(
         mainAxisSize: MainAxisSize.min,
@@ -705,10 +761,15 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
 
   /// El fondo del disco: la portada del álbum a pantalla completa, nítida, con líneas y oscurecida (`CoverBackdrop`); sin portada, el fondo de la
   /// pantalla.
-  Widget _backdrop(({String? file, String? url}) cover) =>
-      cover.file == null && cover.url == null
-          ? const BackdropLayers()
-          : Stack(fit: StackFit.expand, children: [CoverBackdrop(file: cover.file, url: cover.url), const HackerScreen()]);
+  Widget _backdrop(({String? file, String? url}) cover) => cover.file == null && cover.url == null
+      ? const BackdropLayers()
+      : Stack(
+          fit: StackFit.expand,
+          children: [
+            CoverBackdrop(file: cover.file, url: cover.url),
+            const HackerScreen(),
+          ],
+        );
 
   /// La lista de canciones, por encima del disco mientras está abierta.
   Widget _listLayer(BuildContext context) {
@@ -716,8 +777,10 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
     final local = widget.local;
     final player = widget.player;
     final favorites = widget.favorites;
-    final songs = _songs(e) ?? const <Track>[];
-    if (songs.isEmpty) return const SizedBox.shrink();
+    final all = _songs(e) ?? const <Track>[];
+    if (all.isEmpty) return const SizedBox.shrink();
+    // con la búsqueda abierta, solo las que coinciden; al tocar una suena con todo el álbum como cola
+    final songs = searchTracks(_query.text, all);
     final cover = _coverOf(e);
     final marking = _marking(e);
     final padTop = MediaQuery.paddingOf(context).top;
@@ -728,66 +791,71 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            SongArcList(
-              key: ValueKey('album-list-${e.id}'),
-              tracks: songs,
-              focus: _focus(e, songs),
-              opening: _list,
-              file: cover.file,
-              url: cover.url,
-              icon: e.icon,
-              keyOf: (t) => Key(e.received ? 'track-${t.id}' : 'local-${t.id}'),
-              lineOf: (t) {
-                final named = splitArtistTitle(t.title);
-                final length = local?.durationOf(t) ?? player?.durationOf(t);
-                if (e.received) {
-                  if (widget.music.stateOf(t) == TrackState.failed) return '${widget.music.failureOf(t) ?? 'No se pudo guardar'} · toca ⋯ para reintentar';
-                  return songLine(artist: named.artist ?? t.playlist, duration: length);
-                }
-                return songLine(artist: named.artist ?? e.title, duration: length);
-              },
-              warnOf: e.received ? (t) => widget.music.stateOf(t) == TrackState.failed : null,
-              savedOf: e.received ? (t) => widget.music.stateOf(t) == TrackState.saved : null,
-              isCurrent: (t) => player?.current?.id == t.id,
-              isPlaying: (t) => player?.current?.id == t.id && player!.playing,
-              onPlay: (t) => _playOrPause(e, t, songs),
-              onFocus: (i) => setState(() => _picked[e.id] = i),
-              onDoubleTap: _closeList,
-              selectedOf: marking ? (t) => local!.isSelected(t) : null,
-              onHold: !e.received && _isOpenIn(e) ? local?.toggleSelect : null,
-              onToggle: local?.toggleSelect,
-              actionsOf: favorites == null
-                  ? null
-                  : (t) {
-                      final favorite = favorites.isFavorite(t.durationKey);
-                      return [
-                        IconButton(
-                          key: Key('fav-${songs.indexOf(t) + 1}'),
-                          tooltip: favorite ? 'Quitar de favoritas' : 'Marcar como favorita',
-                          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-                          padding: EdgeInsets.zero,
-                          icon: LcdIcon(
-                            favorite ? Icons.favorite : Icons.favorite_border,
-                            color: context.colors.ink,
-                            size: 22,
+            if (songs.isNotEmpty)
+              SongArcList(
+                key: ValueKey('album-list-${e.id}-${_query.text}'),
+                tracks: songs,
+                focus: _focus(e, songs),
+                opening: _list,
+                file: cover.file,
+                url: cover.url,
+                icon: e.icon,
+                keyOf: (t) => Key(e.received ? 'track-${t.id}' : 'local-${t.id}'),
+                lineOf: (t) {
+                  final named = splitArtistTitle(t.title);
+                  final length = local?.durationOf(t) ?? player?.durationOf(t);
+                  if (e.received) {
+                    if (widget.music.stateOf(t) == TrackState.failed) return '${widget.music.failureOf(t) ?? 'No se pudo guardar'} · toca ⋯ para reintentar';
+                    return songLine(artist: named.artist ?? t.playlist, duration: length);
+                  }
+                  return songLine(artist: named.artist ?? e.title, duration: length);
+                },
+                warnOf: e.received ? (t) => widget.music.stateOf(t) == TrackState.failed : null,
+                savedOf: e.received ? (t) => widget.music.stateOf(t) == TrackState.saved : null,
+                isCurrent: (t) => player?.current?.id == t.id,
+                isPlaying: (t) => player?.current?.id == t.id && player!.playing,
+                onPlay: (t) => _playOrPause(e, t, all),
+                onFocus: (i) => setState(() => _picked[e.id] = i),
+                onDoubleTap: _closeList,
+                selectedOf: marking ? (t) => local!.isSelected(t) : null,
+                onHold: _canEdit(e) ? (t) => unawaited(_songMenu(t)) : null,
+                onToggle: local?.toggleSelect,
+                actionsOf: favorites == null
+                    ? null
+                    : (t) {
+                        final favorite = favorites.isFavorite(t.durationKey);
+                        return [
+                          IconButton(
+                            key: Key('fav-${songs.indexOf(t) + 1}'),
+                            tooltip: favorite ? 'Quitar de favoritas' : 'Marcar como favorita',
+                            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+                            padding: EdgeInsets.zero,
+                            icon: LcdIcon(favorite ? Icons.favorite : Icons.favorite_border, color: context.colors.ink, size: 22),
+                            onPressed: () => unawaited(favorites.toggle(t.durationKey)),
                           ),
-                          onPressed: () => unawaited(favorites.toggle(t.durationKey)),
-                        ),
+                          const SizedBox(width: 4),
+                        ];
+                      },
+                extraOf: !e.received
+                    ? null
+                    : (t) => [
+                        ReceivedButton(track: t, controller: widget.music),
                         const SizedBox(width: 4),
-                      ];
-                    },
-              extraOf: !e.received
-                  ? null
-                  : (t) => [
-                      ReceivedButton(track: t, controller: widget.music),
-                      const SizedBox(width: 4),
-                      SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: SentMenu(track: t, controller: widget.music),
-                      ),
-                    ],
-            ),
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: SentMenu(track: t, controller: widget.music),
+                        ),
+                      ],
+              ),
+            if (songs.isEmpty)
+              Center(
+                child: Text(
+                  'Ninguna canción coincide.',
+                  key: const Key('album-search-empty'),
+                  style: TextStyle(color: context.colors.dim, fontSize: 16),
+                ),
+              ),
             if (e.received)
               Positioned(
                 top: padTop + 56,
@@ -797,44 +865,6 @@ class _AlbumViewState extends State<AlbumView> with TickerProviderStateMixin {
               ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// El disco que viaja y la tarjeta que se va (o que vuelve), según el avance de la ruta.
-  Widget _openingLayers(BuildContext context, Size size, Rect disc) {
-    final t = widget.animation.value.clamp(0.0, 1.0);
-    final cover = _coverOf(_entry);
-    final box = _stage.currentContext?.findRenderObject();
-    final shift = box is RenderBox && box.attached ? box.localToGlobal(Offset.zero) : Offset.zero;
-    var origin = widget.originOf(_entry.id).shift(-shift);
-    if (origin.isEmpty) origin = Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.3), width: size.width * 0.6, height: size.width * 0.6);
-    final vinyl = disc.deflate(DiscPlayer.inset);
-    final rect = Rect.lerp(origin, vinyl, Curves.easeOutCubic.transform(t))!;
-    // la tarjeta se va a la izquierda hasta salir de la pantalla
-    final away = Curves.easeInOutCubic.transform((t / 0.85).clamp(0.0, 1.0));
-    final cardLeft = origin.left - (origin.right + 8) * away;
-    return IgnorePointer(
-      child: Stack(
-        key: const Key('album-opening'),
-        children: [
-          // el disco (debajo de la tarjeta al principio: sale de ella, como de su funda)
-          Positioned.fromRect(
-            rect: rect,
-            child: FittedBox(
-              key: const Key('album-opening-disc'),
-              fit: BoxFit.contain,
-              child: VinylDisc(id: _entry.id, file: cover.file, url: cover.url, icon: _entry.icon, size: vinyl.width),
-            ),
-          ),
-          Positioned(
-            left: cardLeft,
-            top: origin.top,
-            width: origin.width,
-            height: origin.height,
-            child: AlbumArt(key: const Key('album-opening-card'), file: cover.file, url: cover.url, icon: _entry.icon, size: origin.width, radius: 18),
-          ),
-        ],
       ),
     );
   }
@@ -852,9 +882,10 @@ class _PlayerControls extends StatelessWidget {
     final idle = c.ink;
     // lo encendido (aleatorio, repetir), con el acento
     ButtonStyle on(bool lit) => IconButton.styleFrom(backgroundColor: lit ? c.accent : null, shape: const CutBorder(cut: 8));
-    return Row(
+    return Wrap(
       key: const Key('disc-controls'),
-      mainAxisAlignment: MainAxisAlignment.center,
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         IconButton(
           key: const Key('player-shuffle'),
@@ -904,7 +935,23 @@ class _PlayerControls extends StatelessWidget {
             key: const Key('player-rate'),
             style: TextButton.styleFrom(minimumSize: const Size(52, 44), padding: const EdgeInsets.symmetric(horizontal: 8)),
             onPressed: () => unawaited(player.setRate(1)),
-            child: Text(RateMeter.label(player.rate), style: TextStyle(color: c.accent, fontSize: 16, fontWeight: FontWeight.w700)),
+            child: Text(
+              RateMeter.label(player.rate),
+              style: TextStyle(color: c.accent, fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+        // y el tono, si no es el normal
+        if (player.pitch != 1) ...[
+          const SizedBox(width: 6),
+          TextButton(
+            key: const Key('player-pitch'),
+            style: TextButton.styleFrom(minimumSize: const Size(52, 44), padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: () => unawaited(player.setPitch(1)),
+            child: Text(
+              '♪${RateMeter.label(player.pitch)}',
+              style: TextStyle(color: c.accent, fontSize: 16, fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ],

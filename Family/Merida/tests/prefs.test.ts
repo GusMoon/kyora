@@ -23,7 +23,7 @@ describe("preferencias", () => {
       accent: "lima",
       tint: true,
       cover: true,
-      keys: { inicio: "I", tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", configuracion: "A" },
+      keys: { inicio: "I", tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", mejoras: "J", configuracion: "A" },
       notify: false,
       sound: true,
       preview: true,

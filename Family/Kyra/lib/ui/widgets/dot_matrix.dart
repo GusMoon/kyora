@@ -52,7 +52,7 @@ const Map<String, List<String>> dotGlyphs = {
 /// Un texto en **matriz de puntos** (como un LCD de puntos): cada carácter es una rejilla de 5×7 puntos redondos, los encendidos en [color] con
 /// un poco de brillo y los apagados muy tenues. Los caracteres que no están en [dotGlyphs] salen como un espacio.
 class DotMatrixText extends StatelessWidget {
-  const DotMatrixText(this.text, {super.key, required this.height, this.color, this.glow = true, this.dimOff = true});
+  const DotMatrixText(this.text, {super.key, required this.height, this.color, this.glow = true, this.dimOff = true, this.square = false});
 
   final String text;
 
@@ -65,6 +65,9 @@ class DotMatrixText extends StatelessWidget {
 
   /// Pintar también los puntos apagados, muy tenues.
   final bool dimOff;
+
+  /// Puntos **cuadrados** en lugar de redondos (y sin halo): para quien no quiere círculos.
+  final bool square;
 
   /// Lo que ocupa un texto de [length] caracteres con esa altura.
   static Size sizeFor(int length, double height) {
@@ -79,19 +82,20 @@ class DotMatrixText extends StatelessWidget {
       label: text,
       child: CustomPaint(
         size: sizeFor(upper.runes.length, height),
-        painter: _DotPainter(upper, color ?? Colors.white, glow: glow, dimOff: dimOff),
+        painter: _DotPainter(upper, color ?? Colors.white, glow: glow, dimOff: dimOff, square: square),
       ),
     );
   }
 }
 
 class _DotPainter extends CustomPainter {
-  _DotPainter(this.text, this.color, {required this.glow, required this.dimOff});
+  _DotPainter(this.text, this.color, {required this.glow, required this.dimOff, required this.square});
 
   final String text;
   final Color color;
   final bool glow;
   final bool dimOff;
+  final bool square;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -106,7 +110,15 @@ class _DotPainter extends CustomPainter {
       for (var row = 0; row < 7; row++) {
         for (var col = 0; col < 5; col++) {
           final center = Offset(x0 + col * pitch + pitch / 2, row * pitch + pitch / 2);
-          if (rows[row][col] == '1') {
+          if (square) {
+            // cuadrados casi pegados (queda un hilo de espacio entre ellos)
+            final cell = Rect.fromCenter(center: center, width: pitch * 0.86, height: pitch * 0.86);
+            if (rows[row][col] == '1') {
+              canvas.drawRect(cell, on);
+            } else if (dimOff) {
+              canvas.drawRect(cell, off);
+            }
+          } else if (rows[row][col] == '1') {
             if (glow) canvas.drawCircle(center, r * 1.4, halo);
             canvas.drawCircle(center, r, on);
           } else if (dimOff) {
@@ -119,5 +131,5 @@ class _DotPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _DotPainter old) => old.text != text || old.color != color || old.glow != glow || old.dimOff != dimOff;
+  bool shouldRepaint(covariant _DotPainter old) => old.text != text || old.color != color || old.glow != glow || old.dimOff != dimOff || old.square != square;
 }

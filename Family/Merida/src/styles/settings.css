@@ -423,3 +423,93 @@
     scroll-margin-block-start: 4rem; /* la tira de arriba es fija: no tapa el título al saltar */
   }
 }
+
+/* ---------- Usuarios (solo el administrador): quién está en línea y las cuentas ---------- */
+.usr {
+  display: grid;
+  gap: 0.9rem;
+}
+.usr-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.usr-count {
+  color: var(--dim);
+}
+.usr-list {
+  display: grid;
+  border-block-start: 1px solid var(--line);
+}
+.usr-row {
+  display: grid;
+  grid-template-columns: auto minmax(6rem, 1fr) auto;
+  grid-template-areas:
+    "dot name actions"
+    "dot state actions";
+  align-items: center;
+  gap: 0.1rem 0.7rem;
+  padding: 0.6rem 0;
+  border-block-end: 1px solid var(--line);
+}
+.usr-dot {
+  grid-area: dot;
+  inline-size: 0.7rem;
+  block-size: 0.7rem;
+  border: 2px solid var(--dim);
+  background: transparent;
+}
+.usr-row.is-online .usr-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.usr-name {
+  grid-area: name;
+  font-family: var(--mono);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.usr-state {
+  grid-area: state;
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+.usr-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+.usr-remove {
+  color: var(--warn, #ff6b6b);
+}
+.usr-form {
+  display: grid;
+  gap: 0.5rem;
+  padding-block-start: 0.4rem;
+}
+.usr-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.usr-fields .field {
+  flex: 1 1 9rem;
+  min-inline-size: 0;
+}
+.usr-code {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.usr-code-value {
+  font-size: var(--step-3, 2rem);
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  color: var(--accent);
+}

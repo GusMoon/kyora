@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Solo KyraAdmin: la voz que lee las notificaciones con la pantalla apagada (Configuración → Voz). La persona concede el
+         «acceso a notificaciones» en los ajustes de Android; sin él, este servicio no recibe nada. -->
+    <application>
+        <service
+            android:name=".KyraNotificationListener"
+            android:label="Voz de Kyra"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

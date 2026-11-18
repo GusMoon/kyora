@@ -7,10 +7,11 @@ import type { FinanceCategory, FinanceEntry } from "./data/finance";
 import type { Reminder } from "./data/reminders";
 import type { Habit, HabitCheck } from "./data/habits";
 import type { ServerStats } from "./data/server";
+import type { Improvement } from "./data/improvements";
 
-export type Area = "tasks" | "tracks" | "messages" | "files" | "tags" | "events" | "finance" | "reminders" | "habits" | "server";
+export type Area = "tasks" | "tracks" | "messages" | "files" | "tags" | "events" | "finance" | "reminders" | "habits" | "improvements" | "server";
 
-const AREAS: Area[] = ["tasks", "tracks", "messages", "files", "tags", "events", "finance", "reminders", "habits", "server"];
+const AREAS: Area[] = ["tasks", "tracks", "messages", "files", "tags", "events", "finance", "reminders", "habits", "improvements", "server"];
 
 /** Una orden de una parte de Merida a otra («abre esta tarea», «nuevo evento»). Caduca a los 3 segundos si nadie la toma. */
 export interface Intent {
@@ -36,6 +37,7 @@ export class Store {
   habitChecks: HabitCheck[] = []; // qué días se cumplió cada uno
   financeEntries: FinanceEntry[] = [];
   financeCategories: FinanceCategory[] = [];
+  improvements: Improvement[] = []; // las mejoras pendientes del proyecto (compartidas con Kyra)
   conversationId: string | null = null;
   loaded: Record<Area, boolean> = Object.fromEntries(AREAS.map((a) => [a, false])) as Record<Area, boolean>;
   errors: Partial<Record<Area, string>> = {};

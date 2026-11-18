@@ -116,14 +116,14 @@ void main() {
       expect(find.byKey(const Key('nube-tab-chat')), findsNothing);
     });
 
-    testWidgets('Local enseña el Vault (sin carpeta elegida, invita a elegirla) y al volver a la Nube no se pierde nada', (tester) async {
+    testWidgets('Local enseña el Vault (sin carpeta elegida, manda a Configuración a elegirla) y al volver a la Nube no se pierde nada', (tester) async {
       await open(tester, signedIn());
-      expect(find.byKey(const Key('vault-pick')), findsNothing);
+      expect(find.byKey(const Key('vault-empty-text')), findsNothing);
       await tapKey(tester, 'nube-tab-local');
-      expect(find.byKey(const Key('vault-pick')), findsOneWidget);
+      expect(find.byKey(const Key('vault-empty-text')), findsOneWidget);
       expect(find.text('[LOCAL]'), findsOneWidget);
       await tapKey(tester, 'nube-tab-cloud');
-      expect(find.byKey(const Key('vault-pick')), findsNothing);
+      expect(find.byKey(const Key('vault-empty-text')), findsNothing);
       expect(find.byKey(const Key('srv')), findsOneWidget);
     });
 
@@ -168,7 +168,7 @@ void main() {
       expect(find.byKey(const Key('nube-signed-out')), findsOneWidget);
       expect(chat.calls, isEmpty);
       await tapKey(tester, 'nube-tab-local');
-      expect(find.byKey(const Key('vault-pick')), findsOneWidget);
+      expect(find.byKey(const Key('vault-empty-text')), findsOneWidget);
     });
 
     testWidgets('al entrar la pestaña se llena sola', (tester) async {

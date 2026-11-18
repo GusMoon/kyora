@@ -2,21 +2,31 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kyora_chat/app_flavor.dart';
 import 'package:kyora_chat/data/account_backend.dart';
 import 'package:kyora_chat/data/chat_backend.dart';
 import 'package:kyora_chat/data/contacts_source.dart';
+import 'package:kyora_chat/data/dock_store.dart';
+import 'package:kyora_chat/data/installed_apps.dart';
+import 'package:kyora_chat/data/appearance_store.dart';
+import 'package:kyora_chat/state/dock_controller.dart';
+import 'package:kyora_chat/state/appearance_controller.dart';
+import 'package:kyora_chat/ui/neo/neo_themes.dart';
+import 'package:kyora_chat/ui/widgets/section_motion.dart' show HologramReveal;
+import 'package:kyora_chat/ui/neo/neo_settings_page.dart';
+import 'package:kyora_chat/ui/neo/neo_theme.dart';
 import 'package:kyora_chat/data/vault_source.dart';
 import 'package:kyora_chat/state/contacts_controller.dart';
 import 'package:kyora_chat/state/vault_controller.dart';
 import 'package:kyora_chat/models/profile.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/auth_gate.dart';
+import 'package:kyora_chat/ui/guest_shell.dart';
 import 'package:kyora_chat/ui/section_host.dart';
-import 'package:kyora_chat/ui/widgets/pixel_glyph.dart';
 import 'package:kyora_chat/ui/login_page.dart';
-import 'package:kyora_chat/ui/register_page.dart';
 
 import 'fake_backend.dart';
+import 'fake_direct.dart';
 import 'sections.dart';
 import 'fake_engine.dart';
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
@@ -29,12 +39,13 @@ class FakeAccount implements AccountBackend {
   String? _uid;
   Profile? profile;
   ChatException? profileError;
-  ChatException? signUpError;
-
-  /// Si es `false`, el registro no deja dentro (Supabase pide confirmar el correo).
-  bool signUpSignsIn = true;
+  ChatException? signInError;
+  ChatException? claimError;
   int profileCalls = 0;
-  final List<(String, String, String)> signUps = [];
+
+  /// Lo que se escribió para entrar (nombre o correo, contraseña) y los códigos que se canjearon.
+  final List<(String, String)> signIns = [];
+  final List<String> claims = [];
   final _changes = StreamController<void>.broadcast();
 
   @override
@@ -47,21 +58,21 @@ class FakeAccount implements AccountBackend {
   Stream<void> get authChanges => _changes.stream;
 
   @override
-  Future<void> signIn(String email, String password) async {
-    _uid = 'user-1';
+  Future<void> signIn(String identifier, String password) async {
+    final error = signInError;
+    if (error != null) throw error;
+    signIns.add((identifier, password));
+    _uid = profile?.id ?? 'user-1';
     _changes.add(null);
   }
 
   @override
-  Future<bool> signUp({required String username, required String email, required String password}) async {
-    final error = signUpError;
+  Future<void> claimAccount(String code) async {
+    final error = claimError;
     if (error != null) throw error;
-    signUps.add((username, email, password));
-    if (!signUpSignsIn) return false;
-    _uid = 'user-2';
-    profile = Profile(id: 'user-2', username: username, role: Role.intern);
-    _changes.add(null);
-    return true;
+    claims.add(code);
+    final p = profile;
+    if (p != null) profile = Profile(id: p.id, username: p.username, role: p.role, verified: true);
   }
 
   @override
@@ -127,18 +138,37 @@ Future<void> settle(WidgetTester tester, [int ms = 60]) async {
   await tester.pump();
 }
 
+/// Desplaza la lista de Ajustes del visitante hasta que se vea ese widget (la lista construye solo lo que está cerca).
+Future<void> showInSettings(WidgetTester tester, Key key) async {
+  await tester.scrollUntilVisible(find.byKey(key), 120, scrollable: find.descendant(of: find.byType(NeoSettingsPage), matching: find.byType(Scrollable)).first);
+  await tester.pumpAndSettle();
+}
+
+/// Toca una pestaña de la barra de abajo del modo visitante (`music`, `chat` o `settings`).
+Future<void> tapNav(WidgetTester tester, String id) async {
+  await tester.tap(find.byKey(Key('nav-$id')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   late FakeBackend chat;
   late FakeMusicBackend music;
   late MemoryRoleCache cache;
+  late MemoryRememberedAccount remembered;
+  late FakeDirectBackend direct;
 
   setUp(() {
     chat = FakeBackend();
     music = FakeMusicBackend();
     cache = MemoryRoleCache();
+    remembered = MemoryRememberedAccount();
+    direct = FakeDirectBackend();
   });
 
-  Future<void> openGate(WidgetTester tester, FakeAccount account, {ContactsController? contacts, VaultController? vault}) async {
+  Future<void> openGate(WidgetTester tester, FakeAccount account, {ContactsController? contacts, VaultController? vault, bool withFamily = true, DockController? dock, AppearanceController? appearance, AppFlavor? flavor}) async {
+    // la cinta del modo visitante se queda quieta con «menos animaciones» (si no, nunca se asienta la pantalla)
+    tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
     await tester.pumpWidget(MaterialApp(
       theme: buildTheme(),
       home: AuthGate(
@@ -151,63 +181,90 @@ void main() {
         engine: FakeEngine.new,
         contacts: contacts,
         vault: vault,
+        direct: withFamily ? direct : null,
+        remembered: remembered,
+        dock: dock,
+        appearance: appearance,
+        flavor: flavor,
       ),
     ));
     await settle(tester);
   }
 
-  group('puerta por rol', () {
-    testWidgets('sin sesión la app abre igual (Inicio, música...) pero sin chat', (tester) async {
-      cache
-        ..roles['user-1'] = Role.admin
-        ..last = 'user-1';
+  const admin = Profile(id: 'user-1', username: 'gustavo', role: Role.admin);
+  const ana = Profile(id: 'user-1', username: 'ana', role: Role.intern);
+
+  group('al instalar: modo visitante', () {
+    testWidgets('sin sesión solo hay Música y Chat, con la barra de navegación abajo (y Ajustes)', (tester) async {
       await openGate(tester, FakeAccount());
-      expect(find.byType(LoginPage), findsNothing);
-      expect(find.byKey(const Key('home-time')), findsOneWidget);
-      final options = await menuOptions(tester);
-      expect(options, containsAll(['home', 'music', 'settings']));
-      expect(options, isNot(contains('chat'))); // el chat vive en el servidor
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byType(SectionHost), findsNothing); // nada del launcher
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      for (final id in ['music', 'chat', 'settings']) {
+        expect(find.byKey(Key('nav-$id')), findsOneWidget, reason: id);
+      }
+      expect(find.byKey(const Key('neo-album-received')), findsOneWidget); // empieza en Música
       expect(chat.calls, isEmpty);
       expect(music.listCalls, 0); // la música de la PC tampoco se pide sin sesión
+      expect(find.byType(LoginPage), findsNothing);
     });
 
-    testWidgets('sin sesión y sin haber entrado nunca también abre (perfil local)', (tester) async {
-      await openGate(tester, FakeAccount());
-      expect(find.byKey(const Key('home-time')), findsOneWidget);
-      expect(await menuOptions(tester), isNot(contains('chat')));
-    });
-
-    testWidgets('desde Configuración se abre el acceso; al entrar se cierra solo y aparece el chat', (tester) async {
+    testWidgets('la última cuenta era administradora pero sin sesión: también modo visitante', (tester) async {
       cache
         ..roles['user-1'] = Role.admin
         ..last = 'user-1';
-      final account = FakeAccount(profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
+      await openGate(tester, FakeAccount());
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+    });
+
+    testWidgets('el chat sin sesión está bloqueado y lleva a Ajustes', (tester) async {
+      await openGate(tester, FakeAccount());
+      await tapNav(tester, 'chat');
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget);
+      expect(direct.calls, isEmpty);
+      await tester.tap(find.byKey(const Key('neo-chat-go-settings')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-name')), findsOneWidget); // ya en Ajustes, con el acceso
+    });
+
+    testWidgets('en Ajustes el administrador entra con su cuenta y aparece todo; ya no hay modo visitante', (tester) async {
+      final account = FakeAccount(profile: admin);
       await openGate(tester, account);
-      await goToSection(tester, 'settings');
+      await tapNav(tester, 'settings');
+      await showInSettings(tester, const Key('neo-admin-login'));
       await tester.pumpAndSettle();
-      await openSettingsTile(tester, 'account');
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('settings-sign-out')), findsNothing);
-      await tester.tap(find.byKey(const Key('settings-sign-in')));
+      await tester.tap(find.byKey(const Key('neo-admin-login')));
       await tester.pumpAndSettle();
       expect(find.byType(LoginPage), findsOneWidget);
       await account.signIn('yo@correo.com', 'secreta1');
       await settle(tester);
       await tester.pumpAndSettle();
       expect(find.byType(LoginPage), findsNothing); // se cerró sola
-      expect(find.byKey(const Key('settings-sign-out')), findsOneWidget); // la ficha ya enseña que hay sesión
-      await closeSettings(tester);
-      expect(await menuOptions(tester), contains('nube')); // el chat vive dentro de la Nube (solo el administrador)
+      expect(find.byType(GuestShell), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsOneWidget); // el launcher completo
+      expect(await menuOptions(tester), containsAll(['home', 'nube', 'music', 'settings']));
+      expect(cache.roles['user-1'], Role.admin);
     });
 
-    testWidgets('si la sesión caduca sola nada se cierra: sigue en Inicio y Configuración lo avisa', (tester) async {
-      final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
+    testWidgets('un administrador que aún no canjeó su código NO ve todo: sigue en modo visitante', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin, verified: false));
+      await openGate(tester, account);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+    });
+  });
+
+  group('puerta por rol', () {
+    testWidgets('si la sesión del administrador caduca sola nada se cierra: sigue en Inicio y Configuración lo avisa', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: admin);
       await openGate(tester, account);
       expect(find.byKey(const Key('home-time')), findsOneWidget);
       account.expire();
       await settle(tester);
       await tester.pumpAndSettle();
       expect(find.byType(LoginPage), findsNothing);
+      expect(find.byType(GuestShell), findsNothing);
       expect(find.byKey(const Key('home-time')), findsOneWidget);
       await goToSection(tester, 'settings');
       await tester.pumpAndSettle();
@@ -215,9 +272,9 @@ void main() {
     });
 
     testWidgets('el administrador entra a Inicio, y tiene inicio, nube (con el chat) y música para deslizar', (tester) async {
-      final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin));
+      final account = FakeAccount(uid: 'user-1', profile: admin);
       await openGate(tester, account);
-      expect(await menuOptions(tester), containsAll(['home', 'nube', 'music', 'settings'])); // en la barra (y Configuración es una opción más)
+      expect(await menuOptions(tester), containsAll(['home', 'nube', 'music', 'chats', 'settings'])); // en la barra (y Configuración es una opción más); «Chats» es el chat privado
       expect(find.byKey(const Key('home-time')), findsOneWidget); // empieza en Inicio
       expect(find.byKey(const Key('chat-terminal')), findsNothing);
       await goToSection(tester, 'nube');
@@ -228,50 +285,23 @@ void main() {
       expect(cache.roles['user-1'], Role.admin);
     });
 
-    testWidgets('el pasante entra a Inicio, la música está al lado y no toca el chat', (tester) async {
-      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
-      await openGate(tester, account);
-      expect(find.byKey(const Key('home-time')), findsOneWidget); // empieza en Inicio
-      final options = await menuOptions(tester);
-      expect(options, isNot(contains('chat'))); // sin chat
-      expect(options, containsAll(['home', 'music']));
-      await goToSection(tester, 'music');
-      expect(find.byKey(const Key('album-deck')), findsOneWidget); // la pantalla de música
-      expect(find.descendant(of: find.byType(AppBar), matching: find.text('Chat')), findsNothing);
-      expect(chat.calls, isEmpty); // ni conversación, ni mensajes, ni Realtime del chat
-    });
-
-    testWidgets('con Contactos y Vault, salen en el menú (también para el pasante) y cada uno abre su pantalla', (tester) async {
+    testWidgets('un visitante con sesión sigue en modo visitante: sin Inicio, sin Contactos ni Vault, y no toca el chat del administrador', (tester) async {
       final contacts = ContactsController(FakeContactsSource([const Contact(id: '1', name: 'Ana', phones: ['123'])]));
       final vault = VaultController(FakeVaultSource(), MemoryVaultStore());
       addTearDown(contacts.dispose);
       addTearDown(vault.dispose);
-      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
+      final account = FakeAccount(uid: 'user-1', profile: ana);
       await openGate(tester, account, contacts: contacts, vault: vault);
-      expect(await menuOptions(tester), containsAll(['home', 'music', 'contacts', 'nube'])); // el Vault vive en la pestaña Local de la Nube
-      await goToSection(tester, 'contacts');
-      await tester.pumpAndSettle();
-      expect(find.text('CONTACTOS'), findsOneWidget);
-      expect(find.text('Ana'), findsOneWidget);
-      expect(await menuOptions(tester), isNot(contains('vault'))); // ya no es una sección aparte
-      await goToSection(tester, 'nube');
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('vault-pick')), findsOneWidget);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      expect(find.text('CONTACTOS'), findsNothing);
+      expect(chat.calls, isEmpty); // ni conversación, ni mensajes, ni Realtime del chat del PC
+      expect(cache.roles['user-1'], Role.intern);
     });
 
-    testWidgets('sin Contactos ni Vault configurados no salen', (tester) async {
-      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
-      await openGate(tester, account);
-      final options = await menuOptions(tester);
-      expect(options, isNot(contains('contacts')));
-      expect(options, isNot(contains('vault')));
-    });
-
-    testWidgets('una cuenta sin perfil se trata como pasante (la vista con menos permisos)', (tester) async {
+    testWidgets('una cuenta sin perfil se trata como visitante (la vista con menos permisos)', (tester) async {
       await openGate(tester, FakeAccount(uid: 'user-3'));
-      expect(await menuOptions(tester), isNot(contains('chat')));
-      await goToSection(tester, 'music');
-      expect(find.byKey(const Key('album-deck')), findsOneWidget); // la pantalla de música
+      expect(find.byType(GuestShell), findsOneWidget);
       expect(chat.calls, isEmpty);
     });
 
@@ -279,6 +309,7 @@ void main() {
       cache.roles['user-1'] = Role.admin;
       final account = FakeAccount(uid: 'user-1')..profileError = const ChatException('Sin conexión con Supabase', retryable: true, code: 'offline');
       await openGate(tester, account);
+      expect(find.byType(GuestShell), findsNothing);
       expect(await menuOptions(tester), contains('nube'));
     });
 
@@ -289,7 +320,7 @@ void main() {
       expect(find.text('Sin conexión con Supabase'), findsOneWidget);
       account
         ..profileError = null
-        ..profile = const Profile(id: 'user-1', username: 'gustavo', role: Role.admin);
+        ..profile = admin;
       await tester.tap(find.byKey(const Key('role-retry')));
       await tester.pump();
       await settle(tester);
@@ -305,8 +336,8 @@ void main() {
       expect(find.byKey(const Key('role-error')), findsOneWidget);
     });
 
-    testWidgets('cerrar sesión deja la app abierta, ya sin sesión, y ofrece entrar otra vez', (tester) async {
-      final account = FakeAccount(uid: 'user-2', profile: const Profile(id: 'user-2', username: 'ana', role: Role.intern));
+    testWidgets('cuando el administrador cierra sesión la app vuelve al modo visitante (Música y Chat)', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: admin);
       await openGate(tester, account);
       await goToSection(tester, 'settings');
       await tester.pumpAndSettle();
@@ -316,158 +347,529 @@ void main() {
       await settle(tester);
       await tester.pumpAndSettle();
       expect(find.byType(LoginPage), findsNothing);
-      expect(find.byKey(const Key('home-time')), findsOneWidget);
-      await goToSection(tester, 'settings');
-      await tester.pumpAndSettle();
-      await openSettingsTile(tester, 'account');
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('settings-sign-in')), findsOneWidget);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      expect(find.byKey(const Key('nav-chat')), findsOneWidget);
     });
   });
 
-  group('crear cuenta', () {
-    Future<void> openRegister(WidgetTester tester, FakeAccount account) async {
-      await openGate(tester, account);
-      await goToSection(tester, 'settings'); // el acceso se abre desde Configuración → cuenta
-      await tester.pumpAndSettle();
-      await openSettingsTile(tester, 'account');
-      await tester.tap(find.byKey(const Key('settings-sign-in')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('create-account')));
-      await tester.pumpAndSettle();
-      expect(find.byType(RegisterPage), findsOneWidget);
-    }
+  group('Kyra solo es launcher para el administrador', () {
+    late FakeInstalledApps apps;
+    late DockController dock;
 
-    Future<void> fill(WidgetTester tester, {String user = 'ana_p', String email = 'ana@correo.com', String pass = 'secreta1', String? repeat}) async {
-      await tester.enterText(find.byKey(const Key('reg-username')), user);
-      await tester.enterText(find.byKey(const Key('reg-email')), email);
-      await tester.enterText(find.byKey(const Key('reg-password')), pass);
-      await tester.enterText(find.byKey(const Key('reg-repeat')), repeat ?? pass);
-    }
+    setUp(() {
+      apps = FakeInstalledApps(const []);
+      dock = DockController(MemoryDockStore(), apps);
+    });
 
-    Future<void> submit(WidgetTester tester) async {
-      await tester.pump(); // el botón se activa tras escribir
-      await tester.ensureVisible(find.byKey(const Key('reg-button')));
-      await tester.tap(find.byKey(const Key('reg-button')));
-      await tester.pump();
+    testWidgets('un visitante (o sin sesión) deja el launcher apagado: Kyra es una app normal', (tester) async {
+      await openGate(tester, FakeAccount(), dock: dock);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(apps.launcherEnabledCalls, [false]);
+      expect(apps.launcherEnabled, isFalse);
+    });
+
+    testWidgets('el administrador enciende el launcher', (tester) async {
+      await openGate(tester, FakeAccount(uid: 'user-1', profile: admin), dock: dock);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      expect(apps.launcherEnabledCalls, [true]);
+      expect(apps.launcherEnabled, isTrue);
+    });
+
+    testWidgets('si el administrador cierra sesión, el launcher se apaga (y Kyra deja de ser la pantalla de inicio)', (tester) async {
+      apps.launcher = true;
+      final account = FakeAccount(uid: 'user-1', profile: admin);
+      await openGate(tester, account, dock: dock);
+      expect(apps.launcherEnabledCalls, [true]);
+      await goToSection(tester, 'settings');
+      await tester.pumpAndSettle();
+      await revealSignOut(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settings-sign-out')));
       await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(apps.launcherEnabledCalls, [true, false]);
+      expect(dock.isLauncher, isFalse);
+    });
+  });
+
+  group('KyraFamily: apariencia (10 temas y modo oscuro)', () {
+    late MemoryAppearanceStore store;
+    late AppearanceController appearance;
+
+    setUp(() {
+      store = MemoryAppearanceStore();
+      appearance = AppearanceController(store);
+    });
+
+    NeoScheme schemeOf(WidgetTester tester) => Theme.of(tester.element(find.byKey(const Key('nav-music')))).extension<NeoScheme>()!;
+
+    testWidgets('sin elegir nada: el tema de siempre en claro; ya no se elige imagen de fondo', (tester) async {
+      await openGate(tester, FakeAccount(), appearance: appearance);
+      expect(schemeOf(tester), NeoScheme.standard);
+      await tapNav(tester, 'settings');
+      await showInSettings(tester, const Key('neo-dark-toggle'));
+      expect(find.byKey(const Key('neo-colors-choose')), findsNothing);
+      for (final t in NeoThemes.all) {
+        expect(find.byKey(Key('neo-theme-${t.id}')), findsOneWidget, reason: t.id);
+      }
+    });
+
+    testWidgets('elegir un tema y el modo oscuro cambia los colores de toda la app y se recuerda', (tester) async {
+      await openGate(tester, FakeAccount(), appearance: appearance);
+      await tapNav(tester, 'settings');
+      await showInSettings(tester, const Key('neo-theme-sakura'));
+      await tester.tap(find.byKey(const Key('neo-theme-sakura')));
+      await tester.pumpAndSettle();
+      expect(schemeOf(tester), NeoScheme.of(NeoThemes.byId('sakura')));
+      expect(store.value.themeId, 'sakura');
+      await showInSettings(tester, const Key('neo-dark-toggle'));
+      await tester.tap(find.byKey(const Key('neo-dark-toggle')));
+      await tester.pumpAndSettle();
+      final dark = schemeOf(tester);
+      expect(dark.dark, isTrue);
+      expect(dark, NeoScheme.of(NeoThemes.byId('sakura'), dark: true));
+      expect(tester.widget<ColoredBox>(find.byKey(const Key('neo-background'))).color, dark.bg);
+      expect(store.value.dark, isTrue);
+      // al volver a abrir la app se recuerda
+      expect(AppearanceController(store).scheme, dark);
+    });
+  });
+
+  group('los temas siempre se leen bien', () {
+    test('hay 10, de los cuatro estilos, con ids distintos', () {
+      expect(NeoThemes.all, hasLength(10));
+      expect(NeoThemes.all.map((t) => t.id).toSet(), hasLength(10));
+      expect(NeoThemes.all.map((t) => t.group).toSet(), NeoThemeGroup.values.toSet());
+      expect(NeoThemes.byId('no-existe'), NeoThemes.standard);
+    });
+
+    test('en claro y en oscuro: el acento se lee sobre el fondo, y el texto sobre el acento y sobre el pop', () {
+      for (final t in NeoThemes.all) {
+        for (final dark in [false, true]) {
+          final s = NeoScheme.of(t, dark: dark);
+          final where = '${t.id} ${dark ? 'oscuro' : 'claro'}';
+          expect(contrastRatio(s.ink, s.bg), greaterThanOrEqualTo(12), reason: 'texto $where');
+          expect(contrastRatio(s.accent, s.bg), greaterThanOrEqualTo(4.5), reason: 'acento $where');
+          expect(contrastRatio(s.accentDeep, s.bg), greaterThanOrEqualTo(7), reason: 'acento hondo $where');
+          expect(contrastRatio(s.onAccent, s.accent), greaterThanOrEqualTo(4.5), reason: 'sobre el acento $where');
+          expect(contrastRatio(s.onPop, s.pop), greaterThanOrEqualTo(4.5), reason: 'sobre el pop $where');
+        }
+      }
+    });
+  });
+
+  group('KyraAdmin: solo cuentas de administrador', () {
+    Future<void> signInWith(WidgetTester tester, String email) async {
+      await tester.enterText(find.byKey(const Key('email')), email);
+      await tester.enterText(find.byKey(const Key('password')), 'secreta1');
+      await tester.tap(find.byKey(const Key('login-button')));
+      await settle(tester);
+      await tester.pumpAndSettle();
     }
 
-    bool createEnabled(WidgetTester tester) => tester.widget<FilledButton>(find.byKey(const Key('reg-button'))).onPressed != null;
-
-    Future<void> scrollToButton(WidgetTester tester) => tester.ensureVisible(find.byKey(const Key('reg-button')));
-
-    testWidgets('la lista de requisitos de la contraseña se va marcando a medida que se cumplen', (tester) async {
-      await openRegister(tester, FakeAccount());
-      for (final id in ['length', 'letter', 'number', 'match']) {
-        expect(find.byKey(Key('rule-$id-todo')), findsOneWidget, reason: id); // al empezar, todos pendientes
-      }
-      // solo hay tinta: lo cumplido se distingue por el icono (marcado) y no por el color
-      IconData iconOf(String id, bool met) => tester.widget<LcdIcon>(find.byKey(Key('rule-$id-${met ? 'ok' : 'todo'}'))).icon;
-      expect(iconOf('length', false), Icons.radio_button_unchecked);
-
-      await tester.enterText(find.byKey(const Key('reg-password')), 'abc');
-      await tester.pump();
-      expect(find.byKey(const Key('rule-letter-ok')), findsOneWidget);
-      expect(iconOf('letter', true), Icons.check_circle);
-      expect(find.byKey(const Key('rule-length-todo')), findsOneWidget);
-      expect(find.byKey(const Key('rule-number-todo')), findsOneWidget);
-
-      await tester.enterText(find.byKey(const Key('reg-password')), 'abc123');
-      await tester.pump();
-      expect(find.byKey(const Key('rule-length-ok')), findsOneWidget);
-      expect(find.byKey(const Key('rule-number-ok')), findsOneWidget);
-      expect(find.byKey(const Key('rule-match-todo')), findsOneWidget); // falta repetirla
-
-      await tester.enterText(find.byKey(const Key('reg-repeat')), 'abc12');
-      await tester.pump();
-      expect(find.byKey(const Key('rule-match-todo')), findsOneWidget);
-      await tester.enterText(find.byKey(const Key('reg-repeat')), 'abc123');
-      await tester.pump();
-      expect(find.byKey(const Key('rule-match-ok')), findsOneWidget);
-      expect(find.byKey(const Key('rule-length-todo')), findsNothing);
+    testWidgets('sin sesión pide el acceso: no hay modo visitante ni nada de la app', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.admin);
+      expect(find.byKey(const ValueKey('admin-login')), findsOneWidget);
+      expect(find.byType(GuestShell), findsNothing);
+      expect(find.byKey(const Key('home-time')), findsNothing);
     });
 
-    testWidgets('el botón solo se activa cuando todo está en verde, y no llama a Supabase antes', (tester) async {
-      final account = FakeAccount();
-      await openRegister(tester, account);
-      await scrollToButton(tester);
-      expect(createEnabled(tester), isFalse);
-
-      await fill(tester, pass: '123'); // corta, sin letra
-      await tester.pump();
-      expect(createEnabled(tester), isFalse);
-      await fill(tester, pass: 'secreta'); // sin número
-      await tester.pump();
-      expect(createEnabled(tester), isFalse);
-      await fill(tester, repeat: 'otra-cosa'); // no coinciden
-      await tester.pump();
-      expect(createEnabled(tester), isFalse);
-      await fill(tester, user: 'ab'); // usuario corto
-      await tester.pump();
-      expect(createEnabled(tester), isFalse);
-      expect(find.text('Entre 3 y 24 caracteres.'), findsOneWidget);
-      await fill(tester, email: 'sin-arroba');
-      await tester.pump();
-      expect(createEnabled(tester), isFalse);
-      expect(find.textContaining('Escribe un correo con @'), findsOneWidget);
-
-      await fill(tester);
-      await tester.pump();
-      expect(createEnabled(tester), isTrue);
-      expect(account.signUps, isEmpty);
+    testWidgets('un administrador entra y tiene toda la app', (tester) async {
+      final account = FakeAccount(profile: admin);
+      await openGate(tester, account, flavor: AppFlavor.admin);
+      await signInWith(tester, 'yo@correo.com');
+      expect(account.signedIn, isTrue);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      expect(await menuOptions(tester), containsAll(['home', 'nube', 'music', 'settings']));
     });
 
-    testWidgets('vale cualquier correo con @: Gmail, Outlook, Hotmail o uno inventado, y un usuario con espacios', (tester) async {
-      for (final email in ['ana@gmail.com', 'ana@outlook.com', 'ana@hotmail.es', 'ana@inventado.xyz', 'ana@inventado', 'a.b+c@x.co']) {
-        expect(emailProblem(email), isNull, reason: email);
-      }
-      for (final email in ['', 'ana', 'ana@', '@gmail.com', 'an a@gmail.com', 'a@b@c']) {
-        expect(emailProblem(email), isNotNull, reason: email);
-      }
-      expect(usernameProblem('Gustavo Marrufo'), isNull);
-      expect(usernameProblem('  ana  '), isNull);
-      expect(usernameProblem('ana!'), isNotNull);
-      final account = FakeAccount();
-      await openRegister(tester, account);
-      await fill(tester, user: 'Ana María', email: 'ana@inventado.xyz');
-      await tester.pump();
-      expect(createEnabled(tester), isTrue);
+    testWidgets('una cuenta que no es de administrador NO entra: se cierra su sesión y se dice por qué', (tester) async {
+      final account = FakeAccount(profile: ana);
+      await openGate(tester, account, flavor: AppFlavor.admin);
+      await signInWith(tester, 'ana');
+      expect(account.signedIn, isFalse);
+      expect(find.byKey(const ValueKey('admin-login')), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      expect(find.byKey(const Key('login-notice')), findsOneWidget);
+      expect(find.textContaining('solo para cuentas de administrador'), findsOneWidget);
     });
 
-    testWidgets('crea la cuenta, entra solo como pasante y la pantalla de registro se cierra', (tester) async {
-      final account = FakeAccount();
-      await openRegister(tester, account);
-      await fill(tester, user: '  María 01 ');
-      await submit(tester);
-      expect(account.signUps, [('María 01', 'ana@correo.com', 'secreta1')]);
-      await tester.pumpAndSettle(); // termina la animación de cerrar la pantalla
-      expect(find.byType(RegisterPage), findsNothing);
-      expect(find.byType(LoginPage), findsNothing); // el acceso también se cerró solo
-      await closeSettings(tester);
-      expect(find.byKey(const Key('home-time')), findsOneWidget); // entra en Inicio
-      expect(await menuOptions(tester), isNot(contains('chat')));
-    });
-
-    testWidgets('un usuario repetido se explica en la propia pantalla y no cierra nada', (tester) async {
-      final account = FakeAccount()..signUpError = const ChatException('Ese nombre de usuario ya está en uso.', code: 'username_taken');
-      await openRegister(tester, account);
-      await fill(tester);
-      await submit(tester);
-      expect(find.byKey(const Key('reg-error')), findsOneWidget);
-      expect(find.text('Ese nombre de usuario ya está en uso.'), findsOneWidget);
-      expect(find.byType(RegisterPage), findsOneWidget);
-    });
-
-    testWidgets('si Supabase pide confirmar el correo, vuelve al acceso con un aviso', (tester) async {
-      final account = FakeAccount()..signUpSignsIn = false;
-      await openRegister(tester, account);
-      await fill(tester);
-      await submit(tester);
+    testWidgets('una sesión de visitante que ya estaba abierta (versión anterior) tampoco pasa', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: ana);
+      await openGate(tester, account, flavor: AppFlavor.admin);
       await tester.pumpAndSettle();
-      expect(find.byType(RegisterPage), findsNothing);
-      expect(find.byType(LoginPage), findsOneWidget);
-      expect(find.text(confirmEmailNotice), findsOneWidget);
+      expect(account.signedIn, isFalse);
+      expect(find.byKey(const ValueKey('admin-login')), findsOneWidget);
+      expect(find.byKey(const Key('login-notice')), findsOneWidget);
+    });
+
+    testWidgets('un administrador sin verificar no pasa', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: const Profile(id: 'user-1', username: 'gustavo', role: Role.admin, verified: false));
+      await openGate(tester, account, flavor: AppFlavor.admin);
+      await tester.pumpAndSettle();
+      expect(account.signedIn, isFalse);
+      expect(find.textContaining('no está verificada'), findsOneWidget);
+    });
+
+    testWidgets('al cerrar sesión vuelve al acceso', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: admin);
+      await openGate(tester, account, flavor: AppFlavor.admin);
+      expect(find.byKey(const Key('home-time')), findsOneWidget);
+      await goToSection(tester, 'settings');
+      await tester.pumpAndSettle();
+      await revealSignOut(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('settings-sign-out')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('admin-login')), findsOneWidget);
+    });
+  });
+
+  group('KyraFamily: sin cuentas de administrador', () {
+    Future<void> signInFamily(WidgetTester tester, String name) async {
+      await tapNav(tester, 'settings');
+      await tester.enterText(find.byKey(const Key('neo-name')), name);
+      await tester.enterText(find.byKey(const Key('neo-password')), 'secreta1');
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('solo el modo visitante y sin acceso de administrador en Ajustes', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.family);
+      expect(find.byType(GuestShell), findsOneWidget);
+      await tapNav(tester, 'settings');
+      expect(find.byKey(const Key('neo-admin-login')), findsNothing);
+      expect(find.text('ADMINISTRADOR'), findsNothing);
+    });
+
+    testWidgets('un miembro de la familia entra con normalidad', (tester) async {
+      final account = FakeAccount(profile: ana);
+      await openGate(tester, account, flavor: AppFlavor.family);
+      await signInFamily(tester, 'ana');
+      expect(account.signedIn, isTrue);
+      expect(find.byKey(const Key('neo-username')), findsOneWidget);
+      expect(find.byKey(const Key('neo-access-notice')), findsNothing);
+    });
+
+    testWidgets('una cuenta de administrador NO entra: se cierra su sesión y Ajustes dice por qué', (tester) async {
+      final account = FakeAccount(profile: admin);
+      await openGate(tester, account, flavor: AppFlavor.family);
+      await signInFamily(tester, 'gustavo');
+      expect(account.signedIn, isFalse);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      expect(find.byKey(const Key('neo-access-notice')), findsOneWidget);
+      expect(find.textContaining('Usa KyraAdmin'), findsOneWidget);
+      expect(find.byKey(const Key('neo-name')), findsOneWidget); // y puede volver a intentar con otra cuenta
+      expect(direct.calls, isEmpty); // el chat de la familia no llegó a abrirse
+      expect(await remembered.read(), isNull);
+    });
+
+    testWidgets('una sesión de administrador que ya estaba abierta tampoco pasa', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: admin);
+      await openGate(tester, account, flavor: AppFlavor.family);
+      await tester.pumpAndSettle();
+      expect(account.signedIn, isFalse);
+      expect(find.byType(GuestShell), findsOneWidget);
+      expect(find.byKey(const Key('home-time')), findsNothing);
+      expect(direct.calls, isEmpty);
+    });
+  });
+
+  group('KyraFamily: barra inferior y deslizar entre pantallas', () {
+    Future<void> swipe(WidgetTester tester, double dx) async {
+      await tester.dragFrom(const Offset(400, 110), Offset(dx, 0)); // sobre la cabecera (un campo de texto se queda con el gesto)
+    }
+
+    testWidgets('la barra tiene las tres pantallas, del mismo tamaño; en la elegida solo crece el icono y cambia de color', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.family);
+      final music = tester.getSize(find.byKey(const Key('nav-music')));
+      final chat = tester.getSize(find.byKey(const Key('nav-chat')));
+      expect(music, chat); // las celdas no cambian de tamaño
+      double scale(String id) => tester.widget<AnimatedScale>(find.byKey(Key('nav-icon-$id'))).scale;
+      Color? color(String id) => tester.widget<Icon>(find.descendant(of: find.byKey(Key('nav-icon-$id')), matching: find.byType(Icon)).first).color;
+      expect(scale('music'), greaterThan(scale('chat')));
+      final s = NeoScheme.standard;
+      expect(color('music'), s.accent);
+      expect(color('chat'), s.dim);
+      await tapNav(tester, 'chat');
+      expect(tester.getSize(find.byKey(const Key('nav-music'))), music); // sigue igual
+      expect(scale('chat'), greaterThan(scale('music')));
+      expect(color('chat'), s.accent);
+      // ni la celda elegida lleva fondo propio
+      expect(find.descendant(of: find.byKey(const Key('nav-chat')), matching: find.byWidgetPredicate((w) => w is Container && w.decoration != null)), findsNothing);
+    });
+
+    testWidgets('deslizar a la izquierda va a la pantalla siguiente y a la derecha a la anterior', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.family);
+      expect(find.byKey(const Key('neo-album-received')), findsOneWidget);
+      await swipe(tester, -150);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget);
+      expect(find.byKey(const Key('neo-album-received')), findsNothing);
+      await swipe(tester, -150);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-name')), findsOneWidget); // Ajustes
+      await swipe(tester, -150); // no hay más a la derecha: se queda
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-name')), findsOneWidget);
+      await swipe(tester, 150);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget);
+      await swipe(tester, 150);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-album-received')), findsOneWidget);
+    });
+
+    testWidgets('un roce corto no cambia de pantalla', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.family);
+      await swipe(tester, -30);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-album-received')), findsOneWidget);
+    });
+
+    testWidgets('el cambio es un desplazamiento borroso: durante él se ven las dos pantallas desenfocadas, y al terminar solo la nueva y nítida', (tester) async {
+      // sin «menos animaciones»: el efecto corre de verdad
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(),
+        home: AuthGate(
+          account: FakeAccount(),
+          chat: chat,
+          music: music,
+          musicStore: MemoryMusicStore(since: DateTime.utc(2026, 10, 1)),
+          saver: FakeSaver(),
+          roleCache: cache,
+          engine: FakeEngine.new,
+          direct: direct,
+          remembered: remembered,
+          flavor: AppFlavor.family,
+        ),
+      ));
+      await settle(tester);
+      bool blurred() => tester.widgetList<ImageFiltered>(find.byType(ImageFiltered, skipOffstage: false)).any((f) => f.enabled);
+      expect(blurred(), isFalse);
+      await tester.tap(find.byKey(const Key('nav-chat')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+      expect(find.byKey(const Key('neo-album-received')), findsOneWidget); // la que se va, corriendo hacia un lado
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget); // la que llega
+      expect(blurred(), isTrue);
+      expect(find.byType(HologramReveal), findsNothing); // ya no hay holograma
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byKey(const Key('neo-album-received')), findsNothing);
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget);
+      expect(blurred(), isFalse); // ya en su sitio: nítida
+    });
+
+    testWidgets('las pantallas siguen vivas al cambiar: lo escrito en Ajustes no se pierde', (tester) async {
+      await openGate(tester, FakeAccount(), flavor: AppFlavor.family);
+      await tapNav(tester, 'settings');
+      await tester.enterText(find.byKey(const Key('neo-name')), 'ana');
+      await tapNav(tester, 'chat');
+      await tapNav(tester, 'settings');
+      expect(find.text('ana'), findsOneWidget);
+    });
+  });
+
+  group('el visitante entra con su nombre', () {
+    Future<void> openSettingsTab(WidgetTester tester, FakeAccount account) async {
+      await openGate(tester, account);
+      await tapNav(tester, 'settings');
+    }
+
+    testWidgets('nombre y contraseña; queda recordado y la próxima vez solo pide la contraseña', (tester) async {
+      final account = FakeAccount(profile: ana);
+      await openSettingsTab(tester, account);
+      expect(find.byKey(const Key('neo-name')), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('neo-name')), 'Ana');
+      await tester.enterText(find.byKey(const Key('neo-password')), 'secreta1');
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(account.signIns, [('Ana', 'secreta1')]);
+      expect(find.byKey(const Key('neo-username')), findsOneWidget); // la tarjeta de su cuenta
+      expect(find.text('ANA'), findsOneWidget);
+      expect(await remembered.read(), 'ana');
+      expect(find.byType(GuestShell), findsOneWidget); // sigue en modo visitante
+
+      // sale y vuelve: ahora solo la contraseña
+      await showInSettings(tester, const Key('neo-sign-out'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-sign-out')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-remembered')), findsOneWidget);
+      expect(find.text('ANA'), findsOneWidget);
+      expect(find.byKey(const Key('neo-name')), findsNothing);
+      await tester.enterText(find.byKey(const Key('neo-password')), 'otra-clave');
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(account.signIns.last, ('ana', 'otra-clave')); // la app supo quién era sin que lo escribiera
+      expect(find.byKey(const Key('neo-username')), findsOneWidget);
+    });
+
+    testWidgets('«No soy yo» olvida el nombre y vuelve a pedirlo', (tester) async {
+      remembered = MemoryRememberedAccount('ana');
+      await openSettingsTab(tester, FakeAccount(profile: ana));
+      expect(find.byKey(const Key('neo-remembered')), findsOneWidget);
+      await showInSettings(tester, const Key('neo-forget'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-forget')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-name')), findsOneWidget);
+      expect(await remembered.read(), isNull);
+    });
+
+    testWidgets('si se equivoca, el error sale en español y no entra', (tester) async {
+      final account = FakeAccount(profile: ana)..signInError = const ChatException('Usuario o contraseña incorrectos.', code: 'invalid_credentials');
+      await openSettingsTab(tester, account);
+      await tester.enterText(find.byKey(const Key('neo-name')), 'ana');
+      await tester.enterText(find.byKey(const Key('neo-password')), 'mal');
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Usuario o contraseña incorrectos.'), findsOneWidget);
+      expect(account.signedIn, isFalse);
+      expect(await remembered.read(), isNull);
+    });
+
+    testWidgets('pide el nombre y la contraseña antes de llamar a Supabase', (tester) async {
+      final account = FakeAccount(profile: ana);
+      await openSettingsTab(tester, account);
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await tester.pumpAndSettle();
+      expect(find.text('Escribe tu nombre y tu contraseña.'), findsOneWidget);
+      expect(account.signIns, isEmpty);
+    });
+
+    testWidgets('una cuenta nueva pide su código de 6 dígitos; al canjearlo se activa y se recuerda', (tester) async {
+      final account = FakeAccount(profile: const Profile(id: 'user-1', username: 'ana', role: Role.intern, verified: false));
+      await openSettingsTab(tester, account);
+      await tester.enterText(find.byKey(const Key('neo-name')), 'ana');
+      await tester.enterText(find.byKey(const Key('neo-password')), 'secreta1');
+      await tester.tap(find.byKey(const Key('neo-sign-in')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-code')), findsOneWidget); // falta verificar
+      expect(await remembered.read(), isNull); // aún no se recuerda
+
+      // el chat avisa que falta verificar
+      await tapNav(tester, 'chat');
+      expect(find.byKey(const Key('neo-chat-locked')), findsOneWidget);
+      expect(direct.calls, isEmpty);
+      await tapNav(tester, 'settings');
+
+      await tester.enterText(find.byKey(const Key('neo-code')), '12');
+      await tester.tap(find.byKey(const Key('neo-verify')));
+      await tester.pumpAndSettle();
+      expect(find.text('El código tiene 6 dígitos.'), findsOneWidget);
+      expect(account.claims, isEmpty);
+
+      account.claimError = const ChatException('Ese código no es correcto.', code: 'code_invalid');
+      await tester.enterText(find.byKey(const Key('neo-code')), '111111');
+      await tester.tap(find.byKey(const Key('neo-verify')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Ese código no es correcto.'), findsOneWidget);
+
+      account.claimError = null;
+      await tester.enterText(find.byKey(const Key('neo-code')), '123456');
+      await tester.tap(find.byKey(const Key('neo-verify')));
+      await settle(tester);
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(account.claims, ['123456']);
+      expect(find.byKey(const Key('neo-code')), findsNothing);
+      expect(find.byKey(const Key('neo-username')), findsOneWidget); // ya es una cuenta normal
+      expect(await remembered.read(), 'ana');
+    });
+
+    testWidgets('con la cuenta verificada el chat privado se abre: lista, conversación, escribir y borrar para mí', (tester) async {
+      direct.receive('m1', body: 'bienvenida');
+      final account = FakeAccount(uid: 'user-1', profile: ana);
+      await openGate(tester, account);
+      await tapNav(tester, 'chat');
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-chat-locked')), findsNothing);
+      expect(find.byKey(const Key('neo-thread-gustavo')), findsOneWidget); // la conversación con quien escribió
+      expect(find.byKey(const Key('neo-unread-gustavo')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('neo-thread-gustavo')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('bienvenida'), findsOneWidget);
+      expect(direct.calls, contains(startsWith('read:'))); // al verla se da por leída
+      await tester.enterText(find.byKey(const Key('neo-composer')), 'hola gustavo');
+      await tester.tap(find.byKey(const Key('neo-send')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(direct.sent, ['hola gustavo']);
+      expect(find.text('hola gustavo'), findsOneWidget);
+      // borrar para mí: deja de verse, pero en el servidor sigue
+      await tester.longPress(find.byKey(const Key('neo-msg-m1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-msg-hide')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('bienvenida'), findsNothing);
+      expect(direct.server.map((m) => m.id), contains('m1'));
+    });
+
+    testWidgets('«Nuevo chat» enseña a todas las cuentas (menos la propia) y abre la conversación con la elegida', (tester) async {
+      final account = FakeAccount(uid: 'user-1', profile: ana);
+      await openGate(tester, account);
+      await tapNav(tester, 'chat');
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-chat-empty')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('neo-new-chat')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-person-gustavo')), findsOneWidget);
+      expect(find.byKey(const Key('neo-person-luis')), findsOneWidget);
+      expect(find.byKey(const Key('neo-person-ana')), findsNothing);
+      await tester.tap(find.byKey(const Key('neo-person-luis')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-thread-title')), findsOneWidget);
+      expect(find.text('LUIS'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('neo-thread-back')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('neo-new-chat')), findsOneWidget);
+    });
+
+    testWidgets('«vaciar chat» lo deja vacío solo para mí', (tester) async {
+      direct.receive('m1', body: 'uno');
+      direct.receive('m2', body: 'dos');
+      await openGate(tester, FakeAccount(uid: 'user-1', profile: ana));
+      await tapNav(tester, 'chat');
+      await settle(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-thread-gustavo')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-thread-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-thread-clear')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('neo-thread-clear-confirm')));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('uno'), findsNothing);
+      expect(find.text('dos'), findsNothing);
+      expect(find.byKey(const Key('neo-thread-empty')), findsOneWidget);
+      expect(direct.server, hasLength(2)); // la base de datos no cambia
+    });
+
+    testWidgets('no hay manera de crear una cuenta desde la app', (tester) async {
+      await openSettingsTab(tester, FakeAccount());
+      expect(find.byKey(const Key('create-account')), findsNothing);
+      expect(find.textContaining('crea el administrador'), findsOneWidget);
     });
   });
 }

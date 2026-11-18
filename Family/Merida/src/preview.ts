@@ -49,6 +49,8 @@ import { musicSection, musicStatement } from "./sections/music";
 import { chatSection, chatStatement } from "./sections/chat";
 import { vaultSection } from "./sections/vault";
 import { financeSection } from "./sections/finance";
+import { improvementsSection } from "./sections/improvements";
+import type { Improvement } from "./data/improvements";
 import type { Ctx, Section } from "./sections/context";
 import type { Player } from "./player";
 
@@ -106,6 +108,19 @@ const stub = {
       };
     }
     if (fn === "list_messages") return { data: [], error: null };
+    if (fn === "list_presence") {
+      // cuentas de ejemplo para ver el panel «Usuarios» (quién está en línea) sin servidor
+      const ago = (min: number) => new Date(Date.now() - min * 60000).toISOString();
+      return {
+        data: [
+          { id: "me", username: "kyora1947", role: "admin", verified: true, last_seen: ago(0), online: true, code_pending: false, me: true },
+          { id: "u1", username: "ana", role: "intern", verified: true, last_seen: ago(0), online: true, code_pending: false, me: false },
+          { id: "u2", username: "luis", role: "intern", verified: true, last_seen: ago(190), online: false, code_pending: false, me: false },
+          { id: "u3", username: "marta", role: "intern", verified: false, last_seen: null, online: false, code_pending: true, me: false },
+        ],
+        error: null,
+      };
+    }
     return { data: null, error: null };
   },
   storage: {
@@ -213,10 +228,14 @@ const files = mergeCloud(
   "me",
 );
 
+const improvements: Improvement[] = [
+  { id: "m1", section: "Calendario", functions: "Vista de agenda\nArrastrar eventos entre días", description: "Que se pueda reordenar sin abrir cada evento.", created_at: now.toISOString() },
+  { id: "m2", section: "Música", functions: "Cola de reproducción", description: "", created_at: new Date(now.getTime() - 86_400_000).toISOString() },
+];
 const store = new Store();
 Object.assign(store, {
-  tasks, tags, taskTags, tracks, messages, files, events, reminders, habits, habitChecks, serverStats, financeEntries, financeCategories, conversationId: "c",
-  loaded: { tasks: true, tags: true, tracks: true, messages: true, files: true, events: true, finance: true, reminders: true, habits: true, server: true },
+  tasks, tags, taskTags, tracks, messages, files, events, reminders, habits, habitChecks, serverStats, financeEntries, financeCategories, conversationId: "c", improvements,
+  loaded: { tasks: true, tags: true, tracks: true, messages: true, files: true, events: true, finance: true, reminders: true, habits: true, improvements: true, server: true },
 });
 
 let listeners: ((s: Player["state"]) => void)[] = [];
@@ -266,6 +285,7 @@ const SECTIONS: Record<RouteId, [Section, () => string]> = {
   chat: [chatSection, () => chatStatement(messages, true)],
   contrasenas: [vaultSection, () => ""],
   finanzas: [financeSection, () => ""],
+  mejoras: [improvementsSection, () => ""],
 };
 let unmount: (() => void) | null = null;
 let first = true;

@@ -118,10 +118,10 @@ class JustAudioEngine implements AudioEngine {
       });
 
   @override
-  Future<void> setRate(double rate) async {
-    await _player.setSpeed(rate);
-    await _player.setPitch(rate);
-  }
+  Future<void> setRate(double rate) => _player.setSpeed(rate);
+
+  @override
+  Future<void> setPitch(double pitch) => _player.setPitch(pitch);
 
   @override
   Future<void> dispose() async {

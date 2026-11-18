@@ -11,7 +11,7 @@ function setup() {
 }
 
 const tile = (shell: Shell, route: string) => shell.root.querySelector<HTMLElement>(`.tile-${route}`)!;
-const ROUTES_IN_BOARD = ["tareas", "musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas"];
+const ROUTES_IN_BOARD = ["tareas", "musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas", "mejoras"];
 
 afterEach(() => {
   location.hash = "";
@@ -20,12 +20,12 @@ afterEach(() => {
 });
 
 describe("tablero", () => {
-  it("en Inicio hay ocho teselas (siete secciones y Configuración en el centro), sin Sistema ni Salir", () => {
+  it("en Inicio hay nueve teselas (ocho secciones y Configuración en el centro), sin Sistema ni Salir", () => {
     const { shell } = setup();
     shell.setSection("inicio", "");
     expect(shell.root.dataset.mode).toBe("home");
     const tiles = [...shell.root.querySelectorAll(".tile")];
-    expect(tiles).toHaveLength(8);
+    expect(tiles).toHaveLength(9);
     expect(shell.root.querySelector(".tile-system, .tile-exit")).toBeNull();
     expect(tiles.map((t) => t.className.match(/tile-(\w+)/)![1])).toEqual(ROUTES_IN_BOARD);
     // sin números al lado de los nombres
@@ -43,7 +43,7 @@ describe("tablero", () => {
 
   it("cada tesela lleva su icono y su tecla de siempre", () => {
     const { shell } = setup();
-    const keys: Record<string, string> = { tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", configuracion: "A" };
+    const keys: Record<string, string> = { tareas: "T", calendario: "K", musica: "M", nube: "N", chat: "C", contrasenas: "P", finanzas: "F", mejoras: "J", configuracion: "A" };
     for (const route of ROUTES_IN_BOARD) {
       expect(tile(shell, route).querySelector(".tile-icon")).not.toBeNull();
       expect(tile(shell, route).querySelector(".tile-key")?.textContent).toBe(keys[route]);
@@ -67,9 +67,9 @@ describe("tablero", () => {
     expect(shell.root.dataset.mode).toBe("focus");
     expect(tile(shell, "tareas").classList.contains("is-active")).toBe(true);
     expect(tile(shell, "tareas").querySelector(".tile-statement")?.textContent).toBe("5 abiertas; 2 vencen hoy.");
-    expect(shell.root.style.getPropertyValue("--dock-n")).toBe("7");
-    const docked = ["musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas"].map((r) => tile(shell, r).style.getPropertyValue("--dock-i"));
-    expect(docked).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
+    expect(shell.root.style.getPropertyValue("--dock-n")).toBe("8");
+    const docked = ["musica", "nube", "configuracion", "calendario", "contrasenas", "chat", "finanzas", "mejoras"].map((r) => tile(shell, r).style.getPropertyValue("--dock-i"));
+    expect(docked).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
     expect(shell.root.querySelector(".edge")).not.toBeNull();
   });
 
@@ -128,7 +128,7 @@ describe("tablero", () => {
     expect(texts).toContain(p);
     expect(texts.some((t) => t.classList.contains("tile-link"))).toBe(true);
     const home = shell.fxTargets("inicio");
-    expect(home.blocks).toHaveLength(8);
+    expect(home.blocks).toHaveLength(9);
   });
 
   it("el botón de cerrar vuelve al inicio y el foco regresa a la tesela que estaba abierta", () => {

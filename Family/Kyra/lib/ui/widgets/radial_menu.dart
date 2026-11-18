@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../theme.dart';
+import 'app_icon_lines.dart';
 import 'pixel_glyph.dart';
 import 'section_motion.dart';
 import 'wave_sweep.dart';
@@ -34,15 +35,13 @@ class RadialEntry {
 enum LauncherMode { functions, apps }
 
 /// El icono de una opción: el de la app, el de puntos o el normal.
-Widget _entryIcon(RadialEntry entry, double size, Color color, {Key? key}) {
+Widget _entryIcon(RadialEntry entry, double size, Color color, {Key? key, Color? base}) {
   if (entry.image != null) {
     return ClipRect(
       key: key,
-      child: Image.memory(
-        entry.image!,
-        width: size,
-        height: size,
-        gaplessPlayback: true,
+      child: ScanlineAppIcon(
+        bytes: entry.image!,
+        size: size,
         errorBuilder: (_, _, _) =>
             LcdIcon(Icons.apps_rounded, size: size, color: color),
       ),
@@ -426,6 +425,7 @@ class RadialMenuView extends StatelessWidget {
                                   shown,
                                   30,
                                   c.accent,
+                                  base: c.background,
                                   key: const Key('radial-center'),
                                 ),
                                 const SizedBox(height: 6),
@@ -503,6 +503,9 @@ class _Option extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    // el icono de una app va siempre en el color del tema (acento; sobre el acento de la opción elegida, el oscuro): con el tono de texto
+    // (`ink`) saldría gris
+    final tint = entry.image != null ? (selected ? c.onAccent : c.accent) : (selected ? c.onAccent : (current ? c.accent : c.ink));
     return Semantics(
       label: entry.label,
       selected: current,
@@ -521,7 +524,8 @@ class _Option extends StatelessWidget {
             child: _entryIcon(
               entry,
               26,
-              selected ? c.onAccent : (current ? c.accent : c.ink),
+              tint,
+              base: selected ? c.accent : c.background,
             ),
           ),
         ),

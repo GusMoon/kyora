@@ -1,7 +1,17 @@
 import '../models/profile.dart';
 
-/// La cuenta: entrar, crear una cuenta de pasante, salir y saber qué rol tiene quien entró. La implementación real es
-/// `ChatRepository`; los tests usan una falsa.
+/// El dominio inventado de las cuentas que crea el administrador: no llevan correo real (Server/supabase/functions/admin-users).
+const accountDomain = 'kyra.local';
+
+/// Con qué correo se entra: lo escrito si ya es un correo (el administrador usa el de siempre); si es solo un nombre de usuario,
+/// el correo inventado `<nombre>@kyra.local`.
+String loginEmail(String identifier) {
+  final text = identifier.trim();
+  return text.contains('@') ? text : '${text.toLowerCase()}@$accountDomain';
+}
+
+/// La cuenta: entrar, canjear el código de 6 dígitos, salir y saber qué rol tiene quien entró. **Ya no hay registro**: las cuentas solo las
+/// crea el administrador. La implementación real es `ChatRepository`; los tests usan una falsa.
 abstract class AccountBackend {
   bool get signedIn;
 
@@ -11,11 +21,12 @@ abstract class AccountBackend {
   /// Avisa cuando la sesión cambia (entrar, salir, renovarse).
   Stream<void> get authChanges;
 
-  Future<void> signIn(String email, String password);
+  /// Entra con un nombre de usuario (o un correo, el del administrador) y su contraseña.
+  Future<void> signIn(String identifier, String password);
 
-  /// Crea una cuenta nueva de pasante. `true` si ya quedó dentro; `false` si Supabase pide confirmar el correo antes.
-  /// Lanza `ChatException` en español si el nombre de usuario o el correo ya están en uso, o si algo no es válido.
-  Future<bool> signUp({required String username, required String email, required String password});
+  /// Canjea el código de 6 dígitos que dio el administrador (la primera vez en cada cuenta). Lanza `ChatException` en español si es
+  /// incorrecto, caducó o se agotaron los intentos.
+  Future<void> claimAccount(String code);
 
   Future<void> signOut();
 
@@ -33,4 +44,29 @@ abstract class RoleCache {
 
   /// La última cuenta que entró y su rol, o `null` si nunca entró ninguna en este teléfono.
   Future<({String userId, Role role})?> readLast();
+}
+
+/// El nombre de usuario del visitante que ya entró en este teléfono: con él, la próxima vez solo se pide la contraseña.
+abstract class RememberedAccount {
+  Future<String?> read();
+  Future<void> write(String username);
+
+  /// «No soy yo»: se olvida, y la próxima vez se pide el nombre otra vez.
+  Future<void> clear();
+}
+
+/// Sin guardar nada (pruebas y lo que no tenga teléfono).
+class MemoryRememberedAccount implements RememberedAccount {
+  MemoryRememberedAccount([this._username]);
+
+  String? _username;
+
+  @override
+  Future<String?> read() async => _username;
+
+  @override
+  Future<void> write(String username) async => _username = username;
+
+  @override
+  Future<void> clear() async => _username = null;
 }

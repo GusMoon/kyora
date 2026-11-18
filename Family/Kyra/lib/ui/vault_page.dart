@@ -4,22 +4,42 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../data/vault_source.dart';
+import '../state/cloud_controller.dart';
+import '../state/player_controller.dart';
 import '../state/vault_controller.dart';
 import '../theme.dart';
 import '../util/format.dart';
+import 'vault_actions.dart';
+import 'vault_viewers.dart';
 import 'widgets/app_backdrop.dart';
 import 'widgets/cyber_panel.dart';
 import 'widgets/hack_text.dart';
 import 'widgets/section_motion.dart';
 
-/// El **Vault**: una carpeta de tu almacenamiento (la eliges la primera vez) para ver sus carpetas, archivos e imágenes. Las **imágenes se ven
-/// tal como son**, sin ningún efecto. Se recorre entrando en las carpetas (con el camino arriba para volver) o, cambiando de modo, como un
-/// **árbol** de carpetas que se abren en su sitio. Tocar una imagen la abre a pantalla completa, con zoom y pasando a las demás; un archivo
-/// de otro tipo se abre con la app del teléfono que sepa verlo.
+/// El **Vault**: la carpeta de tu almacenamiento donde la nube guarda lo tuyo (se elige en Configuración). Se ven sus carpetas y archivos; las
+/// **imágenes tal como son**, sin ningún efecto. Se recorre entrando en las carpetas (con el camino arriba para volver) o, cambiando de modo,
+/// como un **árbol** de carpetas que se abren en su sitio.
+///
+///  - **Exportar**: el botón de arriba elige archivos del almacenamiento interno, la tarjeta u otros dispositivos y los **mueve** al Vault.
+///  - **Ver**: imágenes (con zoom), vídeos, audios y textos se abren dentro de la app; lo que necesita otra app (PDF, Word…) se abre con la que
+///    el teléfono tenga.
+///  - **Mantener presionado** un archivo: enviarlo a alguien, subirlo a tu nube, cambiarle el nombre y ver sus atributos.
 class VaultPage extends StatefulWidget {
-  const VaultPage({super.key, required this.controller});
+  const VaultPage({super.key, required this.controller, this.cloud, this.player, this.onOpenSettings, this.videoFactory = realVideo});
 
   final VaultController controller;
+
+  /// Tu nube, para «Subir a mi nube». Sin ella esa acción no sale.
+  final CloudController? cloud;
+
+  /// El reproductor de la app, para los audios. Sin él un audio se abre con otra app.
+  final PlayerController? player;
+
+  /// Abre Configuración en la ficha del Vault (donde se elige la carpeta). Sin esto no sale el botón.
+  final VoidCallback? onOpenSettings;
+
+  /// Cómo se crea el reproductor de un vídeo (en las pruebas, uno falso).
+  final VideoFactory videoFactory;
 
   @override
   State<VaultPage> createState() => _VaultPageState();
@@ -48,11 +68,41 @@ class _VaultPageState extends State<VaultPage> {
     if (entry.canShow) {
       final images = among ?? _c.images;
       final index = images.indexWhere((e) => e.uri == entry.uri);
-      await Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => VaultViewerPage(controller: _c, images: images, index: index < 0 ? 0 : index)));
+      await Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => VaultViewerPage(controller: _c, images: images, index: index < 0 ? 0 : index, cloud: widget.cloud)));
+      return;
+    }
+    if (entry.isVideo) {
+      await Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => VaultVideoPage(controller: _c, entry: entry, cloud: widget.cloud, videoFactory: widget.videoFactory)));
+      return;
+    }
+    final player = widget.player;
+    if (entry.isAudio && player != null) {
+      final audios = [for (final e in (among ?? _c.entries)) if (e.isAudio) e];
+      final index = audios.indexWhere((e) => e.uri == entry.uri);
+      await Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => VaultAudioPage(controller: _c, player: player, entries: audios, index: index < 0 ? 0 : index, cloud: widget.cloud)));
+      return;
+    }
+    if (entry.isText) {
+      await Navigator.of(context).push(QuickPageRoute<void>(builder: (_) => VaultTextPage(controller: _c, entry: entry, cloud: widget.cloud)));
       return;
     }
     final opened = await _c.open(entry);
     if (!opened && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay ninguna app que abra este archivo.')));
+  }
+
+  /// Mantener presionado: las acciones del archivo o la carpeta.
+  Future<void> _actions(VaultEntry entry, {List<VaultEntry>? among}) => showVaultActions(context, vault: _c, entry: entry, cloud: widget.cloud, onOpen: () => _tap(entry, among: among));
+
+  /// «Exportar»: elige archivos de otro sitio y los mueve al Vault.
+  Future<void> _export() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await _c.exportHere();
+    if (!mounted) return;
+    if (result == null) {
+      if (_c.error != null) messenger.showSnackBar(SnackBar(content: Text(_c.error!)));
+      return;
+    }
+    messenger.showSnackBar(SnackBar(content: Text(exportSummary(result))));
   }
 
   @override
@@ -72,7 +122,7 @@ class _VaultPageState extends State<VaultPage> {
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-                child: _c.root == null ? _Empty(controller: _c) : _Browser(controller: _c, onTap: _tap),
+                child: _c.root == null ? _Empty(controller: _c, onOpenSettings: widget.onOpenSettings) : _Browser(controller: _c, onTap: _tap, onActions: _actions, onExport: _export, onOpenSettings: widget.onOpenSettings),
               ),
             ),
           ),
@@ -84,9 +134,10 @@ class _VaultPageState extends State<VaultPage> {
 
 /// Sin carpeta elegida: invita a elegir una.
 class _Empty extends StatelessWidget {
-  const _Empty({required this.controller});
+  const _Empty({required this.controller, this.onOpenSettings});
 
   final VaultController controller;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -104,13 +155,13 @@ class _Empty extends StatelessWidget {
                 const SizedBox(height: 14),
                 HackText('VAULT', style: TextStyle(fontFamily: monoFont, fontSize: 20, letterSpacing: 2, fontWeight: FontWeight.w600, color: c.accent)),
                 const SizedBox(height: 10),
-                Text('> elige una carpeta de tu almacenamiento para verla aquí: carpetas, archivos e imágenes', textAlign: TextAlign.center, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
+                Text('> todavía no hay carpeta del Vault: elígela en Configuración y aquí verás sus carpetas, archivos e imágenes', key: const Key('vault-empty-text'), textAlign: TextAlign.center, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
                 if (controller.error != null) ...[
                   const SizedBox(height: 10),
                   Text('> ${controller.error}', key: const Key('vault-error'), textAlign: TextAlign.center, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.warn)),
                 ],
                 const SizedBox(height: 18),
-                OutlinedButton(key: const Key('vault-pick'), onPressed: () => unawaited(controller.pick()), child: const Text('ELEGIR CARPETA')),
+                if (onOpenSettings != null) OutlinedButton(key: const Key('vault-open-settings'), onPressed: onOpenSettings, child: const Text('ABRIR CONFIGURACIÓN')),
               ],
             ),
           ),
@@ -122,10 +173,13 @@ class _Empty extends StatelessWidget {
 
 /// Con carpeta: la cabecera con los botones, el camino y lo de dentro.
 class _Browser extends StatelessWidget {
-  const _Browser({required this.controller, required this.onTap});
+  const _Browser({required this.controller, required this.onTap, required this.onActions, required this.onExport, this.onOpenSettings});
 
   final VaultController controller;
   final Future<void> Function(VaultEntry entry, {List<VaultEntry>? among}) onTap;
+  final Future<void> Function(VaultEntry entry, {List<VaultEntry>? among}) onActions;
+  final VoidCallback onExport;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +202,7 @@ class _Browser extends StatelessWidget {
                   Expanded(child: HackText(ctrl.root!.name.toUpperCase(), textKey: const Key('vault-name'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: monoFont, fontSize: 17, letterSpacing: 1.4, fontWeight: FontWeight.w600, color: c.accent))),
                   _Tool(key: const Key('vault-view'), icon: tree ? Icons.grid_view_rounded : Icons.account_tree_outlined, label: tree ? 'Ver en cuadrícula' : 'Ver como árbol', onTap: () => unawaited(ctrl.toggleView())),
                   _Tool(key: const Key('vault-refresh'), icon: Icons.refresh_rounded, label: 'Actualizar', onTap: () => unawaited(ctrl.refresh())),
-                  _Tool(key: const Key('vault-change'), icon: Icons.folder_open_rounded, label: 'Cambiar de carpeta', onTap: () => unawaited(ctrl.pick())),
+                  _Tool(key: const Key('vault-export'), icon: Icons.move_to_inbox_rounded, label: 'Exportar al Vault', onTap: onExport),
                 ],
               ),
             ),
@@ -195,7 +249,10 @@ class _Browser extends StatelessWidget {
         '> ${ctrl.error}',
         color: c.warn,
         actions: [
-          if (ctrl.lost) OutlinedButton(key: const Key('vault-repick'), onPressed: () => unawaited(ctrl.pick()), child: const Text('ELEGIR OTRA CARPETA')) else OutlinedButton(key: const Key('vault-retry'), onPressed: () => unawaited(ctrl.refresh()), child: const Text('REINTENTAR')),
+          if (ctrl.lost)
+            (onOpenSettings == null ? const SizedBox.shrink() : OutlinedButton(key: const Key('vault-open-settings'), onPressed: onOpenSettings, child: const Text('ABRIR CONFIGURACIÓN')))
+          else
+            OutlinedButton(key: const Key('vault-retry'), onPressed: () => unawaited(ctrl.refresh()), child: const Text('REINTENTAR')),
         ],
       );
     }
@@ -207,7 +264,7 @@ class _Browser extends StatelessWidget {
         key: const Key('vault-tree'),
         padding: const EdgeInsets.symmetric(vertical: 6),
         itemCount: rows.length,
-        itemBuilder: (context, i) => _TreeRow(row: rows[i], controller: ctrl, onTap: () => onTap(rows[i].entry, among: images)),
+        itemBuilder: (context, i) => _TreeRow(row: rows[i], controller: ctrl, onTap: () => onTap(rows[i].entry, among: images), onLongPress: () => onActions(rows[i].entry, among: images)),
       );
     }
     final entries = ctrl.entries;
@@ -217,7 +274,7 @@ class _Browser extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.8),
       itemCount: entries.length,
-      itemBuilder: (context, i) => _Tile(entry: entries[i], controller: ctrl, onTap: () => onTap(entries[i])),
+      itemBuilder: (context, i) => _Tile(entry: entries[i], controller: ctrl, onTap: () => onTap(entries[i]), onLongPress: () => onActions(entries[i])),
     );
   }
 }
@@ -323,6 +380,7 @@ IconData _iconFor(VaultEntry e) {
   if (m.startsWith('audio/') || const {'mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac'}.contains(x)) return Icons.music_note_rounded;
   if (m.startsWith('video/') || const {'mp4', 'mkv', 'mov', 'avi', 'webm', '3gp'}.contains(x)) return Icons.videocam_rounded;
   if (x == 'pdf' || m == 'application/pdf') return Icons.picture_as_pdf_rounded;
+  if (e.isText) return Icons.article_outlined;
   if (const {'zip', 'rar', '7z', 'tar', 'gz'}.contains(x)) return Icons.folder_zip_rounded;
   if (e.isImage) return Icons.image_rounded;
   return Icons.insert_drive_file_rounded;
@@ -330,11 +388,12 @@ IconData _iconFor(VaultEntry e) {
 
 /// Una casilla de la cuadrícula: una carpeta, una imagen (en grande, tal cual) o un archivo.
 class _Tile extends StatelessWidget {
-  const _Tile({required this.entry, required this.controller, required this.onTap});
+  const _Tile({required this.entry, required this.controller, required this.onTap, required this.onLongPress});
 
   final VaultEntry entry;
   final VaultController controller;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -344,6 +403,7 @@ class _Tile extends StatelessWidget {
       key: Key('vault-entry-${entry.name}'),
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(color: showImage ? null : Colors.black.withValues(alpha: 0.35), border: Border.all(color: entry.isDir ? c.accent.withValues(alpha: 0.7) : c.edge)),
         child: showImage
@@ -367,11 +427,12 @@ class _Tile extends StatelessWidget {
 
 /// Una fila del árbol: sangrada según su profundidad, con la flecha de las carpetas y el icono (o la imagen pequeña).
 class _TreeRow extends StatelessWidget {
-  const _TreeRow({required this.row, required this.controller, required this.onTap});
+  const _TreeRow({required this.row, required this.controller, required this.onTap, required this.onLongPress});
 
   final VaultRow row;
   final VaultController controller;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -381,6 +442,7 @@ class _TreeRow extends StatelessWidget {
       key: Key('vault-row-${e.name}'),
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
         padding: EdgeInsets.fromLTRB(10 + row.depth * 18.0, 4, 10, 4),
         child: SizedBox(
@@ -411,9 +473,10 @@ class _TreeRow extends StatelessWidget {
 
 /// Una imagen a pantalla completa, **tal como es** (el archivo entero, sin efectos), con zoom y pasando a las demás de la carpeta.
 class VaultViewerPage extends StatefulWidget {
-  const VaultViewerPage({super.key, required this.controller, required this.images, required this.index});
+  const VaultViewerPage({super.key, required this.controller, required this.images, required this.index, this.cloud});
 
   final VaultController controller;
+  final CloudController? cloud;
   final List<VaultEntry> images;
   final int index;
 
@@ -441,6 +504,7 @@ class _VaultViewerPageState extends State<VaultViewerPage> {
         backgroundColor: Colors.black,
         title: Text(entry.name, key: const Key('viewer-title'), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: appFont, fontSize: 16, color: c.ink)),
         actions: [
+          VaultActionsButton(vault: widget.controller, entry: entry, cloud: widget.cloud),
           Center(child: Padding(padding: const EdgeInsets.only(right: 16), child: Text('${_current + 1}/${widget.images.length}', key: const Key('viewer-count'), style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)))),
         ],
       ),

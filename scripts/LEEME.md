@@ -10,8 +10,10 @@ Aquí están solo los scripts esenciales. Para abrir Kyora a diario no hace falt
 | `actualizar_kyora.bat` | Cierra Kyora, instala las dependencias, pasa las pruebas y la vuelve a abrir. Si algo falla, se detiene y **no** abre una versión rota. | Después de reemplazar los archivos de Kyora por una versión nueva. |
 | `probar_chat.bat` | Comprueba el chat desde la PC: inicia sesión en tu Supabase, saca la conversación *General* y lista los últimos mensajes. Con `--send` manda además un mensaje de prueba. Si algo falla dice qué es y cómo arreglarlo. | Después de rellenar `Server\supabase\.env`, o si el chat no conecta. |
 | `preparar_movil.bat` | Crea `Family\Kyra\env.json` (la URL y la clave pública de tu Supabase, **sin** correo ni contraseña) y descarga los paquetes de la app del móvil. | Una vez, antes de compilar la app (o si cambias de proyecto de Supabase). |
-| `compilar_movil.bat` | Compila la app del móvil y deja el APK en `Family\Kyra\KyoraChat.apk`, listo para pasarlo al teléfono. | Para instalar o actualizar la app en tu teléfono. |
-| `iniciar_movil.bat` | Ejecuta la app en un teléfono Android conectado por USB (con la depuración USB activada). | Para probar cambios en la app sin crear el APK. |
+| `compilar_admin.bat` | Compila **KyraAdmin** (la app del administrador: solo cuentas de administrador y gestión de todas las cuentas) y deja `Family\Kyra\KyraAdmin.apk`. | Para instalar o actualizar la app del administrador. |
+| `compilar_family.bat` | Compila **KyraFamily** (la app de la familia: no acepta administradores) y deja `Family\Kyra\KyraFamily.apk`. | Para instalar o actualizar la app de la familia. |
+| `compilar_movil.bat` | Compila las dos: `KyraAdmin.apk` y `KyraFamily.apk`. | Para actualizar las dos apps de golpe. |
+| `iniciar_movil.bat` / `iniciar_family.bat` | Ejecuta KyraAdmin / KyraFamily en un teléfono Android conectado por USB (con la depuración USB activada). | Para probar cambios en la app sin crear el APK. |
 | `instalar_inicio.bat` | Hace que Kyora arranque sola al iniciar sesión: registra una **tarea programada** de Windows (ver `ARRANQUE.md`). No necesita administrador. | Una vez, si quieres que Kyora arranque con el equipo. |
 | `quitar_inicio.bat` | Quita ese arranque automático (borra la tarea programada). | Si ya no quieres que Kyora arranque sola. |
 | `Merida\iniciar_merida.bat` | Abre Merida, la app web local (tareas, música, nube, chat y configuración), en `http://127.0.0.1:5180`, junto con su servicio de música (tus listas de YouTube, con el Python de Kyora). La primera vez instala sus paquetes (necesita Node.js). Si Merida ya está abierta, solo abre el navegador. Ver `Family\Merida\README.md`. | Cuando quieras usar Merida en el navegador. Cierra la ventana para apagar Merida y su servicio. |
@@ -40,7 +42,7 @@ Aquí están solo los scripts esenciales. Para abrir Kyora a diario no hace falt
 
 **`preparar_movil.bat`** → **`compilar_movil.bat`**
 1. `preparar_movil.bat` escribe `Family\Kyra\env.json` y ejecuta `flutter pub get`.
-2. `compilar_movil.bat` analiza el código, compila el APK (`flutter build apk --release`) y lo copia a `Family\Kyra\KyoraChat.apk`. Necesita Flutter, Java y el SDK de Android (ver `Family\Kyra\README.md`).
+2. `compilar_admin.bat` y `compilar_family.bat` analizan el código, compilan el APK (`flutter build apk --release --flavor admin|family`) y lo copian a `Family\Kyra\KyraAdmin.apk` y `KyraFamily.apk` (`compilar_movil.bat` hace las dos). Necesita Flutter, Java y el SDK de Android (ver `Family\Kyra\README.md`).
 
 **`instalar_inicio.bat`** / **`quitar_inicio.bat`**
 - Llaman a `tarea_inicio.ps1`, que registra o borra la tarea programada `Kyora`. Al instalar, quitan también el acceso directo antiguo de la carpeta de Inicio, si existe.

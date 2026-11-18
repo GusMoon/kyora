@@ -1,31 +1,13 @@
 @echo off
-rem Compila la app del movil y deja el APK en Family\Kyra\KyoraChat.apk, listo para pasar al telefono (cable, Drive, WhatsApp...).
-rem Si falta Family\Kyra\env.json lo crea antes (ver preparar_movil.bat). La primera compilacion tarda varios minutos.
+rem Compila las DOS apps del movil: KyraAdmin.apk (administrador) y KyraFamily.apk (familia), en Family\Kyra\. Para una sola, usa
+rem compilar_admin.bat o compilar_family.bat. Se pueden instalar las dos en el mismo telefono (cada una con sus datos).
 setlocal
-cd /d "%~dp0..\..\Family\Kyra"
-if not exist "env.json" (
-  echo [0/3] Falta Family\Kyra\env.json: ejecutando preparar_movil.bat...
-  call "%~dp0preparar_movil.bat"
-  if errorlevel 1 exit /b 1
-  cd /d "%~dp0..\..\Family\Kyra"
-)
-echo [1/3] Analizando el codigo...
-call flutter analyze
-if errorlevel 1 goto :error
-echo [2/3] Compilando el APK (release)...
-call flutter build apk --release --dart-define-from-file=env.json
-if errorlevel 1 goto :error
-echo [3/3] Copiando el APK...
-copy /y "build\app\outputs\flutter-apk\app-release.apk" "KyoraChat.apk" >nul
-if errorlevel 1 goto :error
+set KYRA_NO_EXPLORER=1
+call "%~dp0compilar_admin.bat"
+if errorlevel 1 exit /b 1
+call "%~dp0compilar_family.bat"
+if errorlevel 1 exit /b 1
 echo.
-echo Listo: %CD%\KyoraChat.apk
-echo En el telefono: permite "instalar apps desconocidas" para la app desde la que lo abras y pulsa el archivo.
-explorer /select,"%CD%\KyoraChat.apk"
+echo Listo: Family\Kyra\KyraAdmin.apk y Family\Kyra\KyraFamily.apk
+explorer /select,"%~dp0..\..\Family\Kyra\KyraFamily.apk"
 exit /b 0
-
-:error
-echo.
-echo La compilacion fallo. Revisa los mensajes de arriba.
-pause
-exit /b 1

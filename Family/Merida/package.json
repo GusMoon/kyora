@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check:live": "node scripts/check-live.ts"
+    "check:live": "node scripts/check-live.ts",
+    "build:usb": "node scripts/build-usb.ts",
+    "usb": "cmd /c \"usb\\Abrir Merida.bat\""
   },
   "dependencies": {
     "@fontsource-variable/space-grotesk": "^5.3.0",

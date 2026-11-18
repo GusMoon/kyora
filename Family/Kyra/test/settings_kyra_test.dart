@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kyora_chat/data/calendar_view_store.dart';
 import 'package:kyora_chat/data/dock_store.dart';
 import 'package:kyora_chat/data/installed_apps.dart';
 import 'package:kyora_chat/data/wallpaper_store.dart';
@@ -15,6 +16,7 @@ import 'package:kyora_chat/state/wallpaper_controller.dart';
 import 'package:kyora_chat/state/weather_controller.dart';
 import 'package:kyora_chat/theme.dart';
 import 'package:kyora_chat/ui/settings_page.dart';
+import 'package:kyora_chat/util/agenda.dart' show CalendarMode;
 
 import 'music_test.dart' show FakeMusicBackend, FakeSaver, MemoryMusicStore;
 import 'sections.dart';
@@ -30,7 +32,7 @@ void main() {
   late DockController dock;
   late WallpaperController wallpaper;
 
-  Future<void> open(WidgetTester tester, {bool withWeather = true, bool withDock = false, bool withWallpaper = false, String? initialTile, Size size = const Size(400, 850)}) async {
+  Future<void> open(WidgetTester tester, {bool withWeather = true, bool withDock = false, bool withWallpaper = false, CalendarViewStore? calendarView, String? initialTile, Size size = const Size(400, 850)}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -56,6 +58,7 @@ void main() {
         weather: withWeather ? weather : null,
         dock: withDock ? dock : null,
         wallpaper: withWallpaper ? wallpaper : null,
+        calendarView: calendarView,
         initialTile: initialTile,
       ),
     ));
@@ -63,6 +66,50 @@ void main() {
   }
 
   Rect tile(WidgetTester tester, String id) => tester.getRect(find.byKey(Key('mosaic-tile-$id')));
+
+  group('el calendario', () {
+    testWidgets('la ficha solo sale si hay dónde guardar la vista, y dice cuál es', (tester) async {
+      await open(tester);
+      expect(find.byKey(const Key('mosaic-tile-calendar')), findsNothing);
+      await open(tester, calendarView: MemoryCalendarViewStore());
+      expect(find.byKey(const Key('mosaic-tile-calendar')), findsOneWidget);
+      expect(find.text('Calendario'), findsOneWidget);
+      expect(find.text('SEMANA'), findsOneWidget);
+    });
+
+    testWidgets('con la ficha, todas siguen cabiendo en la pantalla sin pisarse', (tester) async {
+      await open(tester, withDock: true, withWallpaper: true, calendarView: MemoryCalendarViewStore());
+      final ids = ['wallpaper', 'launcher', 'weather', 'dock', 'music', 'calendar', 'account'];
+      final area = tester.getRect(find.byKey(const Key('settings-page')));
+      final rects = {for (final id in ids) id: tile(tester, id)};
+      for (final r in rects.values) {
+        expect(area.contains(r.topLeft) && area.contains(r.bottomRight), isTrue);
+      }
+      for (final a in ids) {
+        for (final b in ids) {
+          if (a.compareTo(b) >= 0) continue;
+          expect(rects[a]!.deflate(0.5).overlaps(rects[b]!.deflate(0.5)), isFalse, reason: '$a pisa a $b');
+        }
+      }
+    });
+
+    testWidgets('elegir Mes o Semana lo guarda, lo marca y se ve en el resumen', (tester) async {
+      final store = MemoryCalendarViewStore();
+      await open(tester, calendarView: store);
+      await openSettingsTile(tester, 'calendar');
+      expect(find.byKey(const Key('settings-calendar-view-week')), findsOneWidget);
+      expect(find.byKey(const Key('settings-calendar-view-month')), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('settings-calendar-view-week')), matching: find.byIcon(Icons.check_rounded)), findsOneWidget);
+      await tester.tap(find.byKey(const Key('settings-calendar-view-month')));
+      await tester.pumpAndSettle();
+      expect(store.mode, CalendarMode.month);
+      expect(find.descendant(of: find.byKey(const Key('settings-calendar-view-month')), matching: find.byIcon(Icons.check_rounded)), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const Key('settings-calendar-view-week')), matching: find.byIcon(Icons.check_rounded)), findsNothing);
+      await tester.tap(find.byKey(const Key('settings-calendar-view-week')));
+      await tester.pumpAndSettle();
+      expect(store.mode, CalendarMode.week);
+    });
+  });
 
   group('el mosaico', () {
     testWidgets('con todo, salen seis fichas de distintos tamaños, dentro de la pantalla y sin pisarse', (tester) async {

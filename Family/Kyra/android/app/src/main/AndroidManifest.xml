@@ -22,12 +22,14 @@
     <!-- Recordatorios: avisos a la hora exacta (la app pide el permiso al crear el primero) y que sigan tras reiniciar el teléfono. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <application
-        android:label="Kyra"
+        android:label="${appLabel}"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -49,13 +51,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Kyra puede ser la pantalla de inicio del teléfono (launcher): sale en la lista de «Aplicación de inicio» de Android. -->
+        </activity>
+        <!-- Kyra como pantalla de inicio (launcher) SOLO para el administrador. El filtro HOME vive en este alias, que viene APAGADO: Kyra es una
+             app normal y Android no la ofrece como pantalla de inicio. La app lo enciende (MainActivity.setLauncherEnabled) cuando entra el
+             administrador y lo vuelve a apagar si quien abre es un visitante. -->
+        <activity-alias
+            android:name=".HomeAlias"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.HOME"/>
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
-        </activity>
+        </activity-alias>
         <!-- El servicio y el receptor de botones del reproductor (just_audio_background / audio_service). -->
         <service
             android:name="com.ryanheise.audioservice.AudioService"

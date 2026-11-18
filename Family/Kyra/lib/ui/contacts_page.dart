@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/contacts_source.dart';
 import '../state/contacts_controller.dart';
 import '../theme.dart';
-import 'widgets/cyber_panel.dart';
-import 'widgets/hack_text.dart';
+import 'widgets/flat_form.dart';
 import 'widgets/section_motion.dart';
 
 /// **Contactos**: los de la agenda del teléfono, de la A a la Z y con buscador. Tocar uno lo abre y enseña sus números; de cada número se puede
@@ -49,7 +48,7 @@ class _ContactsPageState extends State<ContactsPage> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Scaffold(
+    return FlatBackdrop(child: Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Padding(
@@ -64,16 +63,10 @@ class _ContactsPageState extends State<ContactsPage> {
                   FlyIn(
                     edge: MotionEdge.top,
                     order: 0,
-                    child: CyberPanel(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        child: Row(
-                          children: [
-                            Expanded(child: HackText('CONTACTOS', maxLines: 1, style: TextStyle(fontFamily: monoFont, fontSize: 17, letterSpacing: 1.6, fontWeight: FontWeight.w600, color: c.accent))),
-                            if (ctrl.status == ContactsStatus.ready) Text('${ctrl.contacts.length}/${ctrl.total}', key: const Key('contacts-count'), style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.dim)),
-                          ],
-                        ),
-                      ),
+                    child: FlatHeader(
+                      title: 'CONTACTOS',
+                      count: ctrl.status == ContactsStatus.ready ? '${ctrl.contacts.length}/${ctrl.total}' : null,
+                      countKey: const Key('contacts-count'),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -82,9 +75,9 @@ class _ContactsPageState extends State<ContactsPage> {
                       edge: MotionEdge.left,
                       order: 1,
                       child: Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), border: Border.all(color: c.edge)),
+                        margin: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.edge))),
                         child: Row(
                           children: [
                             Text('>', style: TextStyle(fontFamily: monoFont, fontSize: 17, color: c.accent)),
@@ -96,7 +89,7 @@ class _ContactsPageState extends State<ContactsPage> {
                                 onChanged: ctrl.search,
                                 style: TextStyle(fontFamily: monoFont, fontSize: 16, color: c.ink),
                                 cursorColor: c.accent,
-                                decoration: InputDecoration(hintText: 'buscar nombre o número', hintStyle: TextStyle(fontFamily: monoFont, fontSize: 16, color: c.dim), border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false),
+                                decoration: flatInput(context, hint: 'buscar nombre o número'),
                               ),
                             ),
                             if (ctrl.query.isNotEmpty)
@@ -117,7 +110,7 @@ class _ContactsPageState extends State<ContactsPage> {
                     child: FlyIn(
                       edge: MotionEdge.bottom,
                       order: 2,
-                      child: CyberPanel(child: _body(context, ctrl)),
+                      child: _body(context, ctrl),
                     ),
                   ),
                 ],
@@ -126,7 +119,7 @@ class _ContactsPageState extends State<ContactsPage> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _body(BuildContext context, ContactsController ctrl) {
@@ -217,15 +210,12 @@ class _ContactRow extends StatelessWidget {
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
             child: Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: open ? c.accent : null, border: Border.all(color: open ? c.accent : c.edge)),
-                  child: Text(contact.initial, style: TextStyle(fontFamily: monoFont, fontSize: 17, fontWeight: FontWeight.w600, color: open ? c.onAccent : c.accent)),
+                SizedBox(
+                  width: 32,
+                  child: Text(contact.initial, style: TextStyle(fontFamily: monoFont, fontSize: 17, fontWeight: FontWeight.w600, color: c.accent)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -246,9 +236,8 @@ class _ContactRow extends StatelessWidget {
         if (open)
           Container(
             key: Key('contact-${contact.id}-numbers'),
-            margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.35), border: Border(left: BorderSide(color: c.accent, width: 2))),
+            margin: const EdgeInsets.fromLTRB(46, 0, 14, 8),
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
             child: Column(
               children: [
                 for (var i = 0; i < contact.phones.length; i++)
@@ -259,11 +248,10 @@ class _ContactRow extends StatelessWidget {
                       children: [
                         Text(contact.phones[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: monoFont, fontSize: 16, color: c.ink)),
                         const SizedBox(height: 6),
-                        Row(
+                        Wrap(
                           children: [
-                            Expanded(child: _Action(key: Key('call-${contact.id}-$i'), icon: Icons.call_rounded, label: 'LLAMAR', onTap: () => onCall(contact.phones[i]))),
-                            const SizedBox(width: 8),
-                            Expanded(child: _Action(key: Key('wa-${contact.id}-$i'), icon: Icons.chat_rounded, label: 'WHATSAPP', onTap: () => onWhatsapp(contact.phones[i]))),
+                            _Action(key: Key('call-${contact.id}-$i'), icon: Icons.call_rounded, label: 'LLAMAR', onTap: () => onCall(contact.phones[i])),
+                            _Action(key: Key('wa-${contact.id}-$i'), icon: Icons.chat_rounded, label: 'WHATSAPP', onTap: () => onWhatsapp(contact.phones[i])),
                           ],
                         ),
                       ],
@@ -277,7 +265,7 @@ class _ContactRow extends StatelessWidget {
   }
 }
 
-/// Un botón cuadrado con icono y nombre.
+/// Una acción de un número: icono y nombre en el acento, sin caja.
 class _Action extends StatelessWidget {
   const _Action({super.key, required this.icon, required this.label, required this.onTap});
 
@@ -286,31 +274,5 @@ class _Action extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Semantics(
-      button: true,
-      label: label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(border: Border.all(color: c.accent.withValues(alpha: 0.7))),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 18, color: c.accent),
-                const SizedBox(width: 4),
-                Text(label, style: TextStyle(fontFamily: monoFont, fontSize: 15, color: c.accent)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => FlatAction(icon: icon, label: label, onTap: onTap);
 }

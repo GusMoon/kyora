@@ -1,38 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kyora_chat/ui/widgets/album_stack.dart';
+import 'package:kyora_chat/ui/widgets/album_grid.dart';
 import 'package:kyora_chat/ui/widgets/disc_player.dart';
 
-/// Ayudas para probar la pantalla de música (pila de álbumes → vista del álbum con su disco → lista en arco).
+/// Ayudas para probar la pantalla de música (cuadrícula de álbumes → vista del álbum con su disco → lista en arco).
 
-/// La tarjeta de un álbum en la pila: «Canciones enviadas», la carpeta, sus álbumes y «Nuevo álbum».
+/// La tarjeta de un álbum en la cuadrícula: «Canciones enviadas», la carpeta, sus álbumes y «Nuevo álbum».
 Finder card(String id) => find.byKey(ValueKey(id));
 
-/// Lo que hay que arrastrar en la pila para pasar de un álbum al siguiente.
-double stackStep(WidgetTester tester) {
-  final stack = tester.widget<AlbumStack>(find.byType(AlbumStack));
-  return AlbumStack.pixelsFor(AlbumStack.sideFor(tester.getSize(find.byKey(const Key('album-deck')))), stack.speed);
-}
-
-/// Lleva la pila hasta la tarjeta número `index` (0 = la primera) arrastrándola con el dedo en vertical, como se haría a mano.
+/// Lleva la cuadrícula hasta el álbum número `index` (0 = el primero), para que se vea.
 Future<void> deckTo(WidgetTester tester, int index) async {
-  final stack = tester.widget<AlbumStack>(find.byType(AlbumStack));
-  final at = stack.controller!.current;
-  if (index != at) {
-    await tester.timedDrag(find.byKey(const Key('album-deck')), Offset(0, -stackStep(tester) * (index - at)), Duration(milliseconds: 1500 * (index - at).abs())); // despacio: sin inercia
-    await tester.pumpAndSettle();
-  }
+  final grid = tester.widget<AlbumGrid>(find.byType(AlbumGrid));
+  grid.controller!.jumpTo(index);
+  await tester.pumpAndSettle();
 }
 
-/// Abre el álbum de la tarjeta `id`, que es la número `index` de la pila: la trae al centro y la toca.
+/// Abre el álbum de la tarjeta `id`, que es el número `index` de la cuadrícula: lo muestra y lo toca.
 Future<void> openAlbum(WidgetTester tester, int index, String id) async {
   await deckTo(tester, index);
   await tester.tap(card(id));
   await tester.pumpAndSettle();
 }
 
-/// El nombre de la canción que se enseña debajo del disco.
-String songTitle(WidgetTester tester) => tester.widget<Text>(find.byKey(const Key('album-song-title'))).data!;
+/// Destapa el nombre y los controles: al entrar solo se ven el disco y el fondo; tocar el centro del disco reproduce y los enseña.
+Future<void> armDisc(WidgetTester tester) async {
+  if (find.byKey(const Key('album-song-title')).evaluate().isNotEmpty) return;
+  await tester.tap(find.byType(DiscPlayer));
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
+/// El nombre de la canción que se enseña debajo del disco (si aún no se tocó el centro del disco, lo toca).
+Future<String> songTitle(WidgetTester tester) async {
+  await armDisc(tester);
+  return tester.widget<Text>(find.byKey(const Key('album-song-title'))).data!;
+}
 
 /// Abre (o cierra) la lista de canciones del álbum: doble toque fuera del disco.
 Future<void> openList(WidgetTester tester) async {
@@ -51,8 +52,9 @@ Future<void> playRow(WidgetTester tester, Finder row, String id) async {
   await tester.tap(find.byKey(Key('arc-play-$id')));
 }
 
-/// Mantiene presionado el disco: se abren sus opciones (aleatorio, mover, borrar, velocidad).
+/// Mantiene presionado el disco (tras destapar la canción tocando su centro): se abre el disco de opciones (mover, borrar, velocidad y tono, nombre).
 Future<void> holdDisc(WidgetTester tester) async {
+  await armDisc(tester);
   await tester.longPress(find.byType(DiscPlayer));
   await tester.pumpAndSettle();
 }

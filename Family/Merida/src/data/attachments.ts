@@ -84,6 +84,7 @@ export async function uploadAttachments(
   messageId: string,
   files: File[],
   onProgress: (done: number, total: number) => void = () => {},
+  bucket: string = BUCKET, // el chat familiar usa su propio bucket (family-files)
 ): Promise<AttachmentInput[]> {
   const names = uniqueNames(files.map((f) => f.name));
   const out: AttachmentInput[] = [];
@@ -92,7 +93,7 @@ export async function uploadAttachments(
     const file = files[i];
     const path = storagePath(userId, conversationId, messageId, names[i]);
     const mime = file.type || "application/octet-stream";
-    const { error } = await client.storage.from(BUCKET).upload(path, file, { contentType: mime, upsert: true });
+    const { error } = await client.storage.from(bucket).upload(path, file, { contentType: mime, upsert: true });
     if (error) throw error;
     const size = await imageSize(file);
     out.push({ storage_path: path, file_name: file.name || names[i], mime_type: mime, size_bytes: file.size, width: size?.width ?? null, height: size?.height ?? null, duration_ms: null, thumb_path: null });
@@ -102,11 +103,11 @@ export async function uploadAttachments(
 }
 
 /** Quita de Storage lo que se subió para un mensaje que no llegó a enviarse (al cancelar). No lanza: es limpieza. */
-export async function discardUploads(client: SupabaseClient, inputs: AttachmentInput[]): Promise<void> {
+export async function discardUploads(client: SupabaseClient, inputs: AttachmentInput[], bucket: string = BUCKET): Promise<void> {
   const paths = inputs.map((a) => a.storage_path);
   if (!paths.length) return;
   try {
-    await client.storage.from(BUCKET).remove(paths);
+    await client.storage.from(bucket).remove(paths);
   } catch {
     /* se queda en el servidor; no afecta al chat */
   }

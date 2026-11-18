@@ -4,9 +4,10 @@ import '../models/event.dart';
 import '../models/habit.dart';
 import '../models/reminder.dart';
 import '../models/task.dart';
+import 'format.dart' show weekdayLetters;
 
 /// La lógica del calendario, sin pantalla (lo mismo que `agenda.ts` de Merida): mezcla eventos, entregas de tareas, recordatorios y hábitos por
-/// día, coloca lo que tiene hora en carriles y calcula el rango que se ve. La pantalla solo lo dibuja.
+/// día y calcula el rango que se ve. La pantalla solo lo dibuja.
 
 /// Los meses, con mayúscula: «Noviembre».
 const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -32,6 +33,30 @@ DateTime mondayOf(DateTime day) {
 /// Minutos desde medianoche → «07:30».
 String minutesLabel(int minutes) => '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
 
+/// La hora en 12 h, partida para la tarjeta: `(10, AM)`, `(12, PM)`, `(12, AM)`.
+(String, String) hourParts(int minutes) {
+  final h = (minutes ~/ 60) % 24;
+  final h12 = h % 12 == 0 ? 12 : h % 12;
+  return ('$h12', h < 12 ? 'AM' : 'PM');
+}
+
+/// La hora en 12 h con minutos: «6:05 PM».
+String hourLabel12(int minutes) {
+  final (h, ampm) = hourParts(minutes);
+  return '$h:${(minutes % 60).toString().padLeft(2, '0')} $ampm';
+}
+
+/// Los días de un hábito, en palabras: «Todos los días», «Entre semana», «Fines de semana» o las letras («L M V»).
+String habitDaysLabel(int mask) {
+  if (mask & Habit.everyDay == Habit.everyDay) return 'Todos los días';
+  if (mask == Habit.maskOf([1, 2, 3, 4, 5])) return 'Entre semana';
+  if (mask == Habit.maskOf([6, 7])) return 'Fines de semana';
+  return [
+    for (var d = 1; d <= 7; d++)
+      if (mask & (1 << (d - 1)) != 0) weekdayLetters[d - 1],
+  ].join(' ');
+}
+
 /// El número de semana ISO.
 int isoWeek(DateTime day) {
   final d = DateTime.utc(day.year, day.month, day.day);
@@ -50,24 +75,17 @@ const agendaKindLabel = {
   AgendaKind.habit: 'Hábito',
 };
 
-const agendaKindPlural = {
-  AgendaKind.event: 'Eventos',
-  AgendaKind.task: 'Tareas',
-  AgendaKind.reminder: 'Recordatorios',
-  AgendaKind.habit: 'Hábitos',
-};
+/// Cómo se ve el calendario: la semana (los días apilados) o el mes (la cuadrícula de cuadros).
+enum CalendarMode { week, month }
 
-/// Cómo se ve el calendario.
-enum CalendarMode { day, week, month }
-
-const calendarModeLabel = {CalendarMode.day: 'Día', CalendarMode.week: 'Semana', CalendarMode.month: 'Mes'};
+const calendarModeLabel = {CalendarMode.week: 'Semana', CalendarMode.month: 'Mes'};
 
 /// Un evento de varios días se pinta unido de un día al siguiente.
 enum Span { single, start, mid, end }
 
 /// Todo lo que el calendario puede enseñar.
 class AgendaData {
-  const AgendaData({this.events = const [], this.tasks = const [], this.reminders = const [], this.habitsOn, this.habitDone});
+  const AgendaData({this.events = const [], this.tasks = const [], this.reminders = const [], this.habitsOn, this.habitDone, this.taskProgress});
 
   final List<CalendarEvent> events;
 
@@ -78,6 +96,9 @@ class AgendaData {
   /// Los hábitos que tocan ese día y si se cumplió uno ese día (lo sabe el controlador de hábitos).
   final List<Habit> Function(DateTime day)? habitsOn;
   final bool Function(Habit habit, DateTime day)? habitDone;
+
+  /// Cuántas subtareas de una tarea están hechas (lo sabe el controlador de tareas); para el pie de su tarjeta.
+  final ({int done, int total}) Function(TaskItem task)? taskProgress;
 }
 
 /// Una cosa en un día.
@@ -94,6 +115,8 @@ class AgendaItem {
     required this.span,
     required this.time,
     this.colorHex,
+    this.subtitle = '',
+    this.footer = '',
   });
 
   final AgendaKind kind;
@@ -117,6 +140,12 @@ class AgendaItem {
 
   /// El color propio (solo los eventos lo traen, `#rrggbb`); lo demás usa el color de su clase.
   final String? colorHex;
+
+  /// La segunda línea de su tarjeta (la descripción del evento, las notas del recordatorio, lo que dice la tarea); vacía si no hay.
+  final String subtitle;
+
+  /// El pie de su tarjeta: «Todo el día», «2 de 3 subtareas», «L M V»…
+  final String footer;
 }
 
 int _minutesOf(DateTime moment) {
@@ -164,6 +193,12 @@ String normalizeText(String text) {
   return out.toString().trim();
 }
 
+/// El pie de la tarjeta de una tarea: lo que lleva de sus subtareas, o solo «Tarea».
+String taskFooter(({int done, int total})? progress) {
+  if (progress == null || progress.total == 0) return 'Tarea';
+  return '${progress.done} de ${progress.total} ${progress.total == 1 ? 'subtarea' : 'subtareas'}';
+}
+
 /// Lo que hay ese día, solo de las clases que se quieren ver, ordenado: primero lo de todo el día, luego por hora y clase.
 List<AgendaItem> agendaForDay(AgendaData data, DateTime day, {Set<AgendaKind>? kinds, String query = ''}) {
   final d = dateOnly(day);
@@ -189,6 +224,8 @@ List<AgendaItem> agendaForDay(AgendaData data, DateTime day, {Set<AgendaKind>? k
         span: span,
         time: allDay ? 'todo el día' : '${minutesLabel(start!)}${end != null ? '–${minutesLabel(end)}' : ''}',
         colorHex: e.color,
+        subtitle: e.description.trim(),
+        footer: span != Span.single ? 'Varios días' : (allDay ? 'Todo el día' : (end != null ? '${hourLabel12(start!)} – ${hourLabel12(end)}' : 'Evento')),
       ));
     }
   }
@@ -197,14 +234,27 @@ List<AgendaItem> agendaForDay(AgendaData data, DateTime day, {Set<AgendaKind>? k
       final due = t.due;
       if (due == null || t.isDeleted || dateOnly(due) != d) continue;
       final start = _minutesOf(due);
-      out.add(AgendaItem(kind: AgendaKind.task, id: t.id, title: t.name, day: d, start: start, end: null, allDay: false, done: t.isDone, span: Span.single, time: minutesLabel(start)));
+      out.add(AgendaItem(
+        kind: AgendaKind.task,
+        id: t.id,
+        title: t.name,
+        day: d,
+        start: start,
+        end: null,
+        allDay: false,
+        done: t.isDone,
+        span: Span.single,
+        time: minutesLabel(start),
+        subtitle: t.description.trim(),
+        footer: taskFooter(data.taskProgress?.call(t)),
+      ));
     }
   }
   if (want(AgendaKind.reminder)) {
     for (final r in data.reminders) {
       if (r.isDeleted || dateOnly(r.at) != d) continue;
       final start = _minutesOf(r.at);
-      out.add(AgendaItem(kind: AgendaKind.reminder, id: r.id, title: r.title, day: d, start: start, end: null, allDay: false, done: r.done, span: Span.single, time: minutesLabel(start)));
+      out.add(AgendaItem(kind: AgendaKind.reminder, id: r.id, title: r.title, day: d, start: start, end: null, allDay: false, done: r.done, span: Span.single, time: minutesLabel(start), subtitle: r.notes.trim(), footer: 'Recordatorio'));
     }
   }
   if (want(AgendaKind.habit)) {
@@ -221,6 +271,7 @@ List<AgendaItem> agendaForDay(AgendaData data, DateTime day, {Set<AgendaKind>? k
         done: data.habitDone?.call(h, d) ?? false,
         span: Span.single,
         time: timed ? minutesLabel(h.remindAt!) : 'todo el día',
+        footer: habitDaysLabel(h.weekdays),
       ));
     }
   }
@@ -237,78 +288,6 @@ List<AgendaItem> agendaForDay(AgendaData data, DateTime day, {Set<AgendaKind>? k
   return list;
 }
 
-// ---------- la columna de horas (semana y día) ----------
-
-const _defaultLen = 30; // minutos que ocupa en la columna lo que no tiene fin
-const _eventLen = 60;
-const dayMinutes = 1440;
-
-/// Algo con hora colocado en la columna.
-class Placed {
-  Placed(this.item, this.top, this.len);
-
-  final AgendaItem item;
-
-  /// Minutos desde medianoche.
-  final int top;
-
-  /// Minutos de alto.
-  final int len;
-
-  /// En qué carril va si se solapa con otros, y cuántos carriles tiene su grupo.
-  int lane = 0;
-  int lanes = 1;
-}
-
-/// Coloca lo que tiene hora: cada uno con su alto, y lo que se solapa, uno junto a otro en carriles.
-List<Placed> layoutDay(List<AgendaItem> items) {
-  final timed = <Placed>[
-    for (final item in items)
-      if (!item.allDay && item.start != null)
-        Placed(
-          item,
-          item.start!,
-          math.min(math.max(_defaultLen, item.end != null ? item.end! - item.start! : (item.kind == AgendaKind.event ? _eventLen : _defaultLen)), dayMinutes - item.start!),
-        ),
-  ]..sort((a, b) => a.top != b.top ? a.top - b.top : b.len - a.len);
-  var group = <Placed>[];
-  var groupEnd = -1;
-  void close() {
-    final lanes = group.fold<int>(1, (m, p) => math.max(m, p.lane + 1));
-    for (final p in group) {
-      p.lanes = lanes;
-    }
-    group = [];
-  }
-
-  final laneEnds = <int>[];
-  for (final p in timed) {
-    if (p.top >= groupEnd) {
-      close();
-      laneEnds.clear();
-    }
-    var lane = laneEnds.indexWhere((end) => end <= p.top);
-    if (lane < 0) lane = laneEnds.length;
-    if (lane == laneEnds.length) {
-      laneEnds.add(p.top + p.len);
-    } else {
-      laneEnds[lane] = p.top + p.len;
-    }
-    p.lane = lane;
-    group.add(p);
-    groupEnd = math.max(groupEnd, p.top + p.len);
-  }
-  close();
-  return timed;
-}
-
-/// De un toque o suelta en una columna de horas a minutos desde medianoche, al cuarto de hora.
-int? minutesAtY(double offsetY, double columnHeight) {
-  if (!(columnHeight > 0)) return null;
-  final raw = (offsetY.clamp(0, columnHeight)) / columnHeight * dayMinutes;
-  return math.min((raw / 15).round() * 15, dayMinutes - 15);
-}
-
 // ---------- el rango que se ve ----------
 
 /// Los 42 días (6 semanas, de lunes a domingo) que pinta el mes de [day].
@@ -318,16 +297,15 @@ List<DateTime> monthGridDays(DateTime day) {
   return [for (var i = 0; i < 42; i++) addDays(start, i)];
 }
 
-/// Los días que se pintan: 42 en el mes, 7 en la semana, 1 en el día.
+/// Los días que se pintan: 42 en el mes y 7 en la semana.
 List<DateTime> daysFor(CalendarMode mode, DateTime selected) => switch (mode) {
       CalendarMode.month => monthGridDays(selected),
       CalendarMode.week => [for (var i = 0; i < 7; i++) addDays(mondayOf(selected), i)],
-      CalendarMode.day => [dateOnly(selected)],
     };
 
 String _abbr(int month) => monthNames[month - 1].substring(0, 3).toLowerCase();
 
-/// El título de lo que se ve: «Noviembre 2026», «2 – 8 nov 2026» o «Jueves 5 nov 2026».
+/// El título de lo que se ve: «Noviembre 2026» o «2 – 8 nov 2026».
 String titleFor(CalendarMode mode, DateTime selected) {
   final d = dateOnly(selected);
   switch (mode) {
@@ -337,12 +315,10 @@ String titleFor(CalendarMode mode, DateTime selected) {
       final a = mondayOf(d);
       final b = addDays(a, 6);
       return a.month == b.month ? '${a.day} – ${b.day} ${_abbr(b.month)} ${b.year}' : '${a.day} ${_abbr(a.month)} – ${b.day} ${_abbr(b.month)} ${b.year}';
-    case CalendarMode.day:
-      return '${weekdayNames[d.weekday - 1]} ${d.day} ${_abbr(d.month)} ${d.year}';
   }
 }
 
-/// El día elegido tras ir [delta] pasos hacia delante o atrás: un mes, una semana o un día.
+/// El día elegido tras ir [delta] pasos hacia delante o atrás: un mes o una semana.
 DateTime stepSelected(CalendarMode mode, DateTime selected, int delta) {
   final d = dateOnly(selected);
   switch (mode) {
@@ -352,8 +328,6 @@ DateTime stepSelected(CalendarMode mode, DateTime selected, int delta) {
       return DateTime(month.year, month.month, math.min(d.day, last));
     case CalendarMode.week:
       return addDays(d, 7 * delta);
-    case CalendarMode.day:
-      return addDays(d, delta);
   }
 }
 

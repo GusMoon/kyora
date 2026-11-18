@@ -12,7 +12,10 @@ REQUIRED = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "CHAT_EMAIL", "CHAT_PASSWORD")
 
 def repo_env_path():
     """Server/supabase/.env del repositorio (esta carpeta es Family/Kyora/kyora/chat)."""
-    return Path(__file__).resolve().parents[4] / "Server" / "supabase" / ".env"
+    parents = Path(__file__).resolve().parents
+    # Copiada a la raíz de una unidad (Merida en un USB: D:\app\kyora\chat) no hay cuarto padre: no hay .env y ya.
+    root = parents[4] if len(parents) > 4 else parents[-1]
+    return root / "Server" / "supabase" / ".env"
 
 
 def parse(text):

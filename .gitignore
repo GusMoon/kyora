@@ -25,6 +25,11 @@ Family/Kyra/android/captures/
 # Merida (la app web): paquetes y compilado
 Family/Merida/node_modules/
 Family/Merida/dist/
+# Merida en USB (usb/): lo versionado es el .bat, server.mjs y el LEEME; el resto lo genera `npm run build:usb`
+Family/Merida/usb/web/
+Family/Merida/usb/app/
+Family/Merida/usb/runtime/
+Family/Merida/usb/.cache/
 
 # Capturas y registros de las pruebas en el navegador (Playwright)
 .playwright-mcp/

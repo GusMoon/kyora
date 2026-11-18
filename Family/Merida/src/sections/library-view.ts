@@ -274,7 +274,18 @@ export function libraryView(ctx: Ctx): { el: HTMLElement; destroy: () => void } 
       return;
     }
     stopEvents();
-    stopEvents = library.events(onEvent);
+    // Los resultados llegan por el canal de eventos y el servicio no los repite: hay que estar escuchando antes de pedirlos.
+    const listening = new Promise<void>((done) => {
+      const wait = setTimeout(done, 4000); // si el canal tarda, se pide igual
+      stopEvents = library.events(onEvent, (live) => {
+        if (live) {
+          clearTimeout(wait);
+          done();
+        }
+      });
+    });
+    await listening;
+    if (!alive) return;
     const cfg = await library.settings();
     if (cfg.ok) defaultRecipient = ((cfg.data as { default_recipient: string | null }).default_recipient ?? "me") || "me";
     lastNoticeKey = "";

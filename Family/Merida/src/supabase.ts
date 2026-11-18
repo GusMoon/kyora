@@ -16,7 +16,7 @@ export function explainError(err: unknown): string {
   const info = (err ?? {}) as { code?: string; message?: string; status?: number };
   const text = `${info.code ?? ""} ${info.message ?? ""}`.toLowerCase();
   if (text.includes("invalid login") || text.includes("invalid_credentials")) {
-    return "El correo o la contraseña no coinciden con tu cuenta de Supabase.";
+    return "El usuario o la contraseña no coinciden con tu cuenta.";
   }
   if (text.includes("failed to fetch") || text.includes("network")) {
     return "No hay conexión con el servidor. Revisa internet y vuelve a intentarlo.";

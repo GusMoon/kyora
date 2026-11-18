@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../data/calendar_view_store.dart';
+import '../util/agenda.dart' show CalendarMode;
 import '../data/background_playback.dart';
 import '../data/server_stats.dart';
 import '../state/dock_controller.dart';
@@ -176,7 +178,39 @@ class AutoShuffleRow extends StatelessWidget {
   }
 }
 
-/// Lo sensible que es la ruleta de álbumes (y el abanico de favoritas) al dedo.
+/// La vista con la que se abre el calendario: una fila por vista (Semana o Mes), con una marca en la elegida.
+class CalendarViewRow extends StatelessWidget {
+  const CalendarViewRow({super.key, required this.store});
+
+  final CalendarViewStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) => Column(
+        children: [
+          for (final (mode, title, subtitle, icon) in [
+            (CalendarMode.week, 'Semana', 'Los siete días apilados; el de hoy, abierto.', Icons.view_agenda_outlined),
+            (CalendarMode.month, 'Mes', 'El mes en cuadros, con el día elegido debajo.', Icons.grid_view_rounded),
+          ])
+            SettingsRow(
+              key: Key('settings-calendar-view-${mode.name}'),
+              icon: icon,
+              title: title,
+              subtitle: subtitle,
+              subtitleColor: store.mode == mode ? c.accent : null,
+              trailing: store.mode == mode ? LcdIcon(Icons.check_rounded, color: c.accent) : null,
+              onTap: () => store.setMode(mode),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lo sensible que es la ruleta de discos (y el abanico de favoritas) al dedo.
 class DeckSpeedRow extends StatefulWidget {
   const DeckSpeedRow({super.key, required this.music});
 
